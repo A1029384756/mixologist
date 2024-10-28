@@ -14,11 +14,11 @@ import pw "pipewire"
 
 Context :: struct {
 	// pipewire required state
-	main_loop:         ^pw.pw_main_loop,
-	loop:              ^pw.pw_loop,
-	core:              ^pw.pw_core,
+	main_loop:         ^pw.main_loop,
+	loop:              ^pw.loop,
+	core:              ^pw.core,
 	pw_context:        ^pw.pw_context,
-	registry:          ^pw.pw_registry,
+	registry:          ^pw.registry,
 	registry_listener: pw.spa_hook,
 	// sinks
 	default_sink:      VirtualNode,
@@ -141,7 +141,7 @@ main :: proc() {
 	{
 		virtualnode_destroy(&ctx.aux_sink)
 		virtualnode_destroy(&ctx.default_sink)
-		pw.proxy_destroy(cast(^pw.pw_proxy)ctx.registry)
+		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
 		pw.core_disconnect(ctx.core)
 		pw.context_destroy(ctx.pw_context)
 		pw.main_loop_destroy(ctx.main_loop)
@@ -168,7 +168,7 @@ do_quit_with_data :: proc "c" (signum: i32, data: rawptr) {
 	pw.main_loop_quit(ctx.main_loop)
 }
 
-registry_events := pw.pw_registry_events {
+registry_events := pw.registry_events {
 	version       = pw.VERSION_REGISTRY_EVENTS,
 	global_add    = global_add,
 	global_remove = global_destroy,
@@ -288,12 +288,6 @@ global_add :: proc "c" (
 			if !link_correct {
 				pw.registry_destroy(ctx.registry, id)
 				link := &associated_node_def.links[link_channel]
-
-				if link.proxy != nil {
-					pw.proxy_destroy(link.proxy)
-					pw.properties_free(link.props)
-				}
-
 				link_init(link, ctx.core, expected_input_port, output_port)
 				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
 			} else {
@@ -309,12 +303,6 @@ global_add :: proc "c" (
 			if !link_correct {
 				pw.registry_destroy(ctx.registry, id)
 				link := &associated_node_aux.links[link_channel]
-
-				if link.proxy != nil {
-					pw.proxy_destroy(link.proxy)
-					pw.properties_free(link.props)
-				}
-
 				link_init(link, ctx.core, expected_input_port, output_port)
 				virtualnode_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 			} else {
@@ -329,16 +317,16 @@ global_add :: proc "c" (
 
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	// [TODO] fix memory leak
-	// context = runtime.default_context()
-	// ctx := cast(^Context)data
+	context = runtime.default_context()
+	ctx := cast(^Context)data
 
-	// associated_node_def, exists_def := ctx.default_sink.associated_nodes[id]
-	// associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[id]
-	// if exists_def {
-	// 	node_destroy(&associated_node_def)
-	// } else if exists_aux {
-	// 	node_destroy(&associated_node_aux)
-	// }
+	associated_node_def, exists_def := ctx.default_sink.associated_nodes[id]
+	associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[id]
+	if exists_def {
+		node_destroy(&associated_node_def)
+	} else if exists_aux {
+		node_destroy(&associated_node_aux)
+	}
 }
 
 check_name :: proc(name: string, checks: []string) -> bool {
@@ -354,7 +342,7 @@ check_name :: proc(name: string, checks: []string) -> bool {
 
 link_init :: proc(
 	link: ^Link,
-	core: ^pw.pw_core,
+	core: ^pw.core,
 	input_port_id, output_port_id: u32,
 	temp_allocator := context.temp_allocator,
 ) {

@@ -2,13 +2,13 @@ package pipewire
 
 import "core:c"
 
-pw_properties :: struct {
+properties :: struct {
 	dict:  spa_dict,
 	flags: u32,
 }
 
-pw_main_loop :: struct {
-	loop:          ^pw_loop,
+main_loop :: struct {
+	loop:          ^loop,
 	listener_list: spa_hook_list,
 	status:        bit_field u8 {
 		created: uint | 1,
@@ -16,7 +16,7 @@ pw_main_loop :: struct {
 	},
 }
 
-pw_loop :: struct {
+loop :: struct {
 	system:  rawptr,
 	loop:    rawptr,
 	control: rawptr,
@@ -50,11 +50,11 @@ settings :: struct {
 }
 
 pw_map :: struct {
-	items:     pw_array,
+	items:     array,
 	free_list: u32,
 }
 
-pw_array :: struct {
+array :: struct {
 	data:   rawptr,
 	size:   uint,
 	alloc:  uint,
@@ -64,8 +64,8 @@ pw_array :: struct {
 
 pw_context :: struct {
 	core:                   rawptr,
-	conf:                   ^pw_properties,
-	properties:             ^pw_properties,
+	conf:                   ^properties,
+	properties:             ^properties,
 	defaults:               settings,
 	settings:               settings,
 	settings_impl:          rawptr,
@@ -92,12 +92,12 @@ pw_context :: struct {
 	driver_listener_list:   spa_hook_list,
 	listener_list:          spa_hook_list,
 	thread_utils:           rawptr,
-	main_loop:              ^pw_loop,
+	main_loop:              ^loop,
 	work_queue:             rawptr,
 	support:                [16]spa_support,
 	n_support:              u32,
-	factory_lib:            pw_array,
-	objects:                pw_array,
+	factory_lib:            array,
+	objects:                array,
 	current_client:         rawptr,
 	sc_pagesize:            c.long,
 	freewheeling:           bit_field u8 {
@@ -106,35 +106,35 @@ pw_context :: struct {
 	user_data:              rawptr,
 }
 
-pw_impl_metadata :: struct {
+impl_metadata :: struct {
 	version:      u32,
 	add_listener: proc(
 		object: rawptr,
 		listener: ^spa_hook,
-		events: ^pw_metadata_events,
+		events: ^metadata_events,
 		data: rawptr,
 	) -> int,
 	set_property: proc(object: rawptr, subject: u32, key, type, value: cstring) -> int,
 	clear:        proc(object: rawptr) -> int,
 }
 
-pw_metadata_events :: struct {
+metadata_events :: struct {
 	version:  u32,
 	property: proc(data: rawptr, subject: u32, key, type, value: cstring) -> int,
 }
 
-pw_impl_module :: struct {
-	pw_context:      ^pw_context,
+impl_module :: struct {
+	ctx:             ^pw_context,
 	link:            spa_list,
 	global:          rawptr,
 	global_listener: spa_hook,
-	properties:      ^pw_properties,
-	info:            pw_module_info,
+	properties:      ^properties,
+	info:            module_info,
 	listener_list:   spa_hook_list,
 	user_data:       rawptr,
 }
 
-pw_impl_module_events :: struct {
+impl_module_events :: struct {
 	version:     u32,
 	destroy:     proc "c" (data: rawptr),
 	free:        proc "c" (data: rawptr),
@@ -142,7 +142,7 @@ pw_impl_module_events :: struct {
 	registered:  proc "c" (data: rawptr),
 }
 
-pw_module_info :: struct {
+module_info :: struct {
 	id:          u32,
 	name:        cstring,
 	filename:    cstring,
@@ -151,26 +151,26 @@ pw_module_info :: struct {
 	props:       spa_dict,
 }
 
-pw_stream :: struct {
-	core:             rawptr, // struct pw_core*
+stream :: struct {
+	core:             rawptr, // struct core*
 	core_listener:    spa_hook,
 	link:             spa_list,
 	name:             cstring,
-	properties:       ^pw_properties,
+	properties:       ^properties,
 	node_id:          u32,
-	state:            pw_stream_state,
+	state:            stream_state,
 	error:            cstring,
 	error_res:        int,
 	listener_list:    spa_hook_list,
-	proxy:            rawptr, // struct pw_proxy*
+	proxy:            rawptr, // struct proxy*
 	proxy_listener:   spa_hook,
-	node:             rawptr, // struct pw_impl_node*
+	node:             rawptr, // struct impl_node*
 	node_listener:    spa_hook,
 	node_rt_listener: spa_hook,
 	controls:         spa_list,
 }
 
-pw_stream_state :: enum int {
+stream_state :: enum int {
 	PW_STREAM_STATE_ERROR       = -1,
 	PW_STREAM_STATE_UNCONNECTED = 0,
 	PW_STREAM_STATE_CONNECTING  = 1,
@@ -179,7 +179,7 @@ pw_stream_state :: enum int {
 }
 
 VERSION_REGISTRY_EVENTS :: 0
-pw_registry_events :: struct {
+registry_events :: struct {
 	version:       u32,
 	/**
 	 * Notify of a new global object
@@ -213,12 +213,12 @@ pw_registry_events :: struct {
 	global_remove: proc "c" (data: rawptr, id: u32),
 }
 
-pw_registry_methods :: struct {
+registry_methods :: struct {
 	version:      u32,
 	add_listener: proc "c" (
 		object: rawptr,
 		listener: ^spa_hook,
-		events: ^pw_registry_events,
+		events: ^registry_events,
 		data: rawptr,
 	) -> int,
 	/**
@@ -251,9 +251,9 @@ pw_registry_methods :: struct {
 	destroy:      proc "c" (object: rawptr, id: u32) -> int,
 }
 
-pw_proxy :: struct {
+proxy :: struct {
 	impl:                 spa_interface,
-	core:                 ^pw_core,
+	core:                 ^core,
 	id:                   u32,
 	type:                 cstring,
 	version:              u32,
@@ -267,16 +267,16 @@ pw_proxy :: struct {
 	// },
 	listener_list:        spa_hook_list,
 	object_listener_list: spa_hook_list,
-	marshal:              rawptr, // const struct pw_protocol_marshal *marshal
+	marshal:              rawptr, // const struct protocol_marshal *marshal
 	user_data:            rawptr,
 }
 
-pw_proxy_events :: struct {
+proxy_events :: struct {
 	version:     u32,
 	destroy:     proc(data: rawptr),
 	/** a proxy is bound to a global id */
 	bound:       proc(data: rawptr, global_id: u32),
-	/** a proxy is removed from the server. Use pw_proxy_destroy to
+	/** a proxy is removed from the server. Use proxy_destroy to
 	 * free the proxy. */
 	removed:     proc(data: rawptr),
 	/** a reply to a sync method completed */
@@ -286,19 +286,19 @@ pw_proxy_events :: struct {
 	bound_props: proc(data: rawptr, global_id: u32, props: ^spa_dict),
 }
 
-pw_core :: struct {
-	proxy:               pw_proxy,
+core :: struct {
+	proxy:               proxy,
 	ctx:                 ^pw_context,
 	link:                spa_list,
-	properties:          ^pw_properties,
-	pool:                rawptr, // struct pw_mempool*
+	properties:          ^properties,
+	pool:                rawptr, // struct mempool*
 	core_listener:       spa_hook,
 	proxy_core_listener: spa_hook,
 	objects:             pw_map,
-	client:              ^pw_client,
+	client:              ^client,
 	stream_list:         spa_list,
 	filter_list:         spa_list,
-	conn:                rawptr, // struct pw_protocol_client *
+	conn:                rawptr, // struct protocol_client *
 	recv_seq:            int,
 	send_seq:            int,
 	recv_generation:     u64,
@@ -309,7 +309,7 @@ pw_core :: struct {
 	user_data:           rawptr,
 }
 
-pw_core_events :: struct {
+core_events :: struct {
 	version:     u32,
 	/**
 	 * Notify new core info
@@ -319,7 +319,7 @@ pw_core_events :: struct {
 	 *
 	 * \param info new core info
 	 */
-	info:        proc "c" (data: rawptr, info: ^pw_core_info),
+	info:        proc "c" (data: rawptr, info: ^core_info),
 	/**
 	 * Emit a done event
 	 *
@@ -418,12 +418,12 @@ pw_core_events :: struct {
 	bound_props: proc "c" (data: rawptr, id: u32, global_id: u32, props: ^spa_dict),
 }
 
-pw_core_methods :: struct {
+core_methods :: struct {
 	version:       u32,
 	add_listener:  proc "c" (
 		object: rawptr,
 		listener: ^spa_hook,
-		events: ^pw_core_events,
+		events: ^core_events,
 		data: rawptr,
 	) -> int,
 	/**
@@ -487,7 +487,7 @@ pw_core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	get_registry:  proc "c" (object: rawptr, version: u32, user_data_size: uint) -> ^pw_registry,
+	get_registry:  proc "c" (object: rawptr, version: u32, user_data_size: uint) -> ^registry,
 
 	/**
 	 * Create a new object on the PipeWire server from a factory.
@@ -520,14 +520,14 @@ pw_core_methods :: struct {
 	destroy:       proc "c" (object: rawptr, proxy: rawptr) -> int,
 }
 
-pw_node_events :: struct {
+node_events :: struct {
 	version: u32,
 	/**
 	 * Notify node info
 	 *
 	 * \param info info about the node
 	 */
-	info:    proc(data: rawptr, info: ^pw_node_info),
+	info:    proc(data: rawptr, info: ^node_info),
 	/**
 	 * Notify a node param
 	 *
@@ -542,7 +542,7 @@ pw_node_events :: struct {
 	param:   proc(data: rawptr, seq: int, id: u32, idx: u32, next: u32, param: ^spa_pod),
 }
 
-pw_node_state :: enum {
+node_state :: enum {
 	PW_NODE_STATE_ERROR     = -1, /**< error state */
 	PW_NODE_STATE_CREATING  = 0, /**< the node is being created */
 	PW_NODE_STATE_SUSPENDED = 1, /**< the node is suspended, the device might
@@ -560,26 +560,26 @@ spa_param_info :: struct {
 	padding: [4]u32,
 }
 
-pw_node_info :: struct {
+node_info :: struct {
 	id:               u32,
 	max_input_ports:  u32,
 	max_output_ports: u32,
 	change_mask:      u64,
 	n_input_ports:    u32,
 	n_output_ports:   u32,
-	state:            pw_node_state,
+	state:            node_state,
 	error:            cstring,
 	props:            ^spa_dict,
 	params:           ^spa_param_info,
 	n_params:         u32,
 }
 
-pw_node_methods :: struct {
+node_methods :: struct {
 	version:          u32,
 	add_listener:     proc(
 		object: rawptr,
 		listener: ^spa_hook,
-		events: ^pw_node_events,
+		events: ^node_events,
 		data: rawptr,
 	) -> int,
 	/**
@@ -636,7 +636,7 @@ pw_node_methods :: struct {
 	send_command:     proc(object: rawptr, command: ^spa_command) -> int,
 }
 
-pw_core_info :: struct {
+core_info :: struct {
 	id:          u32,
 	cookie:      u32,
 	user_name:   cstring,
@@ -647,16 +647,16 @@ pw_core_info :: struct {
 	props:       ^spa_dict,
 }
 
-pw_global :: struct {
+global :: struct {
 	ctx:             ^pw_context,
 	link:            spa_list,
 	id:              u32,
-	properties:      ^pw_properties,
+	properties:      ^properties,
 	listener_list:   spa_hook_list,
 	type:            cstring,
 	version:         u32,
 	permission_mask: u32,
-	// pw_global_bind_func_t func;	/**< bind function */
+	// global_bind_func_t func;	/**< bind function */
 	func:            rawptr,
 	object:          rawptr,
 	serial:          u64,
@@ -666,30 +666,30 @@ pw_global :: struct {
 	// unsigned int destroyed:1;
 }
 
-pw_link_events :: struct {
+link_events :: struct {
 	version: u32,
 	/**
 	 * Notify link info
 	 *
 	 * \param info info about the link
 	 */
-	info:    proc(data: rawptr, info: ^pw_link_info),
+	info:    proc(data: rawptr, info: ^link_info),
 }
 
-pw_link_info :: struct {
+link_info :: struct {
 	id:             u32, /**< id of the global */
 	output_node_id: u32, /**< server side output node id */
 	output_port_id: u32, /**< output port id */
 	input_node_id:  u32, /**< server side input node id */
 	input_port_id:  u32, /**< input port id */
 	change_mask:    u64, /**< bitfield of changed fields since last call */
-	state:          pw_link_state, /**< the current state of the link */
+	state:          link_state, /**< the current state of the link */
 	error:          cstring, /**< an error reason if \a state is error */
 	format:         spa_pod, /**< format over link */
 	props:          ^spa_dict, /**< the properties of the link */
 }
 
-pw_link_state :: enum int {
+link_state :: enum int {
 	PW_LINK_STATE_ERROR       = -2, /**< the link is in error */
 	PW_LINK_STATE_UNLINKED    = -1, /**< the link is unlinked */
 	PW_LINK_STATE_INIT        = 0, /**< the link is initialized */
@@ -699,6 +699,6 @@ pw_link_state :: enum int {
 	PW_LINK_STATE_ACTIVE      = 4, /**< the link is active */
 }
 
-pw_registry :: struct {}
-pw_client :: struct {}
-pw_node :: struct {}
+registry :: struct {}
+client :: struct {}
+node :: struct {}

@@ -21,7 +21,7 @@ get_node_channel :: proc(node: Node, output_port: u32) -> (channel: string, foun
 	return channel, false
 }
 
-proxy_set_volume :: proc(proxy: ^pw.pw_proxy, volume: f32) {
+proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
 	fmt.printfln("setting volume to %f", volume)
 
 	buf: [256]u8
@@ -38,7 +38,7 @@ proxy_set_volume :: proc(proxy: ^pw.pw_proxy, volume: f32) {
 			defer pw.spa_pod_builder_pop(&b, &arr_frame)
 			pw.spa_pod_builder_push_array(&b, &arr_frame)
 
-			for i in 0 ..< 2 {
+			for i in 0 ..< num_channels {
 				pw.spa_pod_builder_float(&b, volume)
 			}
 		}

@@ -11,27 +11,27 @@ DEFAULT_RATE :: 48000
 DEFAULT_CHANNELS :: 2
 DEFAULT_CHANNEL_MAP :: "[ FL, FR ]"
 
-module_events := pw.pw_impl_module_events {
+module_events := pw.impl_module_events {
 	version = 0,
 	destroy = module_destroy,
 }
 
 Link :: struct {
-	proxy:   ^pw.pw_proxy,
-	props:   ^pw.pw_properties,
+	proxy:   ^pw.proxy,
+	props:   ^pw.properties,
 	port_id: u32,
 }
 
 Node :: struct {
-	proxy: ^pw.pw_proxy,
+	proxy: ^pw.proxy,
 	props: ^pw.spa_dict,
 	links: map[string]Link,
 }
 
 LoopbackDevice :: struct {
-	capture_props:   ^pw.pw_properties,
-	playback_props:  ^pw.pw_properties,
-	module:          ^pw.pw_impl_module,
+	capture_props:   ^pw.properties,
+	playback_props:  ^pw.properties,
+	module:          ^pw.impl_module,
 	module_listener: pw.spa_hook,
 }
 
@@ -123,7 +123,8 @@ virtualnode_destroy :: proc(sink: ^VirtualNode) {
 
 virtualnode_set_volume :: proc(sink: ^VirtualNode, volume: f32) {
 	sink.volume = volume
-	proxy_set_volume(sink.device_node.proxy, volume)
+	// [TODO] make dynamic for more than two channels
+	proxy_set_volume(sink.device_node.proxy, volume, 2)
 }
 
 module_destroy :: proc "c" (data: rawptr) {
