@@ -2,6 +2,7 @@ package pipewire
 
 import "core:fmt"
 import "core:strings"
+import "core:sys/unix"
 
 foreign import pipewire "system:pipewire-0.3"
 
@@ -11,18 +12,39 @@ foreign pipewire {
 	deinit :: proc() ---
 	get_library_version :: proc() -> cstring ---
 	get_client_name :: proc() -> cstring ---
+
 	properties_new :: proc(key: cstring, #c_vararg args: ..any) -> ^properties ---
 	properties_free :: proc(props: ^properties) ---
 	properties_set :: proc(properties: ^properties, key: cstring, value: cstring) -> int ---
 	properties_update_string :: proc(props: ^properties, str: cstring, size: uint) -> int ---
+
 	main_loop_new :: proc(props: ^spa_dict) -> ^main_loop ---
 	main_loop_destroy :: proc(loop: ^main_loop) ---
 	main_loop_get_loop :: proc(main_loop: ^main_loop) -> ^loop ---
 	main_loop_quit :: proc(loop: ^main_loop) -> int ---
 	main_loop_run :: proc(loop: ^main_loop) -> int ---
+
+	thread_loop_new :: proc(name: cstring, props: ^spa_dict) -> ^thread_loop ---
+	thread_loop_new_full :: proc(loop: ^loop, name: cstring, props: ^spa_dict) -> ^thread_loop ---
+	thread_loop_destroy :: proc(loop: ^thread_loop) ---
+	thread_loop_add_listener :: proc(loop: ^thread_loop, listener: ^spa_hook, events: ^thread_loop_events, data: rawptr) ---
+	thread_loop_get_loop :: proc(t_loop: ^thread_loop) -> ^loop ---
+	thread_loop_start :: proc(loop: ^thread_loop) -> int ---
+	thread_loop_stop :: proc(loop: ^thread_loop) ---
+	thread_loop_lock :: proc(loop: ^thread_loop) ---
+	thread_loop_unlock :: proc(loop: ^thread_loop) ---
+	thread_loop_wait :: proc(loop: ^thread_loop) ---
+	thread_loop_timed_wait :: proc(loop: ^thread_loop, wait_max_sec: int) -> int ---
+	thread_loop_get_time :: proc(loop: ^thread_loop, abstime: ^unix.timespec, timeout: i64) -> int ---
+	thread_loop_timed_wait_full :: proc(loop: ^thread_loop, abstime: ^unix.timespec) -> int ---
+	thread_loop_signal :: proc(loop: ^thread_loop, wait_for_accept: bool) ---
+	thread_loop_accept :: proc(loop: ^thread_loop) ---
+	thread_loop_in_thread :: proc(loop: ^thread_loop) -> bool ---
+
 	context_new :: proc(main_loop: ^loop, props: ^properties, user_data_size: uint) -> ^pw_context ---
 	context_destroy :: proc(ctx: ^pw_context) ---
 	context_load_module :: proc(ctx: ^pw_context, name: cstring, args: cstring, properties: ^properties) -> ^impl_module ---
+
 	impl_module_add_listener :: proc(module: ^impl_module, listener: ^spa_hook, events: ^impl_module_events, data: rawptr) ---
 	impl_module_get_info :: proc(module: ^impl_module) -> ^module_info ---
 	stream_set_control :: proc(stream: ^stream, id: u32, n_values: u32, values: ^f32, #c_vararg args: ..any) -> int ---
@@ -33,6 +55,7 @@ foreign pipewire {
 	proxy_add_listener :: proc(proxy: ^proxy, listener: ^spa_hook, events: ^proxy_events, data: rawptr) ---
 	proxy_get_type :: proc(proxy: ^proxy, version: u32) -> cstring ---
 	proxy_destroy :: proc(proxy: ^proxy) ---
+
 	impl_metadata_set_property :: proc(metadata: ^impl_metadata, subject: u32, key, type, value: cstring) -> int ---
 	context_create_metadata :: proc(ctx: ^pw_context, name: cstring, properties: ^properties, user_data_size: uint) -> ^impl_metadata ---
 	impl_metadata_get_properties :: proc(metadata: ^impl_metadata) -> ^properties ---

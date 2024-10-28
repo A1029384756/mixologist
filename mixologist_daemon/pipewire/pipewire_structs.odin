@@ -1,6 +1,7 @@
 package pipewire
 
 import "core:c"
+import "core:sys/unix"
 
 properties :: struct {
 	dict:  spa_dict,
@@ -10,11 +11,31 @@ properties :: struct {
 main_loop :: struct {
 	loop:          ^loop,
 	listener_list: spa_hook_list,
-	status:        bit_field u8 {
-		created: uint | 1,
-		running: uint | 1,
-	},
+	// status:        bit_field u8 {
+	// 	created: uint | 1,
+	// 	running: uint | 1,
+	// },
 }
+
+thread_loop :: struct {
+	loop:                 ^loop,
+	name:                 [16]u8,
+	listener_list:        spa_hook_list,
+	lock:                 unix.pthread_mutex_t,
+	cond:                 unix.pthread_cond_t,
+	accept_cond:          unix.pthread_cond_t,
+	thread:               unix.pthread_t,
+	recurse:              int,
+	hook:                 spa_hook,
+	event:                rawptr, // ^spa_source;
+	n_waiting:            int,
+	n_waiting_for_accept: int,
+	// unsigned int created:1;
+	// unsigned int running:1;
+	// unsigned int start_signal:1;
+}
+
+thread_loop_events :: struct {} // [TODO] fill out fields
 
 loop :: struct {
 	system:  rawptr,
