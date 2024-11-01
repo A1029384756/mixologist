@@ -20,6 +20,7 @@ Link :: struct {
 	proxy:   ^pw.proxy,
 	props:   ^pw.properties,
 	port_id: u32,
+	link_id: u32,
 }
 
 Node :: struct {
@@ -58,7 +59,7 @@ virtualnode_init :: proc(
 	node_volume: f32,
 	ctx: ^pw.pw_context,
 	arena: ^virtual.Arena,
-) -> ^VirtualNode {
+) {
 	ally := virtual.arena_allocator(arena)
 	sink.associated_nodes = make(map[u32]Node, ally)
 	sink.volume = node_volume
@@ -112,8 +113,6 @@ virtualnode_init :: proc(
 		&module_events,
 		sink,
 	)
-
-	return sink
 }
 
 virtualnode_destroy :: proc(sink: ^VirtualNode) {

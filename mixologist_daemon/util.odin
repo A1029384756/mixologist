@@ -22,6 +22,7 @@ get_node_channel :: proc(node: Node, output_port: u32) -> (channel: string, foun
 }
 
 proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
+  assert(proxy != nil)
 	fmt.printfln("setting volume to %f", volume)
 
 	buf: [256]u8

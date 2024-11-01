@@ -14,7 +14,7 @@ import pw "pipewire"
 
 Context :: struct {
 	// pipewire required state
-	main_loop:         ^pw.main_loop,
+	main_loop:         ^pw.thread_loop,
 	loop:              ^pw.loop,
 	core:              ^pw.core,
 	pw_context:        ^pw.pw_context,
@@ -56,9 +56,10 @@ main :: proc() {
 			pw.get_client_name(),
 		)
 
-		ctx.main_loop = pw.main_loop_new(nil)
+		ctx.main_loop = pw.thread_loop_new("main", nil)
 
-		ctx.loop = pw.main_loop_get_loop(ctx.main_loop)
+		pw.thread_loop_lock(ctx.main_loop)
+		ctx.loop = pw.thread_loop_get_loop(ctx.main_loop)
 		ctx.pw_context = pw.context_new(ctx.loop, nil, 0)
 
 		ctx.core = pw.context_connect(ctx.pw_context, nil, 0)
@@ -135,7 +136,11 @@ main :: proc() {
 	}
 
 	setup_exit_handlers(&ctx)
-	pw.main_loop_run(ctx.main_loop)
+	pw.thread_loop_start(ctx.main_loop)
+
+	pw.thread_loop_wait(ctx.main_loop)
+	pw.thread_loop_unlock(ctx.main_loop)
+	pw.thread_loop_stop(ctx.main_loop)
 
 	// cleanup pipewire
 	{
@@ -144,7 +149,7 @@ main :: proc() {
 		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
 		pw.core_disconnect(ctx.core)
 		pw.context_destroy(ctx.pw_context)
-		pw.main_loop_destroy(ctx.main_loop)
+		pw.thread_loop_destroy(ctx.main_loop)
 		pw.deinit()
 	}
 
@@ -165,7 +170,7 @@ do_quit_with_data :: proc "c" (signum: i32, data: rawptr) {
 		ctx = cast(^Context)data
 		return
 	}
-	pw.main_loop_quit(ctx.main_loop)
+	pw.thread_loop_signal(ctx.main_loop, false)
 }
 
 registry_events := pw.registry_events {
@@ -185,133 +190,16 @@ global_add :: proc "c" (
 	context = runtime.default_context()
 	ctx := cast(^Context)data
 
-	object_type_hander: switch type {
+	switch type {
 	case "PipeWire:Interface:Node":
-		node_name := pw.spa_dict_get(props, "node.name")
-		if node_name == "output.mixologist-default" {
-			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-			node := Node {
-				proxy = proxy,
-				props = props,
-				links = make(map[string]Link, ctx.allocator),
-			}
-			ctx.default_sink.device_node = node
-			fmt.printfln("registered default node with id %d", id)
-		} else if node_name == "output.mixologist-aux" {
-			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-			node := Node {
-				proxy = proxy,
-				props = props,
-				links = make(map[string]Link, ctx.allocator),
-			}
-			ctx.aux_sink.device_node = node
-			fmt.printfln("registered aux node with id %d", id)
-		} else {
-			application_name := pw.spa_dict_get(props, "application.name")
-			if application_name == nil {
-				fmt.printfln("could not find application name for node with id %d", id)
-				break object_type_hander
-			}
-
-			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-			node := Node {
-				proxy = proxy,
-				props = props,
-				links = make(map[string]Link, ctx.allocator),
-			}
-			if check_name(string(application_name), ctx.aux_rules[:]) {
-				ctx.aux_sink.associated_nodes[id] = node
-			} else {
-				ctx.default_sink.associated_nodes[id] = node
-			}
-			fmt.printfln("Registered application node of id %d and name %s", id, application_name)
-		}
+		node_handler(ctx, id, version, type, props)
 	case "PipeWire:Interface:Port":
-		path := pw.spa_dict_get(props, "object.path")
-		if path == nil {break object_type_hander}
-		cstr_channel := pw.spa_dict_get(props, "audio.channel")
-		if cstr_channel == nil {break object_type_hander}
-		channel := string(cstr_channel)
-
-		switch path {
-		case "input.mixologist-default:playback_0":
-			node_update_link_id(&ctx.default_sink.device_node, id, channel, true)
-		case "input.mixologist-default:playback_1":
-			node_update_link_id(&ctx.default_sink.device_node, id, channel, true)
-		case "input.mixologist-aux:playback_0":
-			node_update_link_id(&ctx.aux_sink.device_node, id, channel, true)
-		case "input.mixologist-aux:playback_1":
-			node_update_link_id(&ctx.aux_sink.device_node, id, channel, true)
-		case:
-			node_id := pw.spa_dict_get(props, "node.id")
-			if node_id == nil {
-				break object_type_hander
-			}
-
-			node_id_uint, parse_ok := strconv.parse_uint(string(node_id))
-			if !parse_ok {
-				panic("could not parse uint from port")
-			}
-			node_id_u32 := u32(node_id_uint)
-
-			associated_node_def, exists_def := &ctx.default_sink.associated_nodes[node_id_u32]
-			associated_node_aux, exists_aux := &ctx.aux_sink.associated_nodes[node_id_u32]
-			if exists_def {
-				node_update_link_id(associated_node_def, id, channel, true)
-				fmt.printfln("output port %d registered to default sink", id)
-			} else if exists_aux {
-				node_update_link_id(associated_node_aux, id, channel, true)
-				fmt.printfln(
-					"output port %d registered to aux sink on channel %s with path %s",
-					id,
-					channel,
-					path,
-				)
-			}
-		}
-
+		port_handler(ctx, id, version, props)
 	case "PipeWire:Interface:Link":
-		output_node, _ := get_spa_dict_u32(props, "link.output.node")
-		output_port, _ := get_spa_dict_u32(props, "link.output.port")
-		input_port, _ := get_spa_dict_u32(props, "link.input.port")
-
-		associated_node_def, exists_def := ctx.default_sink.associated_nodes[output_node]
-		associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[output_node]
-
-		if exists_def {
-			fmt.printfln("found source from def group from node %d with id %d", output_node, id)
-
-			link_channel, _ := get_node_channel(associated_node_def, output_port)
-			expected_input_port := ctx.default_sink.device_node.links[link_channel].port_id
-			link_correct := expected_input_port == input_port
-
-			if !link_correct {
-				pw.registry_destroy(ctx.registry, id)
-				link := &associated_node_def.links[link_channel]
-				link_init(link, ctx.core, expected_input_port, output_port)
-				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
-			} else {
-				fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
-			}
-		} else if exists_aux {
-			fmt.printfln("found source from aux group from node %d with id %d", output_node, id)
-
-			link_channel, _ := get_node_channel(associated_node_aux, output_port)
-			expected_input_port := ctx.aux_sink.device_node.links[link_channel].port_id
-			link_correct := expected_input_port == input_port
-
-			if !link_correct {
-				pw.registry_destroy(ctx.registry, id)
-				link := &associated_node_aux.links[link_channel]
-				link_init(link, ctx.core, expected_input_port, output_port)
-				virtualnode_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
-			} else {
-				fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
-			}
-		} else {
-			fmt.printfln("could not find link nodes with id %d for link id %d", output_node, id)
-		}
+		link_handler(ctx, id, version, props)
 	}
+
+	rebuild_connections(ctx)
 	free_all(context.temp_allocator)
 }
 
@@ -372,7 +260,7 @@ link_destroy :: proc(link: ^Link) {
 	link.port_id = 0
 }
 
-node_update_link_id :: proc(
+node_update_link_port_id :: proc(
 	node: ^Node,
 	id: u32,
 	channel_name: string,
@@ -398,5 +286,176 @@ node_update_link_id :: proc(
 			port_id = id,
 		}
 		fmt.printfln("Channel %s created", channel)
+	}
+}
+
+node_handler :: proc(ctx: ^Context, id, version: u32, type: cstring, props: ^pw.spa_dict) {
+	node_name := pw.spa_dict_get(props, "node.name")
+	fmt.printfln("Attempting to add node name %s", node_name)
+	if node_name == "output.mixologist-default" {
+		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
+		node := Node {
+			proxy = proxy,
+			props = props,
+			links = make(map[string]Link, ctx.allocator),
+		}
+		ctx.default_sink.device_node = node
+		fmt.printfln("registered default node with id %d", id)
+	} else if node_name == "output.mixologist-aux" {
+		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
+		node := Node {
+			proxy = proxy,
+			props = props,
+			links = make(map[string]Link, ctx.allocator),
+		}
+		ctx.aux_sink.device_node = node
+		fmt.printfln("registered aux node with id %d", id)
+	} else {
+		application_name := pw.spa_dict_get(props, "application.name")
+		if application_name == nil {
+			fmt.printfln("could not find application name for node with id %d", id)
+			return
+		}
+
+		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
+		node := Node {
+			proxy = proxy,
+			props = props,
+			links = make(map[string]Link, ctx.allocator),
+		}
+		if check_name(string(application_name), ctx.aux_rules[:]) {
+			ctx.aux_sink.associated_nodes[id] = node
+		} else {
+			ctx.default_sink.associated_nodes[id] = node
+		}
+		fmt.printfln("Registered application node of id %d and name %s", id, application_name)
+	}
+}
+
+port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
+	path := pw.spa_dict_get(props, "object.path")
+	if path == nil {return}
+	cstr_channel := pw.spa_dict_get(props, "audio.channel")
+	if cstr_channel == nil {return}
+	channel := string(cstr_channel)
+
+	switch path {
+	case "input.mixologist-default:playback_0", "input.mixologist-default:playback_1":
+		node_update_link_port_id(&ctx.default_sink.device_node, id, channel, true)
+	case "input.mixologist-aux:playback_0", "input.mixologist-aux:playback_1":
+		node_update_link_port_id(&ctx.aux_sink.device_node, id, channel, true)
+	case:
+		node_id := pw.spa_dict_get(props, "node.id")
+		if node_id == nil {return}
+
+		node_id_uint, parse_ok := strconv.parse_uint(string(node_id))
+		if !parse_ok {
+			panic("could not parse uint from port")
+		}
+		node_id_u32 := u32(node_id_uint)
+
+		associated_node_def, exists_def := &ctx.default_sink.associated_nodes[node_id_u32]
+		associated_node_aux, exists_aux := &ctx.aux_sink.associated_nodes[node_id_u32]
+		if exists_def {
+			node_update_link_port_id(associated_node_def, id, channel, true)
+			fmt.printfln("output port %d registered to default sink", id)
+		} else if exists_aux {
+			node_update_link_port_id(associated_node_aux, id, channel, true)
+			fmt.printfln(
+				"output port %d registered to aux sink on channel %s with path %s",
+				id,
+				channel,
+				path,
+			)
+		}
+	}
+
+}
+
+link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
+	output_node, _ := get_spa_dict_u32(props, "link.output.node")
+	output_port, _ := get_spa_dict_u32(props, "link.output.port")
+	input_port, _ := get_spa_dict_u32(props, "link.input.port")
+
+	associated_node_def, exists_def := ctx.default_sink.associated_nodes[output_node]
+	associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[output_node]
+
+	if exists_def {
+		fmt.printfln("found source from def group from node %d with id %d", output_node, id)
+
+		link_channel, _ := get_node_channel(associated_node_def, output_port)
+		expected_input_port := ctx.default_sink.device_node.links[link_channel].port_id
+		link_correct := expected_input_port == input_port
+
+		if !link_correct {
+			link := &associated_node_def.links[link_channel]
+			link.link_id = id
+			link.port_id = output_port
+		} else {
+			fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
+		}
+	} else if exists_aux {
+		fmt.printfln("found source from aux group from node %d with id %d", output_node, id)
+
+		link_channel, _ := get_node_channel(associated_node_aux, output_port)
+		expected_input_port := ctx.aux_sink.device_node.links[link_channel].port_id
+		link_correct := expected_input_port == input_port
+
+		if !link_correct {
+			link := &associated_node_def.links[link_channel]
+			link.link_id = id
+			link.port_id = output_port
+		} else {
+			fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
+		}
+	} else {
+		fmt.printfln("could not find link nodes with id %d for link id %d", output_node, id)
+	}
+}
+
+rebuild_connections :: proc(ctx: ^Context) {
+	if ctx.default_sink.device_node.proxy != nil {
+		for node_id, associated_node in ctx.default_sink.associated_nodes {
+			for channel, &link in associated_node.links {
+				if link.proxy != nil || ctx.default_sink.device_node.links[channel].port_id == 0 {
+					continue
+				}
+				pw.registry_destroy(ctx.registry, link.link_id)
+				fmt.printfln(
+					"Making link from port id %d to port id %d",
+					link.port_id,
+					ctx.default_sink.device_node.links[channel].port_id,
+				)
+				link_init(
+					&link,
+					ctx.core,
+					ctx.default_sink.device_node.links[channel].port_id,
+					link.port_id,
+				)
+				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
+			}
+		}
+	}
+	if ctx.aux_sink.device_node.proxy != nil {
+		for node_id, associated_node in ctx.aux_sink.associated_nodes {
+			for channel, &link in associated_node.links {
+				if link.proxy != nil || ctx.aux_sink.device_node.links[channel].port_id == 0 {
+					continue
+				}
+				pw.registry_destroy(ctx.registry, link.link_id)
+				fmt.printfln(
+					"Making link from port id %d to port id %d",
+					link.port_id,
+					ctx.default_sink.device_node.links[channel].port_id,
+				)
+				link_init(
+					&link,
+					ctx.core,
+					ctx.aux_sink.device_node.links[channel].port_id,
+					link.port_id,
+				)
+				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
+			}
+		}
 	}
 }
