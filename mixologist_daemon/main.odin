@@ -5,10 +5,12 @@ import "core:c/libc"
 import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
+import "core:net"
 import "core:os/os2"
 import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/unix"
 import "core:text/match"
 import pw "pipewire"
 
@@ -27,6 +29,9 @@ Context :: struct {
 	// allocations
 	arena:             virtual.Arena,
 	allocator:         mem.Allocator,
+	// control flow/ipc state
+	should_exit:       bool,
+	ipc:               net.TCP_Socket,
 }
 
 main :: proc() {
@@ -38,6 +43,16 @@ main :: proc() {
 		}
 		ctx.allocator = virtual.arena_allocator(&ctx.arena)
 		ctx.aux_rules = make([dynamic]string, ctx.allocator)
+	}
+
+	// set up ipc
+	{
+		net_err: net.Network_Error
+		ctx.ipc, net_err = net.listen_tcp({net.IP4_Any, 6720})
+		if net_err != nil {
+			fmt.panicf("could not listen on socket with error %v", net_err)
+		}
+		net.set_blocking(ctx.ipc, false)
 	}
 
 	// initialize pipewire
@@ -138,7 +153,24 @@ main :: proc() {
 	setup_exit_handlers(&ctx)
 	pw.thread_loop_start(ctx.main_loop)
 
-	pw.thread_loop_wait(ctx.main_loop)
+	for !ctx.should_exit {
+		time: unix.timespec
+		pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
+		pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
+
+		conn, _, accept_err := net.accept_tcp(ctx.ipc)
+		if accept_err != nil && accept_err != net.Accept_Error.Would_Block {
+			fmt.panicf("accept err %v", accept_err)
+		}
+		defer net.close(conn)
+
+		buf: [1024]u8
+		bytes_read, recv_err := net.recv(conn, buf[:])
+		if bytes_read > 0 {
+			fmt.printfln("read %d bytes with contents %s", bytes_read, string(buf[:bytes_read]))
+		}
+	}
+
 	pw.thread_loop_unlock(ctx.main_loop)
 	pw.thread_loop_stop(ctx.main_loop)
 
@@ -151,6 +183,11 @@ main :: proc() {
 		pw.context_destroy(ctx.pw_context)
 		pw.thread_loop_destroy(ctx.main_loop)
 		pw.deinit()
+	}
+
+	// ipc cleanup
+	{
+		net.close(ctx.ipc)
 	}
 
 	free_all(ctx.allocator)
@@ -171,6 +208,7 @@ do_quit_with_data :: proc "c" (signum: i32, data: rawptr) {
 		return
 	}
 	pw.thread_loop_signal(ctx.main_loop, false)
+	ctx.should_exit = true
 }
 
 registry_events := pw.registry_events {
