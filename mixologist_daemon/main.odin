@@ -48,6 +48,7 @@ main :: proc() {
 	// set up ipc
 	{
 		net_err: net.Network_Error
+		// [TODO] make port user-configurable
 		ctx.ipc, net_err = net.listen_tcp({net.IP4_Any, 6720})
 		if net_err != nil {
 			fmt.panicf("could not listen on socket with error %v", net_err)
@@ -174,8 +175,9 @@ main :: proc() {
 	pw.thread_loop_unlock(ctx.main_loop)
 	pw.thread_loop_stop(ctx.main_loop)
 
-	// cleanup pipewire
+	// pipewire cleanup
 	{
+		reset_links(&ctx)
 		virtualnode_destroy(&ctx.aux_sink)
 		virtualnode_destroy(&ctx.default_sink)
 		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
@@ -272,30 +274,7 @@ link_init :: proc(
 	input_port_id, output_port_id: u32,
 	temp_allocator := context.temp_allocator,
 ) {
-	output_port_str := fmt.aprintf("%d", output_port_id, allocator = temp_allocator)
-	output_port := strings.clone_to_cstring(output_port_str, temp_allocator)
-
-	input_port_str := fmt.aprintf("%d", input_port_id, allocator = temp_allocator)
-	input_port := strings.clone_to_cstring(input_port_str, temp_allocator)
-
-	link.props = pw.properties_new(nil, nil)
-	pw.properties_set(link.props, "link.output.port", output_port)
-	pw.properties_set(link.props, "link.input.port", input_port)
-
-	link.proxy = pw.core_create_object(
-		core,
-		"link-factory",
-		"PipeWire:Interface:Link",
-		pw.VERSION_LINK,
-		&link.props.dict,
-		0,
-	)
-}
-
-link_destroy :: proc(link: ^Link) {
-	pw.proxy_destroy(link.proxy)
-	pw.properties_free(link.props)
-	link.port_id = 0
+	link.proxy, link.props = pw_link_create(core, input_port_id, output_port_id)
 }
 
 node_update_link_port_id :: proc(
@@ -395,9 +374,15 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 		associated_node_def, exists_def := &ctx.default_sink.associated_nodes[node_id_u32]
 		associated_node_aux, exists_aux := &ctx.aux_sink.associated_nodes[node_id_u32]
 		if exists_def {
+			port_name := pw.spa_dict_get(associated_node_def.props, "port.name")
+			if strings.starts_with(string(port_name), "monitor_") {return}
+
 			node_update_link_port_id(associated_node_def, id, channel, true)
 			fmt.printfln("output port %d registered to default sink", id)
 		} else if exists_aux {
+			port_name := pw.spa_dict_get(associated_node_aux.props, "port.name")
+			if strings.starts_with(string(port_name), "monitor_") {return}
+
 			node_update_link_port_id(associated_node_aux, id, channel, true)
 			fmt.printfln(
 				"output port %d registered to aux sink on channel %s with path %s",

@@ -17,10 +17,10 @@ module_events := pw.impl_module_events {
 }
 
 Link :: struct {
-	proxy:   ^pw.proxy,
-	props:   ^pw.properties,
-	port_id: u32,
-	link_id: u32,
+	proxy:         ^pw.proxy,
+	props:         ^pw.properties,
+	port_id:       u32,
+	link_id:       u32,
 }
 
 Node :: struct {
