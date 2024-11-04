@@ -81,20 +81,16 @@ pw_link_create :: proc(
 }
 
 reset_links :: proc(ctx: ^Context) {
-	for id, node in ctx.default_sink.associated_nodes {
-		for channel, link in node.links {
-			pw.registry_destroy(ctx.registry, link.link_id)
-			proxy, props := pw_link_create(ctx.core, 0, link.port_id)
-			pw.proxy_destroy(proxy)
-			pw.properties_free(props)
-		}
-	}
-	for id, node in ctx.aux_sink.associated_nodes {
-		for channel, link in node.links {
-			pw.registry_destroy(ctx.registry, link.link_id)
-			proxy, props := pw_link_create(ctx.core, 0, link.port_id)
-			pw.proxy_destroy(proxy)
-			pw.properties_free(props)
+	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+	for sink in sinks {
+		for id, node in sink.associated_nodes {
+			for channel, link in node.links {
+				pw.registry_destroy(ctx.registry, link.link_id)
+				fmt.printfln("making final link %d -> %d", link.port_id, link.og_dest)
+				proxy, props := pw_link_create(ctx.core, link.og_dest, link.port_id)
+				pw.proxy_destroy(proxy)
+				pw.properties_free(props)
+			}
 		}
 	}
 }

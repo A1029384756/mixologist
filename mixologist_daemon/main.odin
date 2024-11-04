@@ -12,6 +12,7 @@ import "core:strings"
 import "core:sys/linux"
 import "core:sys/unix"
 import "core:text/match"
+import "core:time"
 import pw "pipewire"
 
 Context :: struct {
@@ -284,21 +285,12 @@ node_update_link_port_id :: proc(
 	copy: bool,
 	allocator := context.allocator,
 ) {
-	channel: string
-	if copy {
-		channel = strings.clone(channel_name)
-	} else {
-		channel = channel_name
-	}
-
-	link, link_exists := &node.links[channel]
+	link, link_exists := &node.links[channel_name]
 	if link_exists {
 		link.port_id = id
-		fmt.printfln("Channel %s not created", channel)
-		if copy {
-			delete(channel)
-		}
+		fmt.printfln("Channel %s not created", channel_name)
 	} else {
+		channel := copy ? strings.clone(channel_name) : channel_name
 		node.links[channel] = Link {
 			port_id = id,
 		}
@@ -357,6 +349,7 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	channel := string(cstr_channel)
 
 	switch path {
+	// [TODO] make work for > 2 channels
 	case "input.mixologist-default:playback_0", "input.mixologist-default:playback_1":
 		node_update_link_port_id(&ctx.default_sink.device_node, id, channel, true)
 	case "input.mixologist-aux:playback_0", "input.mixologist-aux:playback_1":
@@ -366,33 +359,20 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 		if node_id == nil {return}
 
 		node_id_uint, parse_ok := strconv.parse_uint(string(node_id))
-		if !parse_ok {
-			panic("could not parse uint from port")
-		}
+		assert(parse_ok)
 		node_id_u32 := u32(node_id_uint)
 
-		associated_node_def, exists_def := &ctx.default_sink.associated_nodes[node_id_u32]
-		associated_node_aux, exists_aux := &ctx.aux_sink.associated_nodes[node_id_u32]
-		if exists_def {
-			port_name := pw.spa_dict_get(associated_node_def.props, "port.name")
-			if strings.starts_with(string(port_name), "monitor_") {return}
-
-			node_update_link_port_id(associated_node_def, id, channel, true)
-			fmt.printfln("output port %d registered to default sink", id)
-		} else if exists_aux {
-			port_name := pw.spa_dict_get(associated_node_aux.props, "port.name")
-			if strings.starts_with(string(port_name), "monitor_") {return}
-
-			node_update_link_port_id(associated_node_aux, id, channel, true)
-			fmt.printfln(
-				"output port %d registered to aux sink on channel %s with path %s",
-				id,
-				channel,
-				path,
-			)
+		sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+		for sink, idx in sinks {
+			associated_node, node_exists := &sink.associated_nodes[node_id_u32]
+			if node_exists {
+				port_name := pw.spa_dict_get(associated_node.props, "port.name")
+				if strings.starts_with(string(port_name), "monitor_") {return}
+				node_update_link_port_id(associated_node, id, channel, true)
+				fmt.printfln("output port %d registered to sink %d", id, idx)
+			}
 		}
 	}
-
 }
 
 link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
@@ -400,84 +380,70 @@ link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	output_port, _ := get_spa_dict_u32(props, "link.output.port")
 	input_port, _ := get_spa_dict_u32(props, "link.input.port")
 
-	associated_node_def, exists_def := ctx.default_sink.associated_nodes[output_node]
-	associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[output_node]
+	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+	for sink, idx in sinks {
+		associated_node, node_exists := sink.associated_nodes[output_node]
+		if node_exists {
+			fmt.printfln(
+				"found source from %d group from node %d with id %d",
+				idx,
+				output_node,
+				id,
+			)
 
-	if exists_def {
-		fmt.printfln("found source from def group from node %d with id %d", output_node, id)
+			link_channel, _ := get_node_channel(associated_node, output_port)
+			expected_input_port := sink.device_node.links[link_channel].port_id
+			link_correct := expected_input_port == input_port
 
-		link_channel, _ := get_node_channel(associated_node_def, output_port)
-		expected_input_port := ctx.default_sink.device_node.links[link_channel].port_id
-		link_correct := expected_input_port == input_port
-
-		if !link_correct {
-			link := &associated_node_def.links[link_channel]
-			link.link_id = id
-			link.port_id = output_port
+			link := &associated_node.links[link_channel]
+			fmt.println(link)
+			if !link_correct {
+				link.link_id = id
+				link.og_dest = input_port
+				link.port_id = output_port
+				fmt.printfln(
+					"setting up link mapping %d -> %d for link id %d",
+					output_port,
+					input_port,
+					id,
+				)
+			} else {
+				fmt.printfln("expected link mapping %d -> %d", output_port, input_port)
+			}
 		} else {
-			fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
+			fmt.printfln(
+				"could not find link nodes in group %d with id %d for link id %d",
+				idx,
+				output_node,
+				id,
+			)
 		}
-	} else if exists_aux {
-		fmt.printfln("found source from aux group from node %d with id %d", output_node, id)
-
-		link_channel, _ := get_node_channel(associated_node_aux, output_port)
-		expected_input_port := ctx.aux_sink.device_node.links[link_channel].port_id
-		link_correct := expected_input_port == input_port
-
-		if !link_correct {
-			link := &associated_node_def.links[link_channel]
-			link.link_id = id
-			link.port_id = output_port
-		} else {
-			fmt.printfln("expected link mapping %d -> %d", output_port, expected_input_port)
-		}
-	} else {
-		fmt.printfln("could not find link nodes with id %d for link id %d", output_node, id)
 	}
 }
 
 rebuild_connections :: proc(ctx: ^Context) {
-	if ctx.default_sink.device_node.proxy != nil {
-		for node_id, associated_node in ctx.default_sink.associated_nodes {
-			for channel, &link in associated_node.links {
-				if link.proxy != nil || ctx.default_sink.device_node.links[channel].port_id == 0 {
-					continue
+	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+	for sink in sinks {
+		if sink.device_node.proxy != nil {
+			for node_id, associated_node in sink.associated_nodes {
+				for channel, &link in associated_node.links {
+					if link.proxy != nil || sink.device_node.links[channel].port_id == 0 {
+						continue
+					}
+					pw.registry_destroy(ctx.registry, link.link_id)
+					fmt.printfln(
+						"Making link from port id %d to port id %d",
+						link.port_id,
+						sink.device_node.links[channel].port_id,
+					)
+					link_init(
+						&link,
+						ctx.core,
+						sink.device_node.links[channel].port_id,
+						link.port_id,
+					)
+					virtualnode_set_volume(sink, sink.volume)
 				}
-				pw.registry_destroy(ctx.registry, link.link_id)
-				fmt.printfln(
-					"Making link from port id %d to port id %d",
-					link.port_id,
-					ctx.default_sink.device_node.links[channel].port_id,
-				)
-				link_init(
-					&link,
-					ctx.core,
-					ctx.default_sink.device_node.links[channel].port_id,
-					link.port_id,
-				)
-				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
-			}
-		}
-	}
-	if ctx.aux_sink.device_node.proxy != nil {
-		for node_id, associated_node in ctx.aux_sink.associated_nodes {
-			for channel, &link in associated_node.links {
-				if link.proxy != nil || ctx.aux_sink.device_node.links[channel].port_id == 0 {
-					continue
-				}
-				pw.registry_destroy(ctx.registry, link.link_id)
-				fmt.printfln(
-					"Making link from port id %d to port id %d",
-					link.port_id,
-					ctx.default_sink.device_node.links[channel].port_id,
-				)
-				link_init(
-					&link,
-					ctx.core,
-					ctx.aux_sink.device_node.links[channel].port_id,
-					link.port_id,
-				)
-				virtualnode_set_volume(&ctx.default_sink, ctx.default_sink.volume)
 			}
 		}
 	}
