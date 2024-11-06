@@ -1,7 +1,7 @@
 package pipewire
 
 import "core:c"
-import "core:sys/unix"
+import "core:sys/posix"
 
 properties :: struct {
 	dict:  spa_dict,
@@ -21,10 +21,10 @@ thread_loop :: struct {
 	loop:                 ^loop,
 	name:                 [16]u8,
 	listener_list:        spa_hook_list,
-	lock:                 unix.pthread_mutex_t,
-	cond:                 unix.pthread_cond_t,
-	accept_cond:          unix.pthread_cond_t,
-	thread:               unix.pthread_t,
+	lock:                 posix.pthread_mutex_t,
+	cond:                 posix.pthread_cond_t,
+	accept_cond:          posix.pthread_cond_t,
+	thread:               posix.pthread_t,
 	recurse:              int,
 	hook:                 spa_hook,
 	event:                rawptr, // ^spa_source;

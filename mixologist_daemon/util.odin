@@ -1,30 +1,22 @@
 package mixologist
 
 import "core:fmt"
+import "core:log"
+import "core:os/os2"
 import "core:strconv"
 import "core:strings"
 import pw "pipewire"
 
-get_spa_dict_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
+spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 	item := pw.spa_dict_get(d, id)
 	val_uint := strconv.parse_uint(string(item)) or_return
 	val = u32(val_uint)
 	return
 }
 
-get_node_channel :: proc(node: Node, output_port: u32) -> (channel: string, found: bool) {
-	for channel, link in node.links {
-		if link.port_id == output_port {
-			return channel, true
-		}
-	}
-
-	return channel, false
-}
-
 proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
 	assert(proxy != nil)
-	fmt.printfln("setting volume to %f", volume)
+	log.logf(.Debug, "setting volume to %f", volume)
 
 	buf: [256]u8
 	b: pw.spa_pod_builder
@@ -81,16 +73,14 @@ pw_link_create :: proc(
 }
 
 reset_links :: proc(ctx: ^Context) {
-	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
-	for sink in sinks {
-		for id, node in sink.associated_nodes {
-			for channel, link in node.links {
-				pw.registry_destroy(ctx.registry, link.link_id)
-				fmt.printfln("making final link %d -> %d", link.port_id, link.og_dest)
-				proxy, props := pw_link_create(ctx.core, link.og_dest, link.port_id)
-				pw.proxy_destroy(proxy)
-				pw.properties_free(props)
-			}
-		}
+	for channel, link in ctx.device_inputs {
+		// [TODO] remove external dependency on `pw-link`
+		log.logf(.Info, "making final link %d -> %d", link.src, link.dest)
+		cmd, cmd_err := os2.process_start(
+			{command = {"pw-link", fmt.tprintf("%d", link.src), fmt.tprintf("%d", link.dest)}},
+		)
+		assert(cmd_err == nil)
+		state, wait_err := os2.process_wait(cmd)
+		assert(wait_err == nil)
 	}
 }

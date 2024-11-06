@@ -1,19 +1,22 @@
 package mixologist
 
 import "base:runtime"
-import "core:c/libc"
 import "core:fmt"
+import "core:log"
 import "core:mem"
 import "core:mem/virtual"
-import "core:net"
 import "core:os/os2"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:sys/linux"
+import "core:sys/posix"
 import "core:sys/unix"
 import "core:text/match"
 import "core:time"
 import pw "pipewire"
+
+LOG_LEVEL_DEFAULT :: "debug" when ODIN_DEBUG else "info"
+LOG_LEVEL :: #config(LOG_LEVEL, LOG_LEVEL_DEFAULT)
 
 Context :: struct {
 	// pipewire required state
@@ -24,37 +27,55 @@ Context :: struct {
 	registry:          ^pw.registry,
 	registry_listener: pw.spa_hook,
 	// sinks
-	default_sink:      VirtualNode,
-	aux_sink:          VirtualNode,
+	default_sink:      Sink,
+	aux_sink:          Sink,
 	aux_rules:         [dynamic]string,
+	device_inputs:     map[string]Link,
 	// allocations
 	arena:             virtual.Arena,
 	allocator:         mem.Allocator,
 	// control flow/ipc state
 	should_exit:       bool,
-	ipc:               net.TCP_Socket,
+	ipc:               posix.FD,
+	addr:              posix.sockaddr_un,
 }
 
 main :: proc() {
 	ctx: Context
+	context.logger = log.create_console_logger(lowest = get_log_level())
+	defer log.destroy_console_logger(context.logger)
+
 	// initialize context
 	{
 		if virtual.arena_init_growing(&ctx.arena) != nil {
 			panic("Couldn't initialize arena")
 		}
 		ctx.allocator = virtual.arena_allocator(&ctx.arena)
-		ctx.aux_rules = make([dynamic]string, ctx.allocator)
+		ctx.aux_rules = make([dynamic]string, 0, DEFAULT_ARR_CAPACITY, ctx.allocator)
+		ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
 	}
 
 	// set up ipc
 	{
-		net_err: net.Network_Error
-		// [TODO] make port user-configurable
-		ctx.ipc, net_err = net.listen_tcp({net.IP4_Any, 6720})
-		if net_err != nil {
-			fmt.panicf("could not listen on socket with error %v", net_err)
+		ctx.ipc = posix.socket(.UNIX, .STREAM)
+		if ctx.ipc == -1 {
+			log.panic("could not create socket")
 		}
-		net.set_blocking(ctx.ipc, false)
+
+		flags := transmute(posix.O_Flags)posix.fcntl(ctx.ipc, .GETFL) + {.NONBLOCK}
+		posix.fcntl(ctx.ipc, .SETFL, flags)
+
+		ctx.addr.sun_family = .UNIX
+		copy(ctx.addr.sun_path[:], "/tmp/mixologist\x00")
+
+		posix.unlink("/tmp/mixologist")
+		if posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr)) != .OK {
+			log.panic("could not bind socket")
+		}
+
+		if posix.listen(ctx.ipc, 5) != .OK {
+			log.panicf("could not listen on socket %v", posix.errno())
+		}
 	}
 
 	// initialize pipewire
@@ -66,7 +87,8 @@ main :: proc() {
 		}
 		pw.init(&argc, raw_data(argv[:]))
 
-		fmt.println(
+		log.log(
+			.Info,
 			"Using Pipewire library version:",
 			pw.get_library_version(),
 			"with client name:",
@@ -108,24 +130,25 @@ main :: proc() {
 
 				default_volume, _ = strconv.parse_f32(default_volume_str)
 				aux_volume, _ = strconv.parse_f32(aux_volume_str)
-				fmt.printfln(
+				log.logf(
+					.Info,
 					"set default volume to: %f and aux volume to: %f",
 					default_volume,
 					aux_volume,
 				)
 			} else {
-				fmt.println("could not find saved volumes, using default")
+				log.logf(.Info, "could not find saved volumes, using default")
 			}
 		}
 
-		virtualnode_init(
+		sink_init(
 			&ctx.default_sink,
 			"mixologist-default",
 			default_volume,
 			ctx.pw_context,
 			&ctx.arena,
 		)
-		virtualnode_init(&ctx.aux_sink, "mixologist-aux", aux_volume, ctx.pw_context, &ctx.arena)
+		sink_init(&ctx.aux_sink, "mixologist-aux", aux_volume, ctx.pw_context, &ctx.arena)
 	}
 
 	// load config rules from disk
@@ -143,33 +166,44 @@ main :: proc() {
 		if config_file_err == nil {
 			file_string = string(file_bytes)
 		} else {
-			fmt.println("could not find config file, using blank string")
+			log.logf(.Info, "could not find config file, using blank string")
 		}
 
 		for line in strings.split_lines_iterator(&file_string) {
 			append(&ctx.aux_rules, line)
 		}
-		fmt.printfln("loading rules: %v", ctx.aux_rules)
+		log.logf(.Info, "loading rules: %v", ctx.aux_rules)
 	}
 
 	setup_exit_handlers(&ctx)
 	pw.thread_loop_start(ctx.main_loop)
 
-	for !ctx.should_exit {
+	events: for !ctx.should_exit {
 		time: unix.timespec
 		pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
 		pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
 
-		conn, _, accept_err := net.accept_tcp(ctx.ipc)
-		if accept_err != nil && accept_err != net.Accept_Error.Would_Block {
-			fmt.panicf("accept err %v", accept_err)
+		size := cast(posix.socklen_t)size_of(ctx.addr)
+		conn := posix.accept(ctx.ipc, nil, nil)
+		if conn == -1 {
+			if posix.errno() != .EWOULDBLOCK {
+				log.panicf("could not accept connection with error %v", posix.errno())
+			} else {
+				log.log(.Debug, "no pending connnections")
+				continue events
+			}
 		}
-		defer net.close(conn)
+		defer posix.close(conn)
 
 		buf: [1024]u8
-		bytes_read, recv_err := net.recv(conn, buf[:])
+		bytes_read := posix.recv(ctx.ipc, &buf, len(buf), {})
 		if bytes_read > 0 {
-			fmt.printfln("read %d bytes with contents %s", bytes_read, string(buf[:bytes_read]))
+			log.logf(
+				.Debug,
+				"read %d bytes with contents %s",
+				bytes_read,
+				string(buf[:bytes_read]),
+			)
 		}
 	}
 
@@ -179,8 +213,8 @@ main :: proc() {
 	// pipewire cleanup
 	{
 		reset_links(&ctx)
-		virtualnode_destroy(&ctx.aux_sink)
-		virtualnode_destroy(&ctx.default_sink)
+		sink_destroy(&ctx.aux_sink)
+		sink_destroy(&ctx.default_sink)
 		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
 		pw.core_disconnect(ctx.core)
 		pw.context_destroy(ctx.pw_context)
@@ -190,7 +224,8 @@ main :: proc() {
 
 	// ipc cleanup
 	{
-		net.close(ctx.ipc)
+		posix.close(ctx.ipc)
+		posix.unlink("/tmp/mixologist")
 	}
 
 	free_all(ctx.allocator)
@@ -199,12 +234,12 @@ main :: proc() {
 // this relies on terrible undefined behavior
 // but allows us to avoid using sigqueue or globals
 setup_exit_handlers :: proc(ctx: ^Context) {
-	do_quit_with_data(i32(linux.Signal.SIGUSR1), ctx)
-	libc.signal(i32(linux.Signal.SIGINT), transmute(proc "c" (_: i32))do_quit_with_data)
-	libc.signal(i32(linux.Signal.SIGTERM), transmute(proc "c" (_: i32))do_quit_with_data)
+	do_quit_with_data(.SIGUSR1, ctx)
+	posix.signal(.SIGINT, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
+	posix.signal(.SIGTERM, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
 }
 
-do_quit_with_data :: proc "c" (signum: i32, data: rawptr) {
+do_quit_with_data :: proc "c" (signum: posix.Signal, data: rawptr) {
 	@(static) ctx: ^Context
 	if ctx == nil {
 		ctx = cast(^Context)data
@@ -229,6 +264,9 @@ global_add :: proc "c" (
 	props: ^pw.spa_dict,
 ) {
 	context = runtime.default_context()
+	context.logger = log.create_console_logger(lowest = get_log_level())
+	defer log.destroy_console_logger(context.logger)
+
 	ctx := cast(^Context)data
 
 	switch type {
@@ -247,14 +285,25 @@ global_add :: proc "c" (
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	// [TODO] fix memory leak
 	context = runtime.default_context()
-	ctx := cast(^Context)data
+	context.logger = log.create_console_logger(lowest = get_log_level())
+	defer log.destroy_console_logger(context.logger)
 
-	associated_node_def, exists_def := ctx.default_sink.associated_nodes[id]
-	associated_node_aux, exists_aux := ctx.aux_sink.associated_nodes[id]
-	if exists_def {
-		node_destroy(&associated_node_def)
-	} else if exists_aux {
-		node_destroy(&associated_node_aux)
+	ctx := cast(^Context)data
+	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
+
+	for sink in sinks {
+		associated_node, node_exists := sink.associated_nodes[id]
+		if node_exists {
+			node_destroy(&associated_node)
+			delete_key(&ctx.default_sink.associated_nodes, id)
+		} else {
+			#reverse for &link, idx in sink.links {
+				if link.id == id {
+					link_destroy(&link)
+					unordered_remove(&sink.links, idx)
+				}
+			}
+		}
 	}
 }
 
@@ -269,92 +318,69 @@ check_name :: proc(name: string, checks: []string) -> bool {
 	return false
 }
 
-link_init :: proc(
-	link: ^Link,
-	core: ^pw.core,
-	input_port_id, output_port_id: u32,
-	temp_allocator := context.temp_allocator,
-) {
-	link.proxy, link.props = pw_link_create(core, input_port_id, output_port_id)
-}
-
-node_update_link_port_id :: proc(
-	node: ^Node,
-	id: u32,
-	channel_name: string,
-	copy: bool,
-	allocator := context.allocator,
-) {
-	link, link_exists := &node.links[channel_name]
-	if link_exists {
-		link.port_id = id
-		fmt.printfln("Channel %s not created", channel_name)
-	} else {
-		channel := copy ? strings.clone(channel_name) : channel_name
-		node.links[channel] = Link {
-			port_id = id,
-		}
-		fmt.printfln("Channel %s created", channel)
-	}
-}
-
 node_handler :: proc(ctx: ^Context, id, version: u32, type: cstring, props: ^pw.spa_dict) {
 	node_name := pw.spa_dict_get(props, "node.name")
-	fmt.printfln("Attempting to add node name %s", node_name)
+	log.logf(.Debug, "Attempting to add node name %s", node_name)
 	if node_name == "output.mixologist-default" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-		node := Node {
-			proxy = proxy,
-			props = props,
-			links = make(map[string]Link, ctx.allocator),
-		}
-		ctx.default_sink.device_node = node
-		fmt.printfln("registered default node with id %d", id)
+		node: Node
+		node_init(&node, proxy, props, ctx.allocator)
+		ctx.default_sink.loopback_node = node
+		log.logf(.Info, "registered default node with id %d", id)
 	} else if node_name == "output.mixologist-aux" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-		node := Node {
-			proxy = proxy,
-			props = props,
-			links = make(map[string]Link, ctx.allocator),
-		}
-		ctx.aux_sink.device_node = node
-		fmt.printfln("registered aux node with id %d", id)
+		node: Node
+		node_init(&node, proxy, props, ctx.allocator)
+		ctx.aux_sink.loopback_node = node
+		log.logf(.Info, "registered aux node with id %d", id)
 	} else {
 		application_name := pw.spa_dict_get(props, "application.name")
 		if application_name == nil {
-			fmt.printfln("could not find application name for node with id %d", id)
+			log.logf(.Info, "could not find application name for node with id %d", id)
 			return
 		}
 
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
-		node := Node {
-			proxy = proxy,
-			props = props,
-			links = make(map[string]Link, ctx.allocator),
-		}
+		node: Node
+		node_init(&node, proxy, props, ctx.allocator)
 		if check_name(string(application_name), ctx.aux_rules[:]) {
 			ctx.aux_sink.associated_nodes[id] = node
 		} else {
 			ctx.default_sink.associated_nodes[id] = node
 		}
-		fmt.printfln("Registered application node of id %d and name %s", id, application_name)
+		log.logf(.Info, "Registered application node of id %d and name %s", id, application_name)
 	}
 }
 
 port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	path := pw.spa_dict_get(props, "object.path")
-	if path == nil {return}
+	assert(path != nil)
 	cstr_channel := pw.spa_dict_get(props, "audio.channel")
 	if cstr_channel == nil {return}
-	channel := string(cstr_channel)
 
-	switch path {
-	// [TODO] make work for > 2 channels
-	case "input.mixologist-default:playback_0", "input.mixologist-default:playback_1":
-		node_update_link_port_id(&ctx.default_sink.device_node, id, channel, true)
-	case "input.mixologist-aux:playback_0", "input.mixologist-aux:playback_1":
-		node_update_link_port_id(&ctx.aux_sink.device_node, id, channel, true)
-	case:
+	if strings.starts_with(string(path), "input.mixologist-default:playback") {
+		channel := strings.clone_from_cstring(cstr_channel)
+		prev, curr, found := map_upsert(&ctx.default_sink.loopback_node.ports, channel, id)
+		log.logf(.Info, "def port %d registered on channel %s", id, channel)
+		if found {
+			delete(channel)
+		}
+	} else if strings.starts_with(string(path), "input.mixologist-aux:playback") {
+		channel := strings.clone_from_cstring(cstr_channel)
+		prev, curr, found := map_upsert(&ctx.aux_sink.loopback_node.ports, channel, id)
+		log.logf(.Info, "aux port %d registered on channel %s", id, channel)
+		if found {
+			delete(channel)
+		}
+	} else if strings.starts_with(string(path), "output.mixologist-default:output") ||
+	   strings.starts_with(string(path), "output.mixologist-aux:output") {
+		channel := strings.clone_from_cstring(cstr_channel)
+		prev, curr, found := map_upsert(&ctx.device_inputs, channel, Link{src = id})
+		log.logf(.Info, "output port %d registered on channel %s", id, channel)
+		if found {
+			delete(channel)
+		}
+	} else {
 		node_id := pw.spa_dict_get(props, "node.id")
 		if node_id == nil {return}
 
@@ -362,89 +388,108 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 		assert(parse_ok)
 		node_id_u32 := u32(node_id_uint)
 
-		sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+		sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 		for sink, idx in sinks {
 			associated_node, node_exists := &sink.associated_nodes[node_id_u32]
-			if node_exists {
-				port_name := pw.spa_dict_get(associated_node.props, "port.name")
-				if strings.starts_with(string(port_name), "monitor_") {return}
-				node_update_link_port_id(associated_node, id, channel, true)
-				fmt.printfln("output port %d registered to sink %d", id, idx)
+			if !node_exists {continue}
+
+			port_name := pw.spa_dict_get(associated_node.props, "port.name")
+			if strings.starts_with(string(port_name), "monitor_") {return}
+
+			channel := strings.clone_from_cstring(cstr_channel)
+			prev, curr, found := map_upsert(&associated_node.ports, channel, id)
+			if found {
+				delete(channel)
 			}
+			log.logf(.Info, "output port %d registered to sink %d", id, idx)
 		}
 	}
 }
 
 link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
-	output_node, _ := get_spa_dict_u32(props, "link.output.node")
-	output_port, _ := get_spa_dict_u32(props, "link.output.port")
-	input_port, _ := get_spa_dict_u32(props, "link.input.port")
+	src_node, _ := spa_dict_get_u32(props, "link.output.node")
+	src_port, _ := spa_dict_get_u32(props, "link.output.port")
+	dest_port, _ := spa_dict_get_u32(props, "link.input.port")
 
-	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 	for sink, idx in sinks {
-		associated_node, node_exists := sink.associated_nodes[output_node]
-		if node_exists {
-			fmt.printfln(
-				"found source from %d group from node %d with id %d",
-				idx,
-				output_node,
-				id,
-			)
-
-			link_channel, _ := get_node_channel(associated_node, output_port)
-			expected_input_port := sink.device_node.links[link_channel].port_id
-			link_correct := expected_input_port == input_port
-
-			link := &associated_node.links[link_channel]
-			fmt.println(link)
-			if !link_correct {
-				link.link_id = id
-				link.og_dest = input_port
-				link.port_id = output_port
-				fmt.printfln(
-					"setting up link mapping %d -> %d for link id %d",
-					output_port,
-					input_port,
-					id,
-				)
-			} else {
-				fmt.printfln("expected link mapping %d -> %d", output_port, input_port)
+		associated_node, node_exists := sink.associated_nodes[src_node]
+		if !node_exists {
+			for channel, &mapping in ctx.device_inputs {
+				if mapping.src == src_port {
+					mapping.dest = dest_port
+					break
+				}
 			}
+			continue
+		}
+
+		log.logf(.Debug, "found source from %d group from node %d with id %d", idx, src_node, id)
+
+		link_channel: string
+		for channel, port_id in associated_node.ports {
+			if port_id == src_port {
+				link_channel = channel
+			}
+		}
+
+		expected_dest_port := sink.loopback_node.ports[link_channel]
+		link_correct := expected_dest_port == dest_port
+		if !link_correct {
+			pw.registry_destroy(ctx.registry, id)
+			log.logf(.Info, "added mapping for %d -> %d", src_port, expected_dest_port)
+			append(&sink.links, Link{src = src_port})
 		} else {
-			fmt.printfln(
-				"could not find link nodes in group %d with id %d for link id %d",
-				idx,
-				output_node,
-				id,
-			)
+			for &link in sink.links {
+				if link.src == src_port && link.dest == dest_port {
+					log.logf(.Info, "setting link id %d", id)
+					link.id = id
+				}
+			}
 		}
 	}
 }
 
 rebuild_connections :: proc(ctx: ^Context) {
-	sinks := [?]^VirtualNode{&ctx.default_sink, &ctx.aux_sink}
+	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 	for sink in sinks {
-		if sink.device_node.proxy != nil {
-			for node_id, associated_node in sink.associated_nodes {
-				for channel, &link in associated_node.links {
-					if link.proxy != nil || sink.device_node.links[channel].port_id == 0 {
-						continue
+		if sink.loopback_node.proxy == nil {continue}
+
+		for id, node in sink.associated_nodes {
+			for channel, n_port in node.ports {
+				lb_port := sink.loopback_node.ports[channel]
+				if lb_port == 0 {continue}
+
+				for &link in sink.links {
+					if link.src == n_port && link.dest == 0 {
+						log.logf(.Info, "connecting link %d -> %d", n_port, lb_port)
+						link.dest = lb_port
+						link_connect(&link, ctx.core)
 					}
-					pw.registry_destroy(ctx.registry, link.link_id)
-					fmt.printfln(
-						"Making link from port id %d to port id %d",
-						link.port_id,
-						sink.device_node.links[channel].port_id,
-					)
-					link_init(
-						&link,
-						ctx.core,
-						sink.device_node.links[channel].port_id,
-						link.port_id,
-					)
-					virtualnode_set_volume(sink, sink.volume)
 				}
 			}
 		}
+
+		sink_set_volume(sink, sink.volume)
+	}
+}
+
+get_log_level :: #force_inline proc() -> runtime.Logger_Level {
+	when LOG_LEVEL == "debug" {
+		return .Debug
+	} else when LOG_LEVEL == "info" {
+		return .Info
+	} else when LOG_LEVEL == "warning" {
+		return .Warning
+	} else when LOG_LEVEL == "error" {
+		return .Error
+	} else when LOG_LEVEL == "fatal" {
+		return .Fatal
+	} else {
+		#panic(
+			"Unknown `ODIN_TEST_LOG_LEVEL`: \"" +
+			LOG_LEVEL +
+			"\", possible levels are: \"debug\", \"info\", \"warning\", \"error\", or \"fatal\".",
+		)
 	}
 }
