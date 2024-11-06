@@ -73,14 +73,22 @@ pw_link_create :: proc(
 }
 
 reset_links :: proc(ctx: ^Context) {
+	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
+
 	for channel, link in ctx.device_inputs {
-		// [TODO] remove external dependency on `pw-link`
-		log.logf(.Info, "making final link %d -> %d", link.src, link.dest)
-		cmd, cmd_err := os2.process_start(
-			{command = {"pw-link", fmt.tprintf("%d", link.src), fmt.tprintf("%d", link.dest)}},
-		)
-		assert(cmd_err == nil)
-		state, wait_err := os2.process_wait(cmd)
-		assert(wait_err == nil)
+		for sink in sinks {
+			for id, node in sink.associated_nodes {
+				src := node.ports[channel]
+
+				// [TODO] remove external dependency on `pw-link`
+				log.logf(.Info, "making final link %d -> %d", src, link.dest)
+				cmd, cmd_err := os2.process_start(
+					{command = {"pw-link", fmt.tprintf("%d", src), fmt.tprintf("%d", link.dest)}},
+				)
+				assert(cmd_err == nil)
+				state, wait_err := os2.process_wait(cmd)
+				assert(wait_err == nil)
+			}
+		}
 	}
 }

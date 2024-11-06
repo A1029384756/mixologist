@@ -415,9 +415,9 @@ link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	for sink, idx in sinks {
 		associated_node, node_exists := sink.associated_nodes[src_node]
 		if !node_exists {
-			for channel, &mapping in ctx.device_inputs {
-				if mapping.src == src_port {
-					mapping.dest = dest_port
+			for channel, &link in ctx.device_inputs {
+				if link.src == src_port {
+					link.dest = dest_port
 					break
 				}
 			}
