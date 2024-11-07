@@ -1,5 +1,6 @@
 package mixologist_daemon
 
+import "../common"
 import pw "../pipewire"
 import "base:runtime"
 import "core:c"
@@ -89,7 +90,7 @@ core_events := pw.core_events {
 
 on_done :: proc "c" (data: rawptr, id: u32, seq: c.int) {
 	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = get_log_level())
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	log.logf(.Info, "core finished")
@@ -102,7 +103,7 @@ on_done :: proc "c" (data: rawptr, id: u32, seq: c.int) {
 
 on_error :: proc "c" (data: rawptr, id: u32, seq: c.int, res: c.int, message: cstring) {
 	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = get_log_level())
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	ctx := cast(^Cleanup_Loop)data

@@ -1,5 +1,6 @@
 package mixologist_cli
 
+import "../common"
 import pw "../pipewire"
 import "core:log"
 import "core:sys/posix"
@@ -20,9 +21,9 @@ main :: proc() {
 		log.panic("could not connect to socket")
 	}
 
-	message := "this is an arbitrary message"
+	message: common.Message = common.Volume{.Set, 0}
 
-	n_bytes := posix.send(sock, raw_data(message), len(message), {})
+	n_bytes := posix.send(sock, &message, size_of(message), {})
 	if n_bytes == -1 {
 		log.panicf("could not send data with error %v", posix.errno())
 	}

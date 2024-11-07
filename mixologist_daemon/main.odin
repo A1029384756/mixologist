@@ -1,5 +1,6 @@
 package mixologist_daemon
 
+import "../common"
 import pw "../pipewire"
 import "base:runtime"
 import "core:fmt"
@@ -15,9 +16,6 @@ import "core:sys/unix"
 import "core:text/match"
 import "core:time"
 
-LOG_LEVEL_DEFAULT :: "debug" when ODIN_DEBUG else "info"
-LOG_LEVEL :: #config(LOG_LEVEL, LOG_LEVEL_DEFAULT)
-
 Context :: struct {
 	// pipewire required state
 	main_loop:         ^pw.thread_loop,
@@ -31,6 +29,7 @@ Context :: struct {
 	aux_sink:          Sink,
 	aux_rules:         [dynamic]string,
 	device_inputs:     map[string]Link,
+	vol:               f32,
 	// allocations
 	arena:             virtual.Arena,
 	allocator:         mem.Allocator,
@@ -42,7 +41,7 @@ Context :: struct {
 
 main :: proc() {
 	ctx: Context
-	context.logger = log.create_console_logger(lowest = get_log_level())
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	// initialize context
@@ -107,7 +106,6 @@ main :: proc() {
 		pw.registry_add_listener(ctx.registry, &ctx.registry_listener, &registry_events, &ctx)
 
 		// load saved volume data from disk
-		default_volume, aux_volume: f32 = 1, 1
 		{
 			cache_dir := os2.user_cache_dir(ctx.allocator) or_else panic("cache dir not found")
 			file_bytes, cache_file_err := os2.read_entire_file(
@@ -120,27 +118,14 @@ main :: proc() {
 
 			if cache_file_err == nil {
 				file_string := string(file_bytes)
-				delim_pos := strings.index_rune(file_string, ',')
-				default_volume_str, _ := strings.substring(file_string, 0, delim_pos)
-				aux_volume_str, _ := strings.substring(
-					file_string,
-					delim_pos + 1,
-					strings.rune_count(file_string),
-				)
-
-				default_volume, _ = strconv.parse_f32(default_volume_str)
-				aux_volume, _ = strconv.parse_f32(aux_volume_str)
-				log.logf(
-					.Info,
-					"set default volume to: %f and aux volume to: %f",
-					default_volume,
-					aux_volume,
-				)
+				ctx.vol, _ = strconv.parse_f32(file_string)
+				log.logf(.Info, "set volume to: %f", ctx.vol)
 			} else {
 				log.logf(.Info, "could not find saved volumes, using default")
 			}
 		}
 
+		default_volume, aux_volume := sink_vols_from_ctx_vol(ctx.vol)
 		sink_init(
 			&ctx.default_sink,
 			"mixologist-default",
@@ -197,9 +182,10 @@ main :: proc() {
 
 		buf: [1024]u8
 		bytes_read := posix.recv(conn, &buf, len(buf), {})
-		if bytes_read > 0 {
-			log.logf(.Info, "read %d bytes with contents %s", bytes_read, string(buf[:bytes_read]))
-		}
+		log.logf(.Info, "read %d bytes", bytes_read)
+		msg, msg_ok := slice.to_type(buf[:bytes_read], common.Message)
+		assert(msg_ok)
+		handle_message(&ctx, msg)
 	}
 
 	pw.thread_loop_unlock(ctx.main_loop)
@@ -259,7 +245,7 @@ global_add :: proc "c" (
 	props: ^pw.spa_dict,
 ) {
 	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = get_log_level())
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	ctx := cast(^Context)data
@@ -280,7 +266,7 @@ global_add :: proc "c" (
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	// [TODO] fix memory leak
 	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = get_log_level())
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	ctx := cast(^Context)data
@@ -469,22 +455,39 @@ rebuild_connections :: proc(ctx: ^Context) {
 	}
 }
 
-get_log_level :: #force_inline proc() -> runtime.Logger_Level {
-	when LOG_LEVEL == "debug" {
-		return .Debug
-	} else when LOG_LEVEL == "info" {
-		return .Info
-	} else when LOG_LEVEL == "warning" {
-		return .Warning
-	} else when LOG_LEVEL == "error" {
-		return .Error
-	} else when LOG_LEVEL == "fatal" {
-		return .Fatal
-	} else {
-		#panic(
-			"Unknown `ODIN_TEST_LOG_LEVEL`: \"" +
-			LOG_LEVEL +
-			"\", possible levels are: \"debug\", \"info\", \"warning\", \"error\", or \"fatal\".",
-		)
+handle_message :: proc(ctx: ^Context, msg: common.Message) {
+	switch res in msg {
+	case common.Volume:
+		switch res.act {
+		case .Set:
+			ctx.vol = clamp(res.val, -1, 1)
+			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(res.val)
+			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
+			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
+		case .Shift:
+			ctx.vol += res.val
+			ctx.vol = clamp(ctx.vol, -1, 1)
+			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(ctx.vol)
+			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
+			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
+		}
+	case common.Program:
+		switch res.act {
+		case .Add:
+			append(&ctx.aux_rules, strings.clone(res.val, ctx.allocator))
+		// [TODO] move away from arena for rule storage
+		case .Remove:
+			#reverse for rule, idx in ctx.aux_rules {
+				if rule == res.val {
+					unordered_remove(&ctx.aux_rules, idx)
+					break
+					// [TODO] figure out how to reload all nodes
+				}
+			}
+		}
 	}
+}
+
+sink_vols_from_ctx_vol :: proc(vol: f32) -> (def, aux: f32) {
+	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
 }
