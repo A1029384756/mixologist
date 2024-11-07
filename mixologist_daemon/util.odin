@@ -156,20 +156,6 @@ reset_links :: proc(ctx: ^Context) {
 				pw.properties_free(props)
 
 				log.logf(.Info, "link created")
-
-				// [TODO] remove external dependency on `pw-link`
-				//	cmd, cmd_err := os2.process_start(
-				//		{
-				//			command = {
-				//				"pw-link",
-				//				fmt.tprintf("%d", src),
-				//				fmt.tprintf("%d", link.dest),
-				//			},
-				//		},
-				//	)
-				//	assert(cmd_err == nil)
-				//	state, wait_err := os2.process_wait(cmd)
-				//	assert(wait_err == nil)
 			}
 		}
 	}
