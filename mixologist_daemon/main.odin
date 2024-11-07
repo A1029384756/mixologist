@@ -1,5 +1,6 @@
-package mixologist
+package mixologist_daemon
 
+import pw "../pipewire"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
@@ -13,7 +14,6 @@ import "core:sys/posix"
 import "core:sys/unix"
 import "core:text/match"
 import "core:time"
-import pw "pipewire"
 
 LOG_LEVEL_DEFAULT :: "debug" when ODIN_DEBUG else "info"
 LOG_LEVEL :: #config(LOG_LEVEL, LOG_LEVEL_DEFAULT)
@@ -196,14 +196,9 @@ main :: proc() {
 		defer posix.close(conn)
 
 		buf: [1024]u8
-		bytes_read := posix.recv(ctx.ipc, &buf, len(buf), {})
+		bytes_read := posix.recv(conn, &buf, len(buf), {})
 		if bytes_read > 0 {
-			log.logf(
-				.Debug,
-				"read %d bytes with contents %s",
-				bytes_read,
-				string(buf[:bytes_read]),
-			)
+			log.logf(.Info, "read %d bytes with contents %s", bytes_read, string(buf[:bytes_read]))
 		}
 	}
 

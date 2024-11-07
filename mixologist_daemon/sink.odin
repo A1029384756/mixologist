@@ -1,12 +1,12 @@
-package mixologist
+package mixologist_daemon
 
+import pw "../pipewire"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem/virtual"
 import "core:os/os2"
 import "core:strings"
-import pw "pipewire"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
 DEFAULT_ARR_CAPACITY :: #config(DEFAULT_ARR_CAPACITY, 128)
