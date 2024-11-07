@@ -170,7 +170,7 @@ module_destroy :: proc "c" (data: rawptr) {
 	context = runtime.default_context()
 	sink := transmute(^Sink)data
 	pw.spa_hook_remove(&sink.device.module_listener)
-	for id, &node in sink.associated_nodes {
+	for _, &node in sink.associated_nodes {
 		node_destroy(&node)
 	}
 	sink.device.module = nil

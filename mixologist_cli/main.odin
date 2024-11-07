@@ -1,7 +1,6 @@
 package mixologist_cli
 
 import "../common"
-import pw "../pipewire"
 import "core:log"
 import "core:sys/posix"
 

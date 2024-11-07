@@ -3,7 +3,6 @@ package mixologist_daemon
 import "../common"
 import pw "../pipewire"
 import "base:runtime"
-import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
@@ -14,7 +13,6 @@ import "core:strings"
 import "core:sys/posix"
 import "core:sys/unix"
 import "core:text/match"
-import "core:time"
 
 Context :: struct {
 	// pipewire required state
@@ -168,7 +166,6 @@ main :: proc() {
 		pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
 		pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
 
-		size := cast(posix.socklen_t)size_of(ctx.addr)
 		conn := posix.accept(ctx.ipc, nil, nil)
 		if conn == -1 {
 			if posix.errno() != .EWOULDBLOCK {
@@ -341,14 +338,14 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 
 	if strings.starts_with(string(path), "input.mixologist-default:playback") {
 		channel := strings.clone_from_cstring(cstr_channel)
-		prev, curr, found := map_upsert(&ctx.default_sink.loopback_node.ports, channel, id)
+		_, _, found := map_upsert(&ctx.default_sink.loopback_node.ports, channel, id)
 		log.logf(.Info, "def port %d registered on channel %s", id, channel)
 		if found {
 			delete(channel)
 		}
 	} else if strings.starts_with(string(path), "input.mixologist-aux:playback") {
 		channel := strings.clone_from_cstring(cstr_channel)
-		prev, curr, found := map_upsert(&ctx.aux_sink.loopback_node.ports, channel, id)
+		_, _, found := map_upsert(&ctx.aux_sink.loopback_node.ports, channel, id)
 		log.logf(.Info, "aux port %d registered on channel %s", id, channel)
 		if found {
 			delete(channel)
@@ -356,7 +353,7 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	} else if strings.starts_with(string(path), "output.mixologist-default:output") ||
 	   strings.starts_with(string(path), "output.mixologist-aux:output") {
 		channel := strings.clone_from_cstring(cstr_channel)
-		prev, curr, found := map_upsert(&ctx.device_inputs, channel, Link{src = id})
+		_, _, found := map_upsert(&ctx.device_inputs, channel, Link{src = id})
 		log.logf(.Info, "output port %d registered on channel %s", id, channel)
 		if found {
 			delete(channel)
@@ -378,7 +375,7 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 			if strings.starts_with(string(port_name), "monitor_") {return}
 
 			channel := strings.clone_from_cstring(cstr_channel)
-			prev, curr, found := map_upsert(&associated_node.ports, channel, id)
+			_, _, found := map_upsert(&associated_node.ports, channel, id)
 			if found {
 				delete(channel)
 			}
@@ -396,7 +393,7 @@ link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	for sink, idx in sinks {
 		associated_node, node_exists := sink.associated_nodes[src_node]
 		if !node_exists {
-			for channel, &link in ctx.device_inputs {
+			for _, &link in ctx.device_inputs {
 				if link.src == src_port {
 					link.dest = dest_port
 					break
@@ -436,7 +433,7 @@ rebuild_connections :: proc(ctx: ^Context) {
 	for sink in sinks {
 		if sink.loopback_node.proxy == nil {continue}
 
-		for id, node in sink.associated_nodes {
+		for _, node in sink.associated_nodes {
 			for channel, n_port in node.ports {
 				lb_port := sink.loopback_node.ports[channel]
 				if lb_port == 0 {continue}

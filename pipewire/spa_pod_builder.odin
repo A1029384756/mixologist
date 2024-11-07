@@ -1,7 +1,6 @@
 package pipewire
 
 import "base:runtime"
-import "core:fmt"
 import "core:mem"
 
 SPA_JSON_ERROR_FLAG :: 0x100
@@ -287,7 +286,6 @@ spa_pod_builder_push :: proc(
 
 spa_pod_builder_raw :: proc(b: ^spa_pod_builder, data: rawptr, size: u32) -> int {
 	res: int
-	f: ^spa_pod_frame
 	offset := b.state.offset
 
 	if offset + size > b.size {
@@ -500,7 +498,6 @@ spa_pod_builder_array :: proc(
 		{(size_of(spa_pod_array_body) + n_elems * child_size), .SPA_TYPE_Array},
 		{{child_size, child_type}},
 	}
-	offset := b.state.offset
 	res := spa_pod_builder_raw(b, &p, size_of(p) - size_of(spa_pod))
 	r := spa_pod_builder_raw_padded(b, elems, child_size * n_elems)
 	if r < 0 {
@@ -686,7 +683,7 @@ spa_pod_builder_addv :: proc(b: ^spa_pod_builder, args: ..any) -> int {
 			spa_pod_builder_control(b, offset, type)
 		}
 
-		format, format_err := get_vararg_checked(&args, [^]u8)
+		format, _ := get_vararg_checked(&args, [^]u8)
 		choice := format[0] == '?'
 		if choice {
 			format = format[1:]

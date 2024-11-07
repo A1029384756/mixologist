@@ -6,11 +6,9 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:os/os2"
 import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
-import "core:time"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 	item := pw.spa_dict_get(d, id)
@@ -37,7 +35,7 @@ proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
 			defer pw.spa_pod_builder_pop(&b, &arr_frame)
 			pw.spa_pod_builder_push_array(&b, &arr_frame)
 
-			for i in 0 ..< num_channels {
+			for _ in 0 ..< num_channels {
 				pw.spa_pod_builder_float(&b, volume)
 			}
 		}
@@ -141,7 +139,7 @@ reset_links :: proc(ctx: ^Context) {
 
 	for channel, link in ctx.device_inputs {
 		for sink in sinks {
-			for id, node in sink.associated_nodes {
+			for _, node in sink.associated_nodes {
 				src := node.ports[channel]
 				log.logf(.Info, "making final link %d -> %d", src, link.dest)
 
