@@ -1,5 +1,6 @@
 package pipewire
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import "core:sys/unix"
@@ -44,20 +45,22 @@ foreign pipewire {
 	context_new :: proc(main_loop: ^loop, props: ^properties, user_data_size: uint) -> ^pw_context ---
 	context_destroy :: proc(ctx: ^pw_context) ---
 	context_load_module :: proc(ctx: ^pw_context, name: cstring, args: cstring, properties: ^properties) -> ^impl_module ---
+	context_connect :: proc(ctx: ^pw_context, properties: ^properties, user_data_size: uint) -> ^core ---
+	context_create_metadata :: proc(ctx: ^pw_context, name: cstring, properties: ^properties, user_data_size: uint) -> ^impl_metadata ---
 
 	impl_module_add_listener :: proc(module: ^impl_module, listener: ^spa_hook, events: ^impl_module_events, data: rawptr) ---
 	impl_module_get_info :: proc(module: ^impl_module) -> ^module_info ---
 	stream_set_control :: proc(stream: ^stream, id: u32, n_values: u32, values: ^f32, #c_vararg args: ..any) -> int ---
+
 	core_find_proxy :: proc(core: ^core, id: u32) -> ^proxy ---
 	core_disconnect :: proc(core: ^core) ---
-	context_connect :: proc(ctx: ^pw_context, properties: ^properties, user_data_size: uint) -> ^core ---
+
 	proxy_get_user_data :: proc(proxy: ^proxy) -> rawptr ---
 	proxy_add_listener :: proc(proxy: ^proxy, listener: ^spa_hook, events: ^proxy_events, data: rawptr) ---
 	proxy_get_type :: proc(proxy: ^proxy, version: u32) -> cstring ---
 	proxy_destroy :: proc(proxy: ^proxy) ---
 
 	impl_metadata_set_property :: proc(metadata: ^impl_metadata, subject: u32, key, type, value: cstring) -> int ---
-	context_create_metadata :: proc(ctx: ^pw_context, name: cstring, properties: ^properties, user_data_size: uint) -> ^impl_metadata ---
 	impl_metadata_get_properties :: proc(metadata: ^impl_metadata) -> ^properties ---
 	impl_metadata_register :: proc(metadata: ^impl_metadata, properties: ^properties) -> int ---
 	impl_metadata_destroy :: proc(metadata: ^impl_metadata) ---
@@ -78,7 +81,7 @@ properties_serialize_dict :: proc(sb: ^strings.Builder, dict: ^spa_dict) {
 	}
 }
 
-core_get_registry :: proc(core: ^core, version: u32, user_data_size: uint) -> ^registry {
+core_get_registry :: proc(core: ^core, version: u32, user_data_size: c.uint) -> ^registry {
 	_f := cast(^core_methods)((cast(^spa_interface)core).cb).funcs
 	if _f != nil && _f.version >= VERSION_CORE_METHODS && _f.get_registry != nil {
 		return _f.get_registry((&(cast(^spa_interface)core).cb).data, version, user_data_size)
@@ -93,7 +96,7 @@ core_create_object :: proc(
 	type: cstring,
 	version: u32,
 	props: ^spa_dict,
-	user_data_size: uint,
+	user_data_size: c.uint,
 ) -> ^proxy {
 	_f := cast(^core_methods)((cast(^spa_interface)core).cb).funcs
 	if _f != nil && _f.version >= VERSION_CORE_METHODS && _f.create_object != nil {
@@ -112,12 +115,26 @@ core_create_object :: proc(
 	}
 }
 
-core_sync :: proc(core: ^core, core_id: u32, sync: int) -> int {
+core_sync :: proc(core: ^core, #any_int sync: c.int) -> c.int {
 	_f := cast(^core_methods)((cast(^spa_interface)core).cb).funcs
 	if _f != nil && _f.version >= VERSION_CORE_METHODS && _f.sync != nil {
 		return _f.sync((&(cast(^spa_interface)core).cb).data, 0, sync)
 	} else {
 		panic("could not sync core")
+	}
+}
+
+core_add_listener :: proc(
+	core: ^core,
+	listener: ^spa_hook,
+	events: ^core_events,
+	data: rawptr,
+) -> c.int {
+	_f := cast(^core_methods)((cast(^spa_interface)core).cb).funcs
+	if _f != nil && _f.version >= VERSION_CORE_METHODS && _f.add_listener != nil {
+		return _f.add_listener((&(cast(^spa_interface)core).cb).data, listener, events, data)
+	} else {
+		panic("could not add listener")
 	}
 }
 
@@ -158,7 +175,7 @@ registry_bind :: proc(
 	}
 }
 
-registry_destroy :: proc(registry: ^registry, id: u32) -> int {
+registry_destroy :: proc(registry: ^registry, id: u32) -> c.int {
 	_f := cast(^registry_methods)((cast(^spa_interface)registry).cb).funcs
 	if _f != nil && _f.version >= VERSION_REGISTRY_METHODS && _f.destroy != nil {
 		return _f.destroy((&(cast(^spa_interface)registry).cb).data, id)

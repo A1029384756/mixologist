@@ -1,10 +1,14 @@
 package mixologist
 
+import "base:runtime"
+import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:os/os2"
 import "core:strconv"
 import "core:strings"
+import "core:sys/posix"
+import "core:time"
 import pw "pipewire"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
@@ -44,21 +48,26 @@ proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
 
 pw_link_create :: proc(
 	core: ^pw.core,
-	input_port_id, output_port_id: u32,
+	src, dest: u32,
+	additional_items := []pw.spa_dict_item{},
 	temp_allocator := context.temp_allocator,
 ) -> (
 	proxy: ^pw.proxy,
 	props: ^pw.properties,
 ) {
-	output_port_str := fmt.aprintf("%d", output_port_id, allocator = temp_allocator)
-	output_port := strings.clone_to_cstring(output_port_str, temp_allocator)
+	src_str := fmt.aprintf("%d", src, allocator = temp_allocator)
+	src_port := strings.clone_to_cstring(src_str, temp_allocator)
 
-	input_port_str := fmt.aprintf("%d", input_port_id, allocator = temp_allocator)
-	input_port := strings.clone_to_cstring(input_port_str, temp_allocator)
+	dest_str := fmt.aprintf("%d", dest, allocator = temp_allocator)
+	dest_port := strings.clone_to_cstring(dest_str, temp_allocator)
 
 	props = pw.properties_new(nil, nil)
-	pw.properties_set(props, "link.output.port", output_port)
-	pw.properties_set(props, "link.input.port", input_port)
+	pw.properties_set(props, "link.output.port", src_port)
+	pw.properties_set(props, "link.input.port", dest_port)
+
+	for item in additional_items {
+		pw.properties_set(props, item.key, item.value)
+	}
 
 	proxy = pw.core_create_object(
 		core,
@@ -72,23 +81,100 @@ pw_link_create :: proc(
 	return
 }
 
+core_events := pw.core_events {
+	version = pw.VERSION_CORE_EVENTS,
+	done    = on_done,
+	error   = on_error,
+}
+
+on_done :: proc "c" (data: rawptr, id: u32, seq: c.int) {
+	context = runtime.default_context()
+	context.logger = log.create_console_logger(lowest = get_log_level())
+	defer log.destroy_console_logger(context.logger)
+
+	log.logf(.Info, "core finished")
+
+	ctx := cast(^Cleanup_Loop)data
+	if ctx.sync == seq {
+		pw.main_loop_quit(ctx.main_loop)
+	}
+}
+
+on_error :: proc "c" (data: rawptr, id: u32, seq: c.int, res: c.int, message: cstring) {
+	context = runtime.default_context()
+	context.logger = log.create_console_logger(lowest = get_log_level())
+	defer log.destroy_console_logger(context.logger)
+
+	ctx := cast(^Cleanup_Loop)data
+
+	log.logf(.Error, "error id:%d seq:%d res:%d (%v): %s", id, seq, res, res, message)
+
+	if (id == 0 && res == -cast(c.int)posix.Errno.EPIPE) {
+		pw.main_loop_quit(ctx.main_loop)
+	}
+}
+
+Cleanup_Loop :: struct {
+	main_loop:     ^pw.main_loop,
+	loop:          ^pw.loop,
+	ctx:           ^pw.pw_context,
+	core:          ^pw.core,
+	core_listener: pw.spa_hook,
+	sync:          c.int,
+}
+
 reset_links :: proc(ctx: ^Context) {
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
+
+	cleanup_loop: Cleanup_Loop
+	cleanup_loop.main_loop = pw.main_loop_new(nil)
+	cleanup_loop.loop = pw.main_loop_get_loop(cleanup_loop.main_loop)
+	cleanup_loop.ctx = pw.context_new(cleanup_loop.loop, nil, 0)
+	cleanup_loop.core = pw.context_connect(cleanup_loop.ctx, nil, 0)
+	pw.core_add_listener(
+		cleanup_loop.core,
+		&cleanup_loop.core_listener,
+		&core_events,
+		&cleanup_loop,
+	)
 
 	for channel, link in ctx.device_inputs {
 		for sink in sinks {
 			for id, node in sink.associated_nodes {
 				src := node.ports[channel]
+				log.logf(.Info, "making final link %d -> %d", src, link.dest)
+
+				proxy, props := pw_link_create(
+					cleanup_loop.core,
+					src,
+					link.dest,
+					{{"object.linger", "true"}},
+				)
+				cleanup_loop.sync = pw.core_sync(cleanup_loop.core, cleanup_loop.sync)
+				pw.main_loop_run(cleanup_loop.main_loop)
+				pw.proxy_destroy(proxy)
+				pw.properties_free(props)
+
+				log.logf(.Info, "link created")
 
 				// [TODO] remove external dependency on `pw-link`
-				log.logf(.Info, "making final link %d -> %d", src, link.dest)
-				cmd, cmd_err := os2.process_start(
-					{command = {"pw-link", fmt.tprintf("%d", src), fmt.tprintf("%d", link.dest)}},
-				)
-				assert(cmd_err == nil)
-				state, wait_err := os2.process_wait(cmd)
-				assert(wait_err == nil)
+				//	cmd, cmd_err := os2.process_start(
+				//		{
+				//			command = {
+				//				"pw-link",
+				//				fmt.tprintf("%d", src),
+				//				fmt.tprintf("%d", link.dest),
+				//			},
+				//		},
+				//	)
+				//	assert(cmd_err == nil)
+				//	state, wait_err := os2.process_wait(cmd)
+				//	assert(wait_err == nil)
 			}
 		}
 	}
+
+	pw.core_disconnect(cleanup_loop.core)
+	pw.context_destroy(cleanup_loop.ctx)
+	pw.main_loop_destroy(cleanup_loop.main_loop)
 }

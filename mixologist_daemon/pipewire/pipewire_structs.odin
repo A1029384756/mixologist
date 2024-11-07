@@ -25,14 +25,16 @@ thread_loop :: struct {
 	cond:                 posix.pthread_cond_t,
 	accept_cond:          posix.pthread_cond_t,
 	thread:               posix.pthread_t,
-	recurse:              int,
+	recurse:              c.int,
 	hook:                 spa_hook,
 	event:                rawptr, // ^spa_source;
-	n_waiting:            int,
-	n_waiting_for_accept: int,
-	// unsigned int created:1;
-	// unsigned int running:1;
-	// unsigned int start_signal:1;
+	n_waiting:            c.int,
+	n_waiting_for_accept: c.int,
+	status:               bit_field u8 {
+		created:      c.uint | 1,
+		running:      c.uint | 1,
+		start_signal: c.uint | 1,
+	},
 }
 
 thread_loop_events :: struct {} // [TODO] fill out fields
@@ -59,13 +61,13 @@ settings :: struct {
 	video_rate:             [2]u32,
 	link_max_buffers:       u32,
 	status:                 bit_field u8 {
-		mem_warn_mlock:             uint | 1,
-		mem_allow_mlock:            uint | 1,
-		clock_power_of_two_quantum: uint | 1,
-		check_quantum:              uint | 1,
-		check_rate:                 uint | 1,
+		mem_warn_mlock:             c.uint | 1,
+		mem_allow_mlock:            c.uint | 1,
+		clock_power_of_two_quantum: c.uint | 1,
+		check_quantum:              c.uint | 1,
+		check_rate:                 c.uint | 1,
 	},
-	clock_rate_update_mode: int,
+	clock_rate_update_mode: c.int,
 	clock_force_rate:       u32,
 	clock_force_quantum:    u32,
 }
@@ -122,7 +124,7 @@ pw_context :: struct {
 	current_client:         rawptr,
 	sc_pagesize:            c.long,
 	freewheeling:           bit_field u8 {
-		freewheeling: int | 1,
+		freewheeling: c.int | 1,
 	},
 	user_data:              rawptr,
 }
@@ -134,14 +136,14 @@ impl_metadata :: struct {
 		listener: ^spa_hook,
 		events: ^metadata_events,
 		data: rawptr,
-	) -> int,
-	set_property: proc(object: rawptr, subject: u32, key, type, value: cstring) -> int,
-	clear:        proc(object: rawptr) -> int,
+	) -> c.int,
+	set_property: proc(object: rawptr, subject: u32, key, type, value: cstring) -> c.int,
+	clear:        proc(object: rawptr) -> c.int,
 }
 
 metadata_events :: struct {
 	version:  u32,
-	property: proc(data: rawptr, subject: u32, key, type, value: cstring) -> int,
+	property: proc(data: rawptr, subject: u32, key, type, value: cstring) -> c.int,
 }
 
 impl_module :: struct {
@@ -181,7 +183,7 @@ stream :: struct {
 	node_id:          u32,
 	state:            stream_state,
 	error:            cstring,
-	error_res:        int,
+	error_res:        c.int,
 	listener_list:    spa_hook_list,
 	proxy:            rawptr, // struct proxy*
 	proxy_listener:   spa_hook,
@@ -191,7 +193,7 @@ stream :: struct {
 	controls:         spa_list,
 }
 
-stream_state :: enum int {
+stream_state :: enum c.int {
 	PW_STREAM_STATE_ERROR       = -1,
 	PW_STREAM_STATE_UNCONNECTED = 0,
 	PW_STREAM_STATE_CONNECTING  = 1,
@@ -241,7 +243,7 @@ registry_methods :: struct {
 		listener: ^spa_hook,
 		events: ^registry_events,
 		data: rawptr,
-	) -> int,
+	) -> c.int,
 	/**
 	 * Bind to a global object
 	 *
@@ -259,7 +261,7 @@ registry_methods :: struct {
 		id: u32,
 		type: cstring,
 		version: u32,
-		use_data_size: uint,
+		use_data_size: c.size_t,
 	) -> rawptr,
 	/**
 	 * Attempt to destroy a global object
@@ -269,7 +271,7 @@ registry_methods :: struct {
 	 * \param id the global id to destroy. The client needs X permissions
 	 * on the global.
 	 */
-	destroy:      proc "c" (object: rawptr, id: u32) -> int,
+	destroy:      proc "c" (object: rawptr, id: u32) -> c.int,
 }
 
 proxy :: struct {
@@ -279,13 +281,13 @@ proxy :: struct {
 	type:                 cstring,
 	version:              u32,
 	bound_id:             u32,
-	refcount:             int,
-	// status:               bit_field u8 {
-	// 	zombie:    uint | 1,
-	// 	removed:   uint | 1,
-	// 	destroyed: uint | 1,
-	// 	in_map:    uint | 1,
-	// },
+	refcount:             c.int,
+	status:               bit_field u8 {
+		zombie:    c.uint | 1,
+		removed:   c.uint | 1,
+		destroyed: c.uint | 1,
+		in_map:    c.uint | 1,
+	},
 	listener_list:        spa_hook_list,
 	object_listener_list: spa_hook_list,
 	marshal:              rawptr, // const struct protocol_marshal *marshal
@@ -301,9 +303,9 @@ proxy_events :: struct {
 	 * free the proxy. */
 	removed:     proc(data: rawptr),
 	/** a reply to a sync method completed */
-	done:        proc(data: rawptr, seq: int),
+	done:        proc(data: rawptr, seq: c.int),
 	/** an error occurred on the proxy */
-	error:       proc(data: rawptr, seq: int, res: int, message: cstring),
+	error:       proc(data: rawptr, seq: c.int, res: c.int, message: cstring),
 	bound_props: proc(data: rawptr, global_id: u32, props: ^spa_dict),
 }
 
@@ -320,13 +322,13 @@ core :: struct {
 	stream_list:         spa_list,
 	filter_list:         spa_list,
 	conn:                rawptr, // struct protocol_client *
-	recv_seq:            int,
-	send_seq:            int,
+	recv_seq:            c.int,
+	send_seq:            c.int,
 	recv_generation:     u64,
-	// status:              bit_field u8 {
-	// 	removed:   uint | 1,
-	// 	destroyed: uint | 1,
-	// },
+	status:              bit_field u8 {
+		removed:   c.uint | 1,
+		destroyed: c.uint | 1,
+	},
 	user_data:           rawptr,
 }
 
@@ -349,13 +351,13 @@ core_events :: struct {
 	 *
 	 * \param seq the seq number passed to the sync method call
 	 */
-	done:        proc "c" (data: rawptr, id: u32, seq: int),
+	done:        proc "c" (data: rawptr, id: u32, seq: c.int),
 	/** Emit a ping event
 	 *
 	 * The client should reply with a pong reply with the same seq
 	 * number.
 	 */
-	ping:        proc "c" (data: rawptr, id: u32, seq: int),
+	ping:        proc "c" (data: rawptr, id: u32, seq: c.int),
 	/**
 	 * Fatal error event
          *
@@ -373,7 +375,7 @@ core_events :: struct {
          * \param res error code
          * \param message error description
 	 */
-	error:       proc "c" (data: rawptr, id: u32, seq: int, res: int, message: cstring),
+	error:       proc "c" (data: rawptr, id: u32, seq: c.int, res: c.int, message: cstring),
 	/**
 	 * Remove an object ID
          *
@@ -414,7 +416,7 @@ core_events :: struct {
 	 * \param fd the file descriptor
 	 * \param flags extra flags
 	 */
-	add_mem:     proc "c" (data: rawptr, id: u32, type: u32, fd: int, flags: u32),
+	add_mem:     proc "c" (data: rawptr, id: u32, type: u32, fd: c.int, flags: u32),
 	/**
 	 * Remove memory for a client
 	 *
@@ -446,7 +448,7 @@ core_methods :: struct {
 		listener: ^spa_hook,
 		events: ^core_events,
 		data: rawptr,
-	) -> int,
+	) -> c.int,
 	/**
 	 * Start a conversation with the server. This will send
 	 * the core info and will destroy all resources for the client
@@ -454,7 +456,7 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	hello:         proc "c" (object: rawptr, version: u32) -> int,
+	hello:         proc "c" (object: rawptr, version: u32) -> c.int,
 	/**
 	 * Do server roundtrip
 	 *
@@ -468,7 +470,7 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	sync:          proc "c" (object: rawptr, id: u32, seq: int) -> int,
+	sync:          proc "c" (object: rawptr, id: u32, seq: c.int) -> c.int,
 	/**
 	 * Reply to a server ping event.
 	 *
@@ -478,7 +480,7 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	pong:          proc "c" (object: rawptr, id: u32, seq: int) -> int,
+	pong:          proc "c" (object: rawptr, id: u32, seq: c.int) -> c.int,
 	/**
 	 * Fatal error event
          *
@@ -497,7 +499,13 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	error:         proc "c" (object: rawptr, id: u32, seq: int, res: int, message: cstring) -> int,
+	error:         proc "c" (
+		object: rawptr,
+		id: u32,
+		seq: c.int,
+		res: c.int,
+		message: cstring,
+	) -> c.int,
 	/**
 	 * Get the registry object
 	 *
@@ -508,7 +516,7 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	get_registry:  proc "c" (object: rawptr, version: u32, user_data_size: uint) -> ^registry,
+	get_registry:  proc "c" (object: rawptr, version: u32, user_data_size: c.uint) -> ^registry,
 
 	/**
 	 * Create a new object on the PipeWire server from a factory.
@@ -527,7 +535,7 @@ core_methods :: struct {
 		type: cstring,
 		version: u32,
 		props: ^spa_dict,
-		user_data_size: uint,
+		user_data_size: c.uint,
 	) -> rawptr,
 	/**
 	 * Destroy an resource
@@ -538,7 +546,7 @@ core_methods :: struct {
 	 *
 	 * This requires X permissions on the core.
 	 */
-	destroy:       proc "c" (object: rawptr, proxy: rawptr) -> int,
+	destroy:       proc "c" (object: rawptr, proxy: rawptr) -> c.int,
 }
 
 node_events :: struct {
@@ -560,10 +568,10 @@ node_events :: struct {
 	 * \param next the param index of the next param
 	 * \param param the parameter
 	 */
-	param:   proc(data: rawptr, seq: int, id: u32, idx: u32, next: u32, param: ^spa_pod),
+	param:   proc(data: rawptr, seq: c.int, id: u32, idx: u32, next: u32, param: ^spa_pod),
 }
 
-node_state :: enum {
+node_state :: enum c.int {
 	PW_NODE_STATE_ERROR     = -1, /**< error state */
 	PW_NODE_STATE_CREATING  = 0, /**< the node is being created */
 	PW_NODE_STATE_SUSPENDED = 1, /**< the node is suspended, the device might
@@ -602,7 +610,7 @@ node_methods :: struct {
 		listener: ^spa_hook,
 		events: ^node_events,
 		data: rawptr,
-	) -> int,
+	) -> c.int,
 	/**
 	 * Subscribe to parameter changes
 	 *
@@ -614,7 +622,7 @@ node_methods :: struct {
 	 *
 	 * This requires X permissions on the node.
 	 */
-	subscribe_params: proc(object: rawptr, ids: ^u32, n_ids: u32) -> int,
+	subscribe_params: proc(object: rawptr, ids: ^u32, n_ids: u32) -> c.int,
 	/**
 	 * Enumerate node parameters
 	 *
@@ -631,12 +639,12 @@ node_methods :: struct {
 	 */
 	enum_params:      proc(
 		object: rawptr,
-		seq: int,
+		seq: c.int,
 		id: u32,
 		start: u32,
 		num: u32,
 		filter: ^spa_pod,
-	) -> int,
+	) -> c.int,
 	/**
 	 * Set a parameter on the node
 	 *
@@ -646,7 +654,7 @@ node_methods :: struct {
 	 *
 	 * This requires X and W permissions on the node.
 	 */
-	set_param:        proc(object: rawptr, id: u32, flags: u32, param: ^spa_pod) -> int,
+	set_param:        proc(object: rawptr, id: u32, flags: u32, param: ^spa_pod) -> c.int,
 	/**
 	 * Send a command to the node
 	 *
@@ -654,7 +662,7 @@ node_methods :: struct {
 	 *
 	 * This requires X and W permissions on the node.
 	 */
-	send_command:     proc(object: rawptr, command: ^spa_command) -> int,
+	send_command:     proc(object: rawptr, command: ^spa_command) -> c.int,
 }
 
 core_info :: struct {
@@ -710,7 +718,7 @@ link_info :: struct {
 	props:          ^spa_dict, /**< the properties of the link */
 }
 
-link_state :: enum int {
+link_state :: enum c.int {
 	PW_LINK_STATE_ERROR       = -2, /**< the link is in error */
 	PW_LINK_STATE_UNLINKED    = -1, /**< the link is unlinked */
 	PW_LINK_STATE_INIT        = 0, /**< the link is initialized */
