@@ -471,11 +471,15 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 	case common.Program:
 		switch res.act {
 		case .Add:
-			append(&ctx.aux_rules, strings.clone(res.val, ctx.allocator))
+			log.logf(.Info, "Adding program %s", res.val)
+			msg := msg.(common.Program)
+			append(&ctx.aux_rules, strings.clone(string(msg.val[:]), ctx.allocator))
 		// [TODO] move away from arena for rule storage
 		case .Remove:
+			log.logf(.Info, "Removing program %s", res.val)
 			#reverse for rule, idx in ctx.aux_rules {
-				if rule == res.val {
+				msg := msg.(common.Program)
+				if rule == string(msg.val[:]) {
 					unordered_remove(&ctx.aux_rules, idx)
 					break
 					// [TODO] figure out how to reload all nodes

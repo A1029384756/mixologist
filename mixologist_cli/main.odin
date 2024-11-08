@@ -1,12 +1,94 @@
 package mixologist_cli
 
 import "../common"
+import "core:flags"
+import "core:fmt"
+import "core:io"
 import "core:log"
+import "core:os/os2"
 import "core:sys/posix"
 
+Options :: struct {
+	set_volume:     f32 `args:"name=set_volume" usage:"volume to assign nodes"`,
+	shift_volume:   f32 `args:"name=shift_volume" usage:"volume to increment nodes"`,
+	// [TODO] make args able to be comma-separated lists
+	add_program:    [dynamic]string `args:"name=add_program" usage:"name of program to add to aux"`,
+	remove_program: [dynamic]string `args:"name=remove_program" usage:"name of program to remove from aux"`,
+}
+
+State :: struct {
+	option_sel:   bool,
+	set_volume:   bool,
+	shift_volume: bool,
+	opts:         Options,
+}
+
+flag_checker :: proc(
+	model: rawptr,
+	name: string,
+	value: any,
+	args_tag: string,
+) -> (
+	error: string,
+) {
+	state.option_sel = true
+	if name == "set_volume" || name == "shift_volume" {
+		if state.set_volume || state.shift_volume {
+			error = "cannot set volume and shift volume in same command"
+		}
+
+		if name == "set_volume" {
+			state.set_volume = true
+		} else if name == "shift_volume" {
+			state.shift_volume = true
+		}
+
+		v := value.(f32)
+		if -1 > v || v > 1 {
+			error = fmt.tprintf("incorrect volume %v. Must be between `-1` and `1`", v)
+		}
+	}
+
+	return
+}
+
+state: State
 main :: proc() {
 	context.logger = log.create_console_logger()
 	defer log.destroy_console_logger(context.logger)
+
+	flags.register_flag_checker(flag_checker)
+	flags.parse_or_exit(&state.opts, os2.args, .Odin)
+	if !state.option_sel {
+		flags.write_usage(io.to_writer(os2.stdout.stream), Options)
+		os2.exit(1)
+	}
+
+	if state.set_volume {
+		send_message(common.Volume{.Set, state.opts.set_volume})
+	} else if state.shift_volume {
+		send_message(common.Volume{.Shift, state.opts.shift_volume})
+	}
+
+	for program in state.opts.add_program {
+		msg := common.Program {
+			act = .Add,
+		}
+		copy(msg.val[:], program)
+		send_message(msg)
+	}
+
+	for program in state.opts.remove_program {
+		msg := common.Program {
+			act = .Remove,
+		}
+		copy(msg.val[:], program)
+		send_message(msg)
+	}
+}
+
+send_message :: proc(message: common.Message) {
+	message := message
 
 	sock := posix.socket(.UNIX, .STREAM)
 	flags := transmute(posix.O_Flags)posix.fcntl(sock, .GETFL) + {.NONBLOCK}
@@ -17,10 +99,8 @@ main :: proc() {
 	copy(addr.sun_path[:], "/tmp/mixologist\x00")
 
 	if posix.connect(sock, cast(^posix.sockaddr)(&addr), size_of(addr)) != .OK {
-		log.panic("could not connect to socket")
+		log.panic("could not connect to socket, is the mixologist daemon running?")
 	}
-
-	message: common.Message = common.Volume{.Set, 0}
 
 	n_bytes := posix.send(sock, &message, size_of(message), {})
 	if n_bytes == -1 {
