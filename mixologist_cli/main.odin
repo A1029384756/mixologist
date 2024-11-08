@@ -1,6 +1,7 @@
 package mixologist_cli
 
 import "../common"
+import "core:encoding/cbor"
 import "core:flags"
 import "core:fmt"
 import "core:io"
@@ -73,22 +74,24 @@ main :: proc() {
 	for program in state.opts.add_program {
 		msg := common.Program {
 			act = .Add,
+			val = program,
 		}
-		copy(msg.val[:], program)
 		send_message(msg)
 	}
 
 	for program in state.opts.remove_program {
 		msg := common.Program {
 			act = .Remove,
+			val = program,
 		}
-		copy(msg.val[:], program)
 		send_message(msg)
 	}
 }
 
-send_message :: proc(message: common.Message) {
-	message := message
+send_message :: proc(msg: common.Message) {
+	message, encoding_err := cbor.marshal(msg)
+	assert(encoding_err == nil)
+	defer delete(message)
 
 	sock := posix.socket(.UNIX, .STREAM)
 	flags := transmute(posix.O_Flags)posix.fcntl(sock, .GETFL) + {.NONBLOCK}
@@ -102,7 +105,7 @@ send_message :: proc(message: common.Message) {
 		log.panic("could not connect to socket, is the mixologist daemon running?")
 	}
 
-	n_bytes := posix.send(sock, &message, size_of(message), {})
+	n_bytes := posix.send(sock, raw_data(message), len(message), {})
 	if n_bytes == -1 {
 		log.panicf("could not send data with error %v", posix.errno())
 	}

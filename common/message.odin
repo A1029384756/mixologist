@@ -18,5 +18,5 @@ Program :: struct {
 		Add,
 		Remove,
 	},
-	val: [128]u8,
+	val: string,
 }

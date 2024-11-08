@@ -156,8 +156,6 @@ sink_init :: proc(
 sink_destroy :: proc(sink: ^Sink) {
 	pw.properties_free(sink.device.capture_props)
 	pw.properties_free(sink.device.playback_props)
-
-	node_destroy(&sink.loopback_node)
 }
 
 sink_set_volume :: proc(sink: ^Sink, volume: f32) {

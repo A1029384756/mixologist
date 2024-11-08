@@ -3,11 +3,11 @@ package mixologist_daemon
 import "../common"
 import pw "../pipewire"
 import "base:runtime"
+import "core:encoding/cbor"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os/os2"
-import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
@@ -38,6 +38,28 @@ Context :: struct {
 }
 
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				log.errorf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					log.errorf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				log.errorf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					log.errorf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
+
 	ctx: Context
 	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
@@ -142,8 +164,9 @@ main :: proc() {
 				{config_dir, os2.Path_Separator_String, "mixologist.conf"},
 				ctx.allocator,
 			),
-			ctx.allocator,
+			context.allocator,
 		)
+		defer delete(file_bytes)
 
 		file_string: string
 		if config_file_err == nil {
@@ -153,7 +176,7 @@ main :: proc() {
 		}
 
 		for line in strings.split_lines_iterator(&file_string) {
-			append(&ctx.aux_rules, line)
+			append(&ctx.aux_rules, strings.clone(line))
 		}
 		log.logf(.Info, "loading rules: %v", ctx.aux_rules)
 	}
@@ -180,9 +203,13 @@ main :: proc() {
 		buf: [1024]u8
 		bytes_read := posix.recv(conn, &buf, len(buf), {})
 		log.logf(.Info, "read %d bytes", bytes_read)
-		msg, msg_ok := slice.to_type(buf[:bytes_read], common.Message)
-		assert(msg_ok)
+
+		msg: common.Message
+		msg_err := cbor.unmarshal(string(buf[:bytes_read]), &msg)
+		assert(msg_err == nil)
 		handle_message(&ctx, msg)
+
+		free_all(context.temp_allocator)
 	}
 
 	pw.thread_loop_unlock(ctx.main_loop)
@@ -206,7 +233,13 @@ main :: proc() {
 		posix.unlink("/tmp/mixologist")
 	}
 
-	free_all(ctx.allocator)
+	// ctx cleanup
+	{
+		for rule in ctx.aux_rules {
+			delete(rule)
+		}
+		free_all(ctx.allocator)
+	}
 }
 
 // this relies on terrible undefined behavior
@@ -472,19 +505,18 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 		switch res.act {
 		case .Add:
 			log.logf(.Info, "Adding program %s", res.val)
-			msg := msg.(common.Program)
-			append(&ctx.aux_rules, strings.clone(string(msg.val[:]), ctx.allocator))
-		// [TODO] move away from arena for rule storage
+			append(&ctx.aux_rules, res.val)
 		case .Remove:
 			log.logf(.Info, "Removing program %s", res.val)
 			#reverse for rule, idx in ctx.aux_rules {
-				msg := msg.(common.Program)
-				if rule == string(msg.val[:]) {
+				if rule == res.val {
+					delete(ctx.aux_rules[idx])
 					unordered_remove(&ctx.aux_rules, idx)
 					break
 					// [TODO] figure out how to reload all nodes
 				}
 			}
+			delete(res.val)
 		}
 	}
 }
