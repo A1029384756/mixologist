@@ -515,6 +515,7 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
 			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 		}
+	// [TODO] save out config volume to file
 	case common.Program:
 		switch res.act {
 		case .Add:
@@ -527,11 +528,11 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 					delete(ctx.aux_rules[idx])
 					unordered_remove(&ctx.aux_rules, idx)
 					break
-					// [TODO] figure out how to reload all nodes
 				}
 			}
 			delete(res.val)
 		}
+	// [TODO] figure out how to reload all nodes
 	}
 }
 
