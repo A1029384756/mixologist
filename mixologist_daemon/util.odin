@@ -19,7 +19,6 @@ spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 
 proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
 	assert(proxy != nil)
-	log.logf(.Debug, "setting volume to %f", volume)
 
 	buf: [256]u8
 	b: pw.spa_pod_builder
@@ -139,9 +138,9 @@ reset_links :: proc(ctx: ^Context) {
 
 	for channel, link in ctx.device_inputs {
 		for sink in sinks {
-			for _, node in sink.associated_nodes {
+			for id, node in sink.associated_nodes {
 				src := node.ports[channel]
-				log.logf(.Info, "making final link %d -> %d", src, link.dest)
+				log.logf(.Info, "making final link %d -> %d from node %d", src, link.dest, id)
 
 				proxy, props := pw_link_create(
 					cleanup_loop.core,

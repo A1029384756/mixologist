@@ -86,6 +86,7 @@ node_init :: proc(
 }
 
 node_destroy :: proc(node: ^Node) {
+	log.logf(.Debug, "Destroying node: %v", node)
 	for channel in node.ports {
 		delete(channel)
 	}

@@ -194,7 +194,6 @@ main :: proc() {
 			if posix.errno() != .EWOULDBLOCK {
 				log.panicf("could not accept connection with error %v", posix.errno())
 			} else {
-				log.log(.Debug, "no pending connnections")
 				continue events
 			}
 		}
@@ -303,10 +302,10 @@ global_destroy :: proc "c" (data: rawptr, id: u32) {
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
 	for sink in sinks {
-		associated_node, node_exists := sink.associated_nodes[id]
+		associated_node, node_exists := &sink.associated_nodes[id]
 		if node_exists {
-			node_destroy(&associated_node)
-			delete_key(&ctx.default_sink.associated_nodes, id)
+			node_destroy(associated_node)
+			delete_key(&sink.associated_nodes, id)
 		} else {
 			#reverse for &link, idx in sink.links {
 				if link.id == id {
@@ -392,6 +391,7 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 			delete(channel)
 		}
 	} else {
+		sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 		node_id := pw.spa_dict_get(props, "node.id")
 		if node_id == nil {return}
 
@@ -399,13 +399,27 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 		assert(parse_ok)
 		node_id_u32 := u32(node_id_uint)
 
-		sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
+		port_direction := pw.spa_dict_get(props, "port.direction")
+		if port_direction == nil || port_direction == "in" {
+			for sink in sinks {
+				if associated_node, node_exists := &sink.associated_nodes[node_id_u32];
+				   node_exists {
+					node_destroy(associated_node)
+					delete_key(&sink.associated_nodes, node_id_u32)
+				}
+			}
+			return
+		}
+
 		for sink, idx in sinks {
 			associated_node, node_exists := &sink.associated_nodes[node_id_u32]
 			if !node_exists {continue}
 
 			port_name := pw.spa_dict_get(associated_node.props, "port.name")
-			if strings.starts_with(string(port_name), "monitor_") {return}
+			if strings.starts_with(string(port_name), "monitor_") {
+				log.logf(.Info, "skipping port name %s", port_name)
+				return
+			}
 
 			channel := strings.clone_from_cstring(cstr_channel)
 			_, _, found := map_upsert(&associated_node.ports, channel, id)
