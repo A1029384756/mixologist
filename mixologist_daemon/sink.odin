@@ -32,6 +32,7 @@ Node :: struct {
 	proxy: ^pw.proxy,
 	props: ^pw.spa_dict,
 	ports: map[string]u32,
+	name:  string,
 }
 
 Loopback :: struct {
@@ -78,11 +79,13 @@ node_init :: proc(
 	node: ^Node,
 	proxy: ^pw.proxy,
 	props: ^pw.spa_dict,
+	name: string,
 	allocator := context.allocator,
 ) {
 	node.proxy = proxy
 	node.props = props
 	node.ports = make(map[string]u32, DEFAULT_MAP_CAPACITY, allocator)
+	node.name = name
 }
 
 node_destroy :: proc(node: ^Node) {
@@ -91,6 +94,7 @@ node_destroy :: proc(node: ^Node) {
 		delete(channel)
 	}
 	pw.proxy_destroy(node.proxy)
+	delete(node.name)
 }
 
 sink_init :: proc(

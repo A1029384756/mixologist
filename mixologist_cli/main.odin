@@ -12,7 +12,6 @@ import "core:sys/posix"
 Options :: struct {
 	set_volume:     f32 `args:"name=set_volume" usage:"volume to assign nodes"`,
 	shift_volume:   f32 `args:"name=shift_volume" usage:"volume to increment nodes"`,
-	// [TODO] make args able to be comma-separated lists
 	add_program:    [dynamic]string `args:"name=add_program" usage:"name of program to add to aux"`,
 	remove_program: [dynamic]string `args:"name=remove_program" usage:"name of program to remove from aux"`,
 }

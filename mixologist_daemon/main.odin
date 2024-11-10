@@ -4,6 +4,7 @@ import "../common"
 import pw "../pipewire"
 import "base:runtime"
 import "core:encoding/cbor"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
@@ -15,6 +16,9 @@ import "core:sys/unix"
 import "core:text/match"
 
 Context :: struct {
+	// config state
+	config_file:       string,
+	cache_file:        string,
 	// pipewire required state
 	main_loop:         ^pw.thread_loop,
 	loop:              ^pw.loop,
@@ -128,13 +132,11 @@ main :: proc() {
 		// load saved volume data from disk
 		{
 			cache_dir := os2.user_cache_dir(ctx.allocator) or_else panic("cache dir not found")
-			file_bytes, cache_file_err := os2.read_entire_file(
-				strings.concatenate(
-					{cache_dir, os2.Path_Separator_String, "mixologist.volumes"},
-					ctx.allocator,
-				),
+			ctx.cache_file = strings.concatenate(
+				{cache_dir, os2.Path_Separator_String, "mixologist.volumes"},
 				ctx.allocator,
 			)
+			file_bytes, cache_file_err := os2.read_entire_file(ctx.cache_file, ctx.allocator)
 
 			if cache_file_err == nil {
 				file_string := string(file_bytes)
@@ -159,13 +161,11 @@ main :: proc() {
 	// load config rules from disk
 	{
 		config_dir := os2.user_config_dir(ctx.allocator) or_else panic("config dir not found")
-		file_bytes, config_file_err := os2.read_entire_file(
-			strings.concatenate(
-				{config_dir, os2.Path_Separator_String, "mixologist.conf"},
-				ctx.allocator,
-			),
-			context.allocator,
+		ctx.config_file = strings.concatenate(
+			{config_dir, os2.Path_Separator_String, "mixologist.conf"},
+			ctx.allocator,
 		)
+		file_bytes, config_file_err := os2.read_entire_file(ctx.config_file, context.allocator)
 		defer delete(file_bytes)
 
 		file_string: string
@@ -293,7 +293,6 @@ global_add :: proc "c" (
 }
 
 global_destroy :: proc "c" (data: rawptr, id: u32) {
-	// [TODO] fix memory leak
 	context = runtime.default_context()
 	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
@@ -334,13 +333,15 @@ node_handler :: proc(ctx: ^Context, id, version: u32, type: cstring, props: ^pw.
 	if node_name == "output.mixologist-default" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
-		node_init(&node, proxy, props, ctx.allocator)
+		name_str := strings.clone_from_cstring(node_name)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		ctx.default_sink.loopback_node = node
 		log.logf(.Info, "registered default node with id %d", id)
 	} else if node_name == "output.mixologist-aux" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
-		node_init(&node, proxy, props, ctx.allocator)
+		name_str := strings.clone_from_cstring(node_name)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		ctx.aux_sink.loopback_node = node
 		log.logf(.Info, "registered aux node with id %d", id)
 	} else {
@@ -352,7 +353,8 @@ node_handler :: proc(ctx: ^Context, id, version: u32, type: cstring, props: ^pw.
 
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
-		node_init(&node, proxy, props, ctx.allocator)
+		name_str := strings.clone_from_cstring(node_name)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		if check_name(string(application_name), ctx.aux_rules[:]) {
 			ctx.aux_sink.associated_nodes[id] = node
 		} else {
@@ -515,24 +517,85 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
 			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 		}
-	// [TODO] save out config volume to file
+		// save out config volume to file
+		{
+			vol_str := fmt.tprintf("%f", ctx.vol)
+			write_err := os2.write_entire_file(ctx.cache_file, transmute([]u8)vol_str)
+			if write_err != nil {
+				log.logf(.Error, "could not save out config file: %v", write_err)
+			}
+		}
 	case common.Program:
 		switch res.act {
 		case .Add:
 			log.logf(.Info, "Adding program %s", res.val)
 			append(&ctx.aux_rules, res.val)
+
+			for id, node in ctx.default_sink.associated_nodes {
+				if !check_name(node.name, {res.val}) {continue}
+				k, v := delete_key(&ctx.default_sink.associated_nodes, id)
+				ctx.aux_sink.associated_nodes[k] = v
+
+				#reverse for &link, idx in ctx.default_sink.links {
+					for _, src_id in v.ports {
+						if src_id == link.src {
+							pw.registry_destroy(ctx.registry, link.id)
+
+							link_clone := link
+							link_connect(&link_clone, ctx.core)
+
+							append(&ctx.aux_sink.links, link_clone)
+							unordered_remove(&ctx.default_sink.links, idx)
+						}
+					}
+				}
+			}
 		case .Remove:
 			log.logf(.Info, "Removing program %s", res.val)
 			#reverse for rule, idx in ctx.aux_rules {
 				if rule == res.val {
 					delete(ctx.aux_rules[idx])
 					unordered_remove(&ctx.aux_rules, idx)
+
+
+					for id, node in ctx.aux_sink.associated_nodes {
+						if !check_name(node.name, {res.val}) {continue}
+						k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
+						ctx.default_sink.associated_nodes[k] = v
+
+						#reverse for &link, idx in ctx.aux_sink.links {
+							for _, src_id in v.ports {
+								if src_id == link.src {
+									pw.registry_destroy(ctx.registry, link.id)
+
+									link_clone := link
+									link_connect(&link_clone, ctx.core)
+
+									append(&ctx.default_sink.links, link_clone)
+									unordered_remove(&ctx.aux_sink.links, idx)
+								}
+							}
+						}
+					}
 					break
 				}
 			}
 			delete(res.val)
 		}
-	// [TODO] figure out how to reload all nodes
+
+		// save out rules to file
+		{
+			builder: strings.Builder
+			strings.builder_init(&builder, context.temp_allocator)
+			for rule in ctx.aux_rules {
+				fmt.sbprintln(&builder, rule)
+			}
+			rules_file := strings.to_string(builder)
+			write_err := os2.write_entire_file(ctx.config_file, transmute([]u8)rules_file)
+			if write_err != nil {
+				log.logf(.Error, "could not save out config file: %v", write_err)
+			}
+		}
 	}
 }
 
