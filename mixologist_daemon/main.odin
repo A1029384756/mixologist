@@ -508,15 +508,14 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 		case .Set:
 			ctx.vol = clamp(res.val, -1, 1)
 			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(res.val)
-			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
-			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 		case .Shift:
 			ctx.vol += res.val
 			ctx.vol = clamp(ctx.vol, -1, 1)
 			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(ctx.vol)
-			sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
-			sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 		}
+
+		sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
+		sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
 		// save out config volume to file
 		{
 			vol_str := fmt.tprintf("%f", ctx.vol)
