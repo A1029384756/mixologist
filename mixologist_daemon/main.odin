@@ -11,14 +11,19 @@ import "core:mem/virtual"
 import "core:os/os2"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
-import "core:sys/unix"
 import "core:text/match"
+
+EVENT_SIZE :: size_of(linux.Inotify_Event)
+EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 
 Context :: struct {
 	// config state
 	config_file:       string,
 	cache_file:        string,
+	inotify_fd:        linux.Fd,
+	inotify_wd:        linux.Wd,
 	// pipewire required state
 	main_loop:         ^pw.thread_loop,
 	loop:              ^pw.loop,
@@ -161,40 +166,72 @@ main :: proc() {
 	// load config rules from disk
 	{
 		config_dir := os2.user_config_dir(ctx.allocator) or_else panic("config dir not found")
+		config_dir = strings.concatenate(
+			{config_dir, os2.Path_Separator_String, "mixologist"},
+			ctx.allocator,
+		)
+		if !os2.exists(config_dir) {
+			os2.mkdir(config_dir)
+		}
+
 		ctx.config_file = strings.concatenate(
 			{config_dir, os2.Path_Separator_String, "mixologist.conf"},
 			ctx.allocator,
 		)
-		file_bytes, config_file_err := os2.read_entire_file(ctx.config_file, context.allocator)
-		defer delete(file_bytes)
 
-		file_string: string
-		if config_file_err == nil {
-			file_string = string(file_bytes)
-		} else {
-			log.logf(.Info, "could not find config file, using blank string")
-		}
+		reload_config(&ctx)
 
-		for line in strings.split_lines_iterator(&file_string) {
-			append(&ctx.aux_rules, strings.clone(line))
+		// set up config file watch
+		{
+			in_err: linux.Errno
+			ctx.inotify_fd, in_err = linux.inotify_init1({.NONBLOCK})
+			assert(in_err == nil)
+			ctx.inotify_wd, in_err = linux.inotify_add_watch(
+				ctx.inotify_fd,
+				strings.clone_to_cstring(config_dir, ctx.allocator),
+				{.CREATE, .DELETE, .MODIFY} + linux.IN_MOVE,
+			)
+			assert(in_err == nil)
 		}
-		log.logf(.Info, "loading rules: %v", ctx.aux_rules)
 	}
 
 	setup_exit_handlers(&ctx)
 	pw.thread_loop_start(ctx.main_loop)
 
-	events: for !ctx.should_exit {
-		time: unix.timespec
+	event_loop: for !ctx.should_exit {
+		time: linux.Time_Spec
 		pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
 		pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
+
+		// rule reloading
+		{
+			inotify_buf: [EVENT_BUF_LEN]u8
+			length, read_err := linux.read(ctx.inotify_fd, inotify_buf[:])
+			assert(read_err == nil || read_err == .EAGAIN)
+
+			config_modified := false
+			for i := 0; i < length; {
+				event := cast(^linux.Inotify_Event)&inotify_buf[i]
+
+				if inotify_event_name(event) == "mixologist.conf" {
+					config_modified = true
+					break
+				}
+
+				i += EVENT_SIZE + int(event.len)
+			}
+
+			if config_modified {
+				reload_config(&ctx)
+			}
+		}
 
 		conn := posix.accept(ctx.ipc, nil, nil)
 		if conn == -1 {
 			if posix.errno() != .EWOULDBLOCK {
 				log.panicf("could not accept connection with error %v", posix.errno())
 			} else {
-				continue events
+				continue event_loop
 			}
 		}
 		defer posix.close(conn)
@@ -224,6 +261,12 @@ main :: proc() {
 		pw.context_destroy(ctx.pw_context)
 		pw.thread_loop_destroy(ctx.main_loop)
 		pw.deinit()
+	}
+
+	// inotify cleanup
+	{
+		err := linux.inotify_rm_watch(ctx.inotify_fd, ctx.inotify_wd)
+		assert(err == nil)
 	}
 
 	// ipc cleanup
@@ -528,57 +571,10 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 		switch res.act {
 		case .Add:
 			log.logf(.Info, "Adding program %s", res.val)
-			append(&ctx.aux_rules, res.val)
-
-			for id, node in ctx.default_sink.associated_nodes {
-				if !check_name(node.name, {res.val}) {continue}
-				k, v := delete_key(&ctx.default_sink.associated_nodes, id)
-				ctx.aux_sink.associated_nodes[k] = v
-
-				#reverse for &link, idx in ctx.default_sink.links {
-					for _, src_id in v.ports {
-						if src_id == link.src {
-							pw.registry_destroy(ctx.registry, link.id)
-
-							link_clone := link
-							link_connect(&link_clone, ctx.core)
-
-							append(&ctx.aux_sink.links, link_clone)
-							unordered_remove(&ctx.default_sink.links, idx)
-						}
-					}
-				}
-			}
+			add_program(ctx, res.val)
 		case .Remove:
 			log.logf(.Info, "Removing program %s", res.val)
-			#reverse for rule, idx in ctx.aux_rules {
-				if rule == res.val {
-					delete(ctx.aux_rules[idx])
-					unordered_remove(&ctx.aux_rules, idx)
-
-
-					for id, node in ctx.aux_sink.associated_nodes {
-						if !check_name(node.name, {res.val}) {continue}
-						k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
-						ctx.default_sink.associated_nodes[k] = v
-
-						#reverse for &link, idx in ctx.aux_sink.links {
-							for _, src_id in v.ports {
-								if src_id == link.src {
-									pw.registry_destroy(ctx.registry, link.id)
-
-									link_clone := link
-									link_connect(&link_clone, ctx.core)
-
-									append(&ctx.default_sink.links, link_clone)
-									unordered_remove(&ctx.aux_sink.links, idx)
-								}
-							}
-						}
-					}
-					break
-				}
-			}
+			remove_program(ctx, res.val)
 			delete(res.val)
 		}
 
@@ -600,4 +596,82 @@ handle_message :: proc(ctx: ^Context, msg: common.Message) {
 
 sink_vols_from_ctx_vol :: proc(vol: f32) -> (def, aux: f32) {
 	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
+}
+
+add_program :: proc(ctx: ^Context, program: string) {
+	log.logf(.Info, "adding program %s", program)
+	append(&ctx.aux_rules, program)
+
+	for id, node in ctx.default_sink.associated_nodes {
+		if !check_name(node.name, {program}) {continue}
+		k, v := delete_key(&ctx.default_sink.associated_nodes, id)
+		ctx.aux_sink.associated_nodes[k] = v
+
+		#reverse for &link, idx in ctx.default_sink.links {
+			for _, src_id in v.ports {
+				if src_id == link.src {
+					pw.registry_destroy(ctx.registry, link.id)
+
+					link_clone := link
+					link_connect(&link_clone, ctx.core)
+
+					append(&ctx.aux_sink.links, link_clone)
+					unordered_remove(&ctx.default_sink.links, idx)
+				}
+			}
+		}
+	}
+}
+
+remove_program :: proc(ctx: ^Context, program: string) {
+	log.logf(.Info, "removing program %s", program)
+	#reverse for rule, idx in ctx.aux_rules {
+		if rule == program {
+			delete(ctx.aux_rules[idx])
+			unordered_remove(&ctx.aux_rules, idx)
+
+			for id, node in ctx.aux_sink.associated_nodes {
+				if !check_name(node.name, {program}) {continue}
+				k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
+				ctx.default_sink.associated_nodes[k] = v
+
+				#reverse for &link, idx in ctx.aux_sink.links {
+					for _, src_id in v.ports {
+						if src_id == link.src {
+							pw.registry_destroy(ctx.registry, link.id)
+
+							link_clone := link
+							link_connect(&link_clone, ctx.core)
+
+							append(&ctx.default_sink.links, link_clone)
+							unordered_remove(&ctx.aux_sink.links, idx)
+						}
+					}
+				}
+			}
+			break
+		}
+	}
+}
+
+reload_config :: proc(ctx: ^Context) {
+	assert(len(ctx.config_file) > 0, "must load config before running")
+	#reverse for program in ctx.aux_rules {
+		remove_program(ctx, program)
+	}
+
+	file_bytes, config_file_err := os2.read_entire_file(ctx.config_file, context.allocator)
+	defer delete(file_bytes)
+
+	file_string: string
+	if config_file_err == nil {
+		file_string = string(file_bytes)
+	} else {
+		log.logf(.Info, "could not find config file, using blank string")
+	}
+
+	for line in strings.split_lines_iterator(&file_string) {
+		add_program(ctx, strings.clone(line))
+	}
+	log.logf(.Info, "loading rules: %v", ctx.aux_rules)
 }

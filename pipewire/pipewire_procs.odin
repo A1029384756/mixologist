@@ -3,7 +3,7 @@ package pipewire
 import "core:c"
 import "core:fmt"
 import "core:strings"
-import "core:sys/unix"
+import "core:sys/linux"
 
 foreign import pipewire "system:pipewire-0.3"
 
@@ -36,8 +36,8 @@ foreign pipewire {
 	thread_loop_unlock :: proc(loop: ^thread_loop) ---
 	thread_loop_wait :: proc(loop: ^thread_loop) ---
 	thread_loop_timed_wait :: proc(loop: ^thread_loop, wait_max_sec: int) -> int ---
-	thread_loop_get_time :: proc(loop: ^thread_loop, abstime: ^unix.timespec, timeout: i64) -> int ---
-	thread_loop_timed_wait_full :: proc(loop: ^thread_loop, abstime: ^unix.timespec) -> int ---
+	thread_loop_get_time :: proc(loop: ^thread_loop, abstime: ^linux.Time_Spec, timeout: i64) -> int ---
+	thread_loop_timed_wait_full :: proc(loop: ^thread_loop, abstime: ^linux.Time_Spec) -> int ---
 	thread_loop_signal :: proc(loop: ^thread_loop, wait_for_accept: bool) ---
 	thread_loop_accept :: proc(loop: ^thread_loop) ---
 	thread_loop_in_thread :: proc(loop: ^thread_loop) -> bool ---

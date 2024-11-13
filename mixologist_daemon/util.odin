@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:log"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
@@ -161,4 +162,8 @@ reset_links :: proc(ctx: ^Context) {
 	pw.core_disconnect(cleanup_loop.core)
 	pw.context_destroy(cleanup_loop.ctx)
 	pw.main_loop_destroy(cleanup_loop.main_loop)
+}
+
+inotify_event_name :: proc "contextless" (event: ^linux.Inotify_Event) -> cstring {
+	return transmute(cstring)uintptr(&event.name)
 }
