@@ -31,6 +31,7 @@ Context :: struct {
 	pw_context:        ^pw.pw_context,
 	registry:          ^pw.registry,
 	registry_listener: pw.spa_hook,
+	pw_odin_ctx:       runtime.Context,
 	// sinks
 	default_sink:      Sink,
 	aux_sink:          Sink,
@@ -69,18 +70,36 @@ main :: proc() {
 		}
 	}
 
-	ctx: Context
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
 	// initialize context
-	{
-		if virtual.arena_init_growing(&ctx.arena) != nil {
-			panic("Couldn't initialize arena")
-		}
-		ctx.allocator = virtual.arena_allocator(&ctx.arena)
-		ctx.aux_rules = make([dynamic]string, 0, DEFAULT_ARR_CAPACITY, ctx.allocator)
-		ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
+	ctx: Context
+	if virtual.arena_init_growing(&ctx.arena) != nil {
+		panic("Couldn't initialize arena")
+	}
+	ctx.allocator = virtual.arena_allocator(&ctx.arena)
+	ctx.aux_rules = make([dynamic]string, 0, DEFAULT_ARR_CAPACITY, ctx.allocator)
+	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
+	ctx.pw_odin_ctx = runtime.default_context()
+
+	// set up logging
+	when ODIN_DEBUG {
+		context.logger = log.create_console_logger(lowest = common.get_log_level())
+		defer log.destroy_console_logger(context.logger)
+		ctx.pw_odin_ctx.logger = log.create_console_logger(lowest = common.get_log_level())
+		defer log.destroy_console_logger(ctx.pw_odin_ctx.logger)
+	} else {
+		cache_dir := os2.user_cache_dir(ctx.allocator) or_else panic("log dir not found")
+		log_path := strings.concatenate(
+			{cache_dir, os2.Path_Separator_String, "mixologist.log"},
+			ctx.allocator,
+		)
+		log_file, err := os2.create(log_path)
+		assert(err == nil)
+
+		// [TODO] make file logging thread safe
+		context.logger = create_file_logger(log_file, lowest = common.get_log_level())
+		defer log.destroy_file_logger(context.logger)
+		ctx.pw_odin_ctx.logger = create_file_logger(log_file, lowest = common.get_log_level())
+		defer log.destroy_file_logger(ctx.pw_odin_ctx.logger)
 	}
 
 	// set up ipc
@@ -270,18 +289,14 @@ main :: proc() {
 	}
 
 	// ipc cleanup
-	{
-		posix.close(ctx.ipc)
-		posix.unlink("/tmp/mixologist")
-	}
+	posix.close(ctx.ipc)
+	posix.unlink("/tmp/mixologist")
 
 	// ctx cleanup
-	{
-		for rule in ctx.aux_rules {
-			delete(rule)
-		}
-		free_all(ctx.allocator)
+	for rule in ctx.aux_rules {
+		delete(rule)
 	}
+	free_all(ctx.allocator)
 }
 
 // this relies on terrible undefined behavior
@@ -316,11 +331,8 @@ global_add :: proc "c" (
 	version: u32,
 	props: ^pw.spa_dict,
 ) {
-	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
 	ctx := cast(^Context)data
+	context = ctx.pw_odin_ctx
 
 	switch type {
 	case "PipeWire:Interface:Node":
@@ -336,11 +348,9 @@ global_add :: proc "c" (
 }
 
 global_destroy :: proc "c" (data: rawptr, id: u32) {
-	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
 	ctx := cast(^Context)data
+	context = ctx.pw_odin_ctx
+
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
 	for sink in sinks {

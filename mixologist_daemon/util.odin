@@ -1,15 +1,16 @@
 package mixologist_daemon
 
-import "../common"
 import pw "../pipewire"
-import "base:runtime"
+import "core:bufio"
 import "core:c"
 import "core:fmt"
 import "core:log"
+import "core:os/os2"
 import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
+import "core:time"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 	item := pw.spa_dict_get(d, id)
@@ -87,12 +88,6 @@ core_events := pw.core_events {
 }
 
 on_done :: proc "c" (data: rawptr, id: u32, seq: c.int) {
-	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
-	log.logf(.Info, "core finished")
-
 	ctx := cast(^Cleanup_Loop)data
 	if ctx.sync == seq {
 		pw.main_loop_quit(ctx.main_loop)
@@ -100,14 +95,7 @@ on_done :: proc "c" (data: rawptr, id: u32, seq: c.int) {
 }
 
 on_error :: proc "c" (data: rawptr, id: u32, seq: c.int, res: c.int, message: cstring) {
-	context = runtime.default_context()
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
 	ctx := cast(^Cleanup_Loop)data
-
-	log.logf(.Error, "error id:%d seq:%d res:%d (%v): %s", id, seq, res, res, message)
-
 	if (id == 0 && res == -cast(c.int)posix.Errno.EPIPE) {
 		pw.main_loop_quit(ctx.main_loop)
 	}
@@ -166,4 +154,74 @@ reset_links :: proc(ctx: ^Context) {
 
 inotify_event_name :: proc "contextless" (event: ^linux.Inotify_Event) -> cstring {
 	return transmute(cstring)uintptr(&event.name)
+}
+
+File_Console_Logger_Data :: struct {
+	file_handle: ^os2.File,
+	ident:       string,
+}
+
+create_file_logger :: proc(
+	h: ^os2.File,
+	lowest := log.Level.Debug,
+	opt := log.Default_File_Logger_Opts,
+	ident := "",
+) -> log.Logger {
+	data := new(File_Console_Logger_Data)
+	data.file_handle = h
+	data.ident = ident
+	return log.Logger{file_console_logger_proc, data, lowest, opt}
+}
+
+file_console_logger_proc :: proc(
+	logger_data: rawptr,
+	level: log.Level,
+	text: string,
+	options: log.Options,
+	location := #caller_location,
+) {
+	data := cast(^File_Console_Logger_Data)logger_data
+	h := os2.stdout if level <= log.Level.Error else os2.stderr
+	if data.file_handle != nil {
+		h = data.file_handle
+	}
+	backing: [1024]byte //NOTE(Hoej): 1024 might be too much for a header backing, unless somebody has really long paths.
+	buf := strings.builder_from_bytes(backing[:])
+
+	log.do_level_header(options, &buf, level)
+
+	when time.IS_SUPPORTED {
+		log.do_time_header(options, &buf, time.now())
+	}
+
+	log.do_location_header(options, &buf, location)
+
+	if .Thread_Id in options {
+		// NOTE(Oskar): not using context.thread_id here since that could be
+		// incorrect when replacing context for a thread.
+		fmt.sbprintf(&buf, "[{}] ", linux.gettid())
+	}
+
+	if data.ident != "" {
+		fmt.sbprintf(&buf, "[%s] ", data.ident)
+	}
+	//TODO(Hoej): When we have better atomics and such, make this thread-safe
+	fprintf(h, "%s%s\n", strings.to_string(buf), text)
+}
+
+fprintf :: proc(
+	fd: ^os2.File,
+	format: string,
+	args: ..any,
+	flush := true,
+	newline := false,
+) -> int {
+	buf: [1024]byte
+	b: bufio.Writer
+	defer bufio.writer_flush(&b)
+
+	bufio.writer_init_with_buf(&b, os2.to_stream(fd), buf[:])
+
+	w := bufio.writer_to_writer(&b)
+	return fmt.wprintf(w, format, ..args, flush = flush, newline = newline)
 }
