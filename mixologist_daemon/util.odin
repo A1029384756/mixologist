@@ -173,6 +173,14 @@ create_file_logger :: proc(
 	return log.Logger{file_console_logger_proc, data, lowest, opt}
 }
 
+destroy_file_logger :: proc(log: log.Logger) {
+	data := cast(^File_Console_Logger_Data)log.data
+	if data.file_handle != nil {
+		os2.close(data.file_handle)
+	}
+	free(data)
+}
+
 file_console_logger_proc :: proc(
 	logger_data: rawptr,
 	level: log.Level,
@@ -205,6 +213,7 @@ file_console_logger_proc :: proc(
 	if data.ident != "" {
 		fmt.sbprintf(&buf, "[%s] ", data.ident)
 	}
+
 	//TODO(Hoej): When we have better atomics and such, make this thread-safe
 	fprintf(h, "%s%s\n", strings.to_string(buf), text)
 }

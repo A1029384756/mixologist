@@ -92,14 +92,16 @@ main :: proc() {
 			{cache_dir, os2.Path_Separator_String, "mixologist.log"},
 			ctx.allocator,
 		)
+		rm_err := os2.remove(log_path)
+		assert(rm_err != nil || rm_err != .Not_Exist)
+
 		log_file, err := os2.create(log_path)
 		assert(err == nil)
 
-		// [TODO] make file logging thread safe
 		context.logger = create_file_logger(log_file, lowest = common.get_log_level())
-		defer log.destroy_file_logger(context.logger)
+		defer destroy_file_logger(context.logger)
 		ctx.pw_odin_ctx.logger = create_file_logger(log_file, lowest = common.get_log_level())
-		defer log.destroy_file_logger(ctx.pw_odin_ctx.logger)
+		defer destroy_file_logger(ctx.pw_odin_ctx.logger)
 	}
 
 	// set up ipc
