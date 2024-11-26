@@ -259,11 +259,13 @@ main :: proc() {
 
 		buf: [1024]u8
 		bytes_read := posix.recv(conn, &buf, len(buf), {})
-		log.logf(.Info, "read %d bytes", bytes_read)
+		log.logf(.Debug, "read %d bytes", bytes_read)
 
 		msg: common.Message
 		msg_err := cbor.unmarshal(string(buf[:bytes_read]), &msg)
 		assert(msg_err == nil)
+
+		log.logf(.Info, "read message %v", msg)
 		handle_message(&ctx, msg)
 
 		free_all(context.temp_allocator)
