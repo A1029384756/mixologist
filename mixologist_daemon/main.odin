@@ -87,9 +87,9 @@ main :: proc() {
 		ctx.pw_odin_ctx.logger = log.create_console_logger(lowest = common.get_log_level())
 		defer log.destroy_console_logger(ctx.pw_odin_ctx.logger)
 	} else {
-		cache_dir := os2.user_cache_dir(ctx.allocator) or_else panic("log dir not found")
+		cache_dir := os2.user_cache_dir(ctx.allocator) or_else panic("cache dir not found")
 		log_path := strings.concatenate(
-			{cache_dir, os2.Path_Separator_String, "mixologist.log"},
+			{cache_dir, os2.Path_Separator_String, "mixd.log"},
 			ctx.allocator,
 		)
 		rm_err := os2.remove(log_path)
@@ -117,7 +117,7 @@ main :: proc() {
 		ctx.addr.sun_family = .UNIX
 		copy(ctx.addr.sun_path[:], "/tmp/mixologist\x00")
 
-		posix.unlink("/tmp/mixologist")
+		posix.unlink("/tmp/mixologist\x00")
 		if posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr)) != .OK {
 			log.panic("could not bind socket")
 		}

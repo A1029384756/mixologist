@@ -1,3 +1,19 @@
+all: mixd mixcli
+
+install:
+	install -d $(DESTDIR)/usr/bin
+	install -m 0755 builds/mixd $(DESTDIR)/usr/bin/mixd
+	install -m 0755 builds/mixcli $(DESTDIR)/usr/bin/mixcli
+
+	install -d $(DESTDIR)/usr/lib/systemd/user
+	install -m 0644	data/mixd.service $(DESTDIR)/usr/lib/systemd/user/mixd.service
+	install -d $(DESTDIR)/usr/lib/systemd/user-preset
+	install -m 0644	data/50-mixd.preset $(DESTDIR)/usr/lib/systemd/user-preset/50-mixd.preset
+
+clean:
+	rm builds/mixd
+	rm builds/mixcli
+
 mixd:
 	odin build ./mixologist_daemon -out:builds/mixd -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
 
