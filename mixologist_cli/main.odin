@@ -98,7 +98,7 @@ send_message :: proc(msg: common.Message) {
 
 	addr: posix.sockaddr_un
 	addr.sun_family = .UNIX
-	copy(addr.sun_path[:], "/tmp/mixologist\x00")
+	copy(addr.sun_path[:], "\x00mixologist\x00")
 
 	if posix.connect(sock, cast(^posix.sockaddr)(&addr), size_of(addr)) != .OK {
 		log.panic("could not connect to socket, is the mixologist daemon running?")

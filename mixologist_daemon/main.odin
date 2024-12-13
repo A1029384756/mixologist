@@ -115,9 +115,7 @@ main :: proc() {
 		posix.fcntl(ctx.ipc, .SETFL, flags)
 
 		ctx.addr.sun_family = .UNIX
-		copy(ctx.addr.sun_path[:], "/tmp/mixologist\x00")
-
-		posix.unlink("/tmp/mixologist\x00")
+		copy(ctx.addr.sun_path[:], "\x00mixologist\x00")
 		if posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr)) != .OK {
 			log.panic("could not bind socket")
 		}
@@ -294,7 +292,6 @@ main :: proc() {
 
 	// ipc cleanup
 	posix.close(ctx.ipc)
-	posix.unlink("/tmp/mixologist")
 
 	// ctx cleanup
 	for rule in ctx.aux_rules {
