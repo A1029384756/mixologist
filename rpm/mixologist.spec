@@ -6,7 +6,7 @@ Summary:        Tool to allow mixing audio between different programs
 License:        MIT
 URL:            https://cstring.dev
 Source0:        https://cstring.dev/mixologist-0.0.1.tar.gz
-Source1:        https://f001.backblazeb2.com/file/odin-binaries/nightly/odin-linux-amd64-nightly%2B2024-12-03.tar.gz
+Source1:        https://f001.backblazeb2.com/file/odin-binaries/nightly/odin-linux-amd64-nightly%2B2024-12-12.tar.gz
 
 BuildRequires: tar, make, systemd-rpm-macros
 BuildRequires: clang
