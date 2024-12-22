@@ -9,3 +9,11 @@ rpm:
 		mixologist.spec
 	@echo ___RPMS can be found in rpm/RPMS/.___
 	@echo ___Undo any changes to Version, Source0 and %autosetup in rpm/mixologist.spec before committing.___
+
+clean:
+	rm -rf ./RPMS
+	rm -rf ./BUILD
+	rm -rf ./SRPMS
+	rm -rf ./mixologist-0.0.1
+	rm ./mixologist-0.0.1.tar.gz
+	rm ./odin*

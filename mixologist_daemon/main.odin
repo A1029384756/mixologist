@@ -115,9 +115,10 @@ main :: proc() {
 		posix.fcntl(ctx.ipc, .SETFL, flags)
 
 		ctx.addr.sun_family = .UNIX
-		copy(ctx.addr.sun_path[:], "\x00mixologist\x00")
+		posix.unlink("\x00mixologist")
+		copy(ctx.addr.sun_path[:], "\x00mixologist")
 		if posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr)) != .OK {
-			log.panic("could not bind socket")
+			log.panicf("could not bind socket %d", posix.errno())
 		}
 
 		if posix.listen(ctx.ipc, 5) != .OK {
