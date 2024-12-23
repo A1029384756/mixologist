@@ -37,6 +37,8 @@ Context :: struct {
 	aux_sink:          Sink,
 	aux_rules:         [dynamic]string,
 	device_inputs:     map[string]Link,
+	passthrough_nodes: map[u32]Node,
+	passthrough_ports: [dynamic]u32,
 	vol:               f32,
 	// allocations
 	arena:             virtual.Arena,
@@ -78,6 +80,8 @@ main :: proc() {
 	ctx.allocator = virtual.arena_allocator(&ctx.arena)
 	ctx.aux_rules = make([dynamic]string, 0, DEFAULT_ARR_CAPACITY, ctx.allocator)
 	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
+	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY, ctx.allocator)
+	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY, ctx.allocator)
 	ctx.pw_odin_ctx = runtime.default_context()
 
 	// set up logging
@@ -401,8 +405,19 @@ node_handler :: proc(ctx: ^Context, id, version: u32, type: cstring, props: ^pw.
 		log.logf(.Info, "registered aux node with id %d", id)
 	} else {
 		application_name := pw.spa_dict_get(props, "application.name")
-		if application_name == nil {
+		media_class := pw.spa_dict_get(props, "media.class")
+		if application_name == nil && media_class == nil {
 			log.logf(.Info, "could not find application name for node with id %d", id)
+			return
+		}
+		if media_class == "Audio/Source/Virtual" {
+			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
+			node: Node
+			name_str := strings.clone_from_cstring(node_name)
+			node_init(&node, proxy, props, name_str, ctx.allocator)
+			ctx.passthrough_nodes[id] = node
+			return
+		} else if media_class != "Stream/Output/Audio" {
 			return
 		}
 
@@ -456,6 +471,13 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 		assert(parse_ok)
 		node_id_u32 := u32(node_id_uint)
 
+		passthrough, is_passthrough := &ctx.passthrough_nodes[node_id_u32]
+		if is_passthrough {
+			append(&ctx.passthrough_ports, id)
+			log.logf(.Info, "passthrough port %d registered for node %s", id, passthrough.name)
+			return
+		}
+
 		port_direction := pw.spa_dict_get(props, "port.direction")
 		if port_direction == nil || port_direction == "in" {
 			for sink in sinks {
@@ -473,16 +495,14 @@ port_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 			if !node_exists {continue}
 
 			port_name := pw.spa_dict_get(associated_node.props, "port.name")
-			if strings.starts_with(string(port_name), "monitor_") {
+			if !strings.starts_with(string(port_name), "output_") {
 				log.logf(.Info, "skipping port name %s", port_name)
 				return
 			}
 
 			channel := strings.clone_from_cstring(cstr_channel)
 			_, _, found := map_upsert(&associated_node.ports, channel, id)
-			if found {
-				delete(channel)
-			}
+			if found do delete(channel)
 			log.logf(.Info, "output port %d registered to sink %d", id, idx)
 		}
 	}
@@ -492,6 +512,19 @@ link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 	src_node, _ := spa_dict_get_u32(props, "link.output.node")
 	src_port, _ := spa_dict_get_u32(props, "link.output.port")
 	dest_port, _ := spa_dict_get_u32(props, "link.input.port")
+
+	// skip passthrough nodes
+	for port_id in ctx.passthrough_ports {
+		if port_id == dest_port {
+			log.debugf(
+				"Skipping passthrough link with src id: %d, routing %d -> %d",
+				src_node,
+				src_port,
+				dest_port,
+			)
+			return
+		}
+	}
 
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 	for sink, idx in sinks {
@@ -506,7 +539,15 @@ link_handler :: proc(ctx: ^Context, id, version: u32, props: ^pw.spa_dict) {
 			continue
 		}
 
-		log.logf(.Debug, "found source from %d group from node %d with id %d", idx, src_node, id)
+		log.logf(
+			.Debug,
+			"found source from %d group from node %d with id %d, prospective ports: %d -> %d",
+			idx,
+			src_node,
+			id,
+			src_port,
+			dest_port,
+		)
 
 		link_channel: string
 		for channel, port_id in associated_node.ports {
