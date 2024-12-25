@@ -132,12 +132,7 @@ main :: proc() {
 
 	// initialize pipewire
 	{
-		argc := len(os2.args)
-		argv := make([dynamic]cstring, 0, argc, ctx.allocator)
-		for arg in os2.args {
-			append(&argv, strings.unsafe_string_to_cstring(arg))
-		}
-		pw.init(&argc, raw_data(argv[:]))
+		pw.init(nil, nil)
 
 		log.log(
 			.Info,
