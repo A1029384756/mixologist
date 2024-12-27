@@ -69,8 +69,8 @@ is hot-reloaded and can be modified by `mixcli` or just
 editing it with your favorite text editor.
 
 ## Planned Features
-[ ] GUI
-[ ] Flatpak distribution (GUI-only)
-[ ] Improved Packaging for:
+- [ ] GUI
+- [ ] Flatpak distribution (GUI-only)
+- [ ] Improved Packaging for:
     - Debian
     - NixOS
