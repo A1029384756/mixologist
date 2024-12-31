@@ -14,6 +14,7 @@ import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:text/match"
+import "core:time"
 
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
@@ -110,19 +111,32 @@ main :: proc() {
 
 	// set up ipc
 	{
-		ctx.ipc = posix.socket(.UNIX, .STREAM)
-		if ctx.ipc == -1 {
-			log.panic("could not create socket")
-		}
+		retry_delay_seconds := time.Duration(1)
+		max_retry_count := 5
+		for retry_count in 0 ..< max(int) {
+			ctx.ipc = posix.socket(.UNIX, .STREAM)
+			if ctx.ipc == -1 {
+				log.panic("could not create socket")
+			}
 
-		flags := transmute(posix.O_Flags)posix.fcntl(ctx.ipc, .GETFL) + {.NONBLOCK}
-		posix.fcntl(ctx.ipc, .SETFL, flags)
+			flags := transmute(posix.O_Flags)posix.fcntl(ctx.ipc, .GETFL) + {.NONBLOCK}
+			posix.fcntl(ctx.ipc, .SETFL, flags)
 
-		ctx.addr.sun_family = .UNIX
-		posix.unlink("\x00mixologist")
-		copy(ctx.addr.sun_path[:], "\x00mixologist")
-		if posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr)) != .OK {
-			log.panicf("could not bind socket %d", posix.errno())
+			ctx.addr.sun_family = .UNIX
+			posix.unlink("\x00mixologist")
+			copy(ctx.addr.sun_path[:], "\x00mixologist")
+			bind_err := posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr))
+			if bind_err != .OK && retry_count == max_retry_count {
+				log.panicf("could not bind socket %v", posix.errno())
+			} else if bind_err != .OK {
+				log.errorf(
+					"could not bind socket %v, waiting %v seconds to try again. is mixd already running?",
+					posix.errno(),
+					retry_delay_seconds * time.Second,
+				)
+				time.sleep(retry_delay_seconds * time.Second)
+				retry_delay_seconds *= 2
+			}
 		}
 
 		if posix.listen(ctx.ipc, 5) != .OK {
