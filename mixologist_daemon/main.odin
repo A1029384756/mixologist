@@ -136,6 +136,8 @@ main :: proc() {
 				)
 				time.sleep(retry_delay_seconds * time.Second)
 				retry_delay_seconds *= 2
+			} else {
+				break
 			}
 		}
 
