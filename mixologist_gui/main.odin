@@ -1,19 +1,31 @@
 package mixologist_gui
 
 import "./clay"
-import "base:runtime"
 import "core:c"
-import "core:fmt"
+import "core:strings"
+import "core:text/edit"
 import "vendor:sdl2"
 import "vendor:sdl2/ttf"
 
-clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
-	context = runtime.default_context()
-	fmt.println(
-		"clay error detected of type: %v: %s",
-		errordata.errorType,
-		errordata.errorText.chars[:errordata.errorText.length],
-	)
+Context :: struct {
+	textbox_input:  strings.Builder,
+	textbox_state:  edit.State,
+	textbox_offset: int,
+}
+
+sdl2_set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
+	text_cstr := strings.clone_to_cstring(text)
+	sdl2.SetClipboardText(text_cstr)
+	delete(text_cstr)
+	return true
+}
+
+sdl2_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
+	if sdl2.HasClipboardText() {
+		text = string(sdl2.GetClipboardText())
+		ok = true
+	}
+	return
 }
 
 main :: proc() {
@@ -27,6 +39,10 @@ main :: proc() {
 	font_system_register(#load("resources/Roboto-Regular.ttf"))
 	defer font_system_deinit()
 
+	ctx: Context
+	ctx.textbox_state.set_clipboard = sdl2_set_clipboard
+	ctx.textbox_state.get_clipboard = sdl2_get_clipboard
+
 	window := sdl2.CreateWindow(
 		"Mixologist",
 		sdl2.WINDOWPOS_UNDEFINED,
@@ -37,9 +53,10 @@ main :: proc() {
 	)
 	defer sdl2.DestroyWindow(window)
 
-	renderer := sdl2.CreateRenderer(window, 0, {.ACCELERATED, .PRESENTVSYNC})
+	renderer := sdl2.CreateRenderer(window, 0, {.ACCELERATED, .PRESENTVSYNC, .TARGETTEXTURE})
 	defer sdl2.DestroyRenderer(renderer)
 	sdl2.SetWindowTitle(window, "Mixologist")
+	sdl2.SetRenderDrawBlendMode(renderer, .BLEND)
 
 	min_mem := clay.MinMemorySize()
 	memory := make([]u8, min_mem)
@@ -54,6 +71,7 @@ main :: proc() {
 		{c.float(window_size.x), c.float(window_size.y)},
 		{handler = clay_error_handler},
 	)
+	when ODIN_DEBUG do clay.SetDebugModeEnabled(true)
 
 	dt: c.float
 	last: u64
@@ -84,7 +102,7 @@ main :: proc() {
 		sdl2.GetWindowSize(window, &window_size.x, &window_size.y)
 		clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
-		render_cmds := create_layout()
+		render_cmds := create_layout(&ctx)
 
 		sdl2.SetRenderDrawColor(renderer, 0, 0, 0, 0)
 		sdl2.RenderClear(renderer)
@@ -96,7 +114,7 @@ main :: proc() {
 	}
 }
 
-create_layout :: proc() -> clay.ClayArray(clay.RenderCommand) {
+create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
 
 	if clay.UI(

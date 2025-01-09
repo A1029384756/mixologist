@@ -20,7 +20,6 @@ Font_System :: struct {
 	allocator: runtime.Allocator,
 }
 
-@(private = "file")
 font_system: Font_System
 
 font_system_init :: proc(allocator := context.allocator) {
@@ -76,12 +75,55 @@ clay_color_to_sdl2_color :: proc(color: clay.Color) -> sdl2.Color {
 	return sdl2.Color{u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
 }
 
-sdl2_RenderFillCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
-	prev_mode: sdl2.BlendMode
-	sdl2.GetRenderDrawBlendMode(renderer, &prev_mode)
-	sdl2.SetRenderDrawBlendMode(renderer, .BLEND)
-	defer sdl2.SetRenderDrawBlendMode(renderer, prev_mode)
+sdl2_RenderDrawCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
+	x, y := r, c.float(0)
+	t := 1 - x
 
+	for x >= y {
+		intensity := 1 - (t - math.floor(t))
+		next_intensity := t - math.floor(t)
+
+		color: [4]u8
+		sdl2.GetRenderDrawColor(renderer, &color.r, &color.g, &color.b, &color.a)
+
+		sdl2.SetRenderDrawColor(
+			renderer,
+			color.r,
+			color.g,
+			color.b,
+			u8(c.float(color.a) * intensity),
+		)
+		sdl2.RenderDrawPointF(renderer, pos.x + x, pos.y + y)
+		sdl2.RenderDrawPointF(renderer, pos.x - x, pos.y + y)
+		sdl2.RenderDrawPointF(renderer, pos.x + x, pos.y - y)
+		sdl2.RenderDrawPointF(renderer, pos.x - x, pos.y - y)
+
+		sdl2.SetRenderDrawColor(
+			renderer,
+			color.r,
+			color.g,
+			color.b,
+			u8(c.float(color.a) * next_intensity),
+		)
+		sdl2.RenderDrawPointF(renderer, pos.x + y, pos.y + x)
+		sdl2.RenderDrawPointF(renderer, pos.x - y, pos.y + x)
+		sdl2.RenderDrawPointF(renderer, pos.x + y, pos.y - x)
+		sdl2.RenderDrawPointF(renderer, pos.x - y, pos.y - x)
+
+		y += 1
+		if t < 0 {
+			t += 2 * y + 1
+		} else {
+			x -= 1
+			t += 2 * (y - x) + 1
+		}
+
+		sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a)
+	}
+}
+
+
+sdl2_RenderFillCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
 	x, y := r, c.float(0)
 	t := 1 - x
 
@@ -287,6 +329,92 @@ clay_render :: proc(
 				&sdl2.FRect{boundingbox.x, boundingbox.y, boundingbox.width, boundingbox.height},
 				config.cornerRadius.topLeft,
 			)
+		case .Border:
+			config := cmd.config.borderElementConfig
+			if config.left.width > 0 {
+				color := config.left.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2.RenderFillRectF(
+					renderer,
+					&sdl2.FRect {
+						boundingbox.x,
+						boundingbox.y + config.cornerRadius.topLeft,
+						f32(config.left.width),
+						boundingbox.height -
+						config.cornerRadius.topLeft -
+						config.cornerRadius.bottomLeft,
+					},
+				)
+			}
+			if config.right.width > 0 {
+				color := config.right.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2.RenderFillRectF(
+					renderer,
+					&sdl2.FRect {
+						boundingbox.x + boundingbox.width - f32(config.right.width),
+						boundingbox.y + config.cornerRadius.topRight,
+						f32(config.right.width),
+						boundingbox.height -
+						config.cornerRadius.topRight -
+						config.cornerRadius.bottomRight,
+					},
+				)
+			}
+			if config.top.width > 0 {
+				color := config.top.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2.RenderFillRectF(
+					renderer,
+					&sdl2.FRect {
+						boundingbox.x + config.cornerRadius.topLeft,
+						boundingbox.y,
+						boundingbox.width -
+						config.cornerRadius.topLeft -
+						config.cornerRadius.topRight,
+						f32(config.top.width),
+					},
+				)
+			}
+			if config.bottom.width > 0 {
+				color := config.bottom.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2.RenderFillRectF(
+					renderer,
+					&sdl2.FRect {
+						boundingbox.x + config.cornerRadius.bottomLeft,
+						boundingbox.y + boundingbox.height - f32(config.bottom.width),
+						boundingbox.width -
+						config.cornerRadius.bottomLeft -
+						config.cornerRadius.bottomRight,
+						f32(config.bottom.width),
+					},
+				)
+			}
 		case .ScissorStart:
 			dest := clay_bb_to_sdl2_rect(boundingbox)
 			sdl2.RenderSetClipRect(renderer, &dest)
@@ -296,4 +424,13 @@ clay_render :: proc(
 			fmt.panicf("rendering for %v not implemented", cmd.commandType)
 		}
 	}
+}
+
+clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
+	context = runtime.default_context()
+	fmt.println(
+		"clay error detected of type: %v: %s",
+		errordata.errorType,
+		errordata.errorText.chars[:errordata.errorText.length],
+	)
 }
