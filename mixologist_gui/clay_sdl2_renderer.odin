@@ -5,6 +5,7 @@ import "base:runtime"
 import "core:c"
 import "core:container/small_array"
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "vendor:sdl2"
 import "vendor:sdl2/ttf"
@@ -25,51 +26,48 @@ clay_color_to_sdl2_color :: proc(color: clay.Color) -> sdl2.Color {
 	return sdl2.Color{u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
 }
 
-sdl2_RenderFillCircle :: proc(renderer: ^sdl2.Renderer, pos: [2]c.int, r: c.int) {
-	help_fill :: proc(renderer: ^sdl2.Renderer, pos, range: [2]c.int) {
-		sdl2.RenderDrawLine(
-			renderer,
-			pos.x + range.x,
-			pos.y + range.y,
-			pos.x - range.x,
-			pos.y + range.y,
-		)
-		sdl2.RenderDrawLine(
-			renderer,
-			pos.x + range.x,
-			pos.y - range.y,
-			pos.x - range.x,
-			pos.y - range.y,
-		)
-		sdl2.RenderDrawLine(
-			renderer,
-			pos.x + range.y,
-			pos.y + range.x,
-			pos.x - range.y,
-			pos.y + range.x,
-		)
-		sdl2.RenderDrawLine(
-			renderer,
-			pos.x + range.y,
-			pos.y - range.x,
-			pos.x - range.y,
-			pos.y - range.x,
-		)
-	}
+sdl2_RenderFillCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
+	prev_mode: sdl2.BlendMode
+	sdl2.GetRenderDrawBlendMode(renderer, &prev_mode)
+	sdl2.SetRenderDrawBlendMode(renderer, .BLEND)
+	defer sdl2.SetRenderDrawBlendMode(renderer, prev_mode)
 
+	x, y := r, c.float(0)
+	t := 1 - x
 
-	x, y, d: c.int = 0, r, 3 - 2 * r
-	help_fill(renderer, pos, {x, y})
+	for x >= y {
+		sdl2.RenderDrawLineF(renderer, pos.x - x, pos.y + y, pos.x + x, pos.y + y)
+		sdl2.RenderDrawLineF(renderer, pos.x - x, pos.y - y, pos.x + x, pos.y - y)
+		sdl2.RenderDrawLineF(renderer, pos.x - y, pos.y + x, pos.x + y, pos.y + x)
+		sdl2.RenderDrawLineF(renderer, pos.x - y, pos.y - x, pos.x + y, pos.y - x)
 
-	for y >= x {
-		x += 1
-		if d > 0 {
-			y -= 1
-			d = d + 4 * (x - y) + 10
+		intensity := 1 - (t - math.floor(t))
+		next_intensity := t - math.floor(t)
+
+		color: [4]u8
+		sdl2.GetRenderDrawColor(renderer, &color.r, &color.g, &color.b, &color.a)
+
+		sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, u8(255 * intensity))
+		sdl2.RenderDrawPointF(renderer, pos.x + x, pos.y + y)
+		sdl2.RenderDrawPointF(renderer, pos.x - x, pos.y + y)
+		sdl2.RenderDrawPointF(renderer, pos.x + x, pos.y - y)
+		sdl2.RenderDrawPointF(renderer, pos.x - x, pos.y - y)
+
+		sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, u8(255 * next_intensity))
+		sdl2.RenderDrawPointF(renderer, pos.x + y, pos.y + x)
+		sdl2.RenderDrawPointF(renderer, pos.x - y, pos.y + x)
+		sdl2.RenderDrawPointF(renderer, pos.x + y, pos.y - x)
+		sdl2.RenderDrawPointF(renderer, pos.x - y, pos.y - x)
+
+		y += 1
+		if t < 0 {
+			t += 2 * y + 1
 		} else {
-			d = d + 4 * x + 6
+			x -= 1
+			t += 2 * (y - x) + 1
 		}
-		help_fill(renderer, pos, {x, y})
+
+		sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a)
 	}
 }
 
@@ -83,6 +81,10 @@ sdl2_RenderFillFRectRounded :: proc(
 	if renderer == nil do return -1
 	if border_radius < 0 do return -1
 	if border_radius < 1 do return sdl2.RenderFillRectF(renderer, rect)
+
+	border_radius := border_radius
+	if border_radius > rect.w / 2 do border_radius = rect.w / 2
+	if border_radius > rect.h / 2 do border_radius = rect.h / 2
 
 	if rect.w == 0 || rect.h == 0 {
 		return sdl2.RenderDrawLine(
@@ -102,34 +104,61 @@ sdl2_RenderFillFRectRounded :: proc(
 		corrected_radius = rect.h / 2
 	}
 
-	top_left, top_right, bottom_left, bottom_right: [2]c.int
-	top_left = {c.int(rect.x + border_radius), c.int(rect.y + border_radius)}
-	top_right = {c.int(rect.x + rect.w - border_radius), c.int(rect.y + border_radius)}
-	bottom_left = {c.int(rect.x + border_radius), c.int(rect.y + rect.h - border_radius)}
-	bottom_right = {c.int(rect.x + rect.w - border_radius), c.int(rect.y + rect.h - border_radius)}
-
-	sdl2_RenderFillCircle(renderer, top_left, c.int(border_radius))
-	sdl2_RenderFillCircle(renderer, top_right, c.int(border_radius))
-	sdl2_RenderFillCircle(renderer, bottom_left, c.int(border_radius))
-	sdl2_RenderFillCircle(renderer, bottom_right, c.int(border_radius))
-
-	sdl2.RenderFillRect(
+	sdl2_RenderFillCircleF(
 		renderer,
-		&sdl2.Rect {
-			c.int(rect.x + border_radius),
-			c.int(rect.y),
-			c.int(rect.w - 2 * border_radius),
-			c.int(rect.h),
+		{rect.x + border_radius, rect.y + border_radius},
+		border_radius,
+	)
+	sdl2_RenderFillCircleF(
+		renderer,
+		{rect.x + rect.w - border_radius - 1, rect.y + border_radius},
+		border_radius,
+	)
+	sdl2_RenderFillCircleF(
+		renderer,
+		{rect.x + border_radius, rect.y + rect.h - border_radius - 1},
+		border_radius,
+	)
+	sdl2_RenderFillCircleF(
+		renderer,
+		{rect.x + rect.w - border_radius - 1, rect.y + rect.h - border_radius - 1},
+		border_radius,
+	)
+
+	sdl2.RenderFillRectF(
+		renderer,
+		&sdl2.FRect {
+			rect.x + border_radius,
+			rect.y + border_radius,
+			rect.w - 2 * border_radius,
+			rect.h - 2 * border_radius,
 		},
 	)
 
-	sdl2.RenderFillRect(
+	sdl2.RenderFillRectF(
 		renderer,
-		&sdl2.Rect {
-			c.int(rect.x),
-			c.int(rect.y + border_radius),
-			c.int(rect.w),
-			c.int(rect.h - 2 * border_radius),
+		&sdl2.FRect{rect.x + border_radius, rect.y, rect.w - 2 * border_radius, border_radius},
+	)
+	sdl2.RenderFillRectF(
+		renderer,
+		&sdl2.FRect {
+			rect.x + border_radius,
+			rect.y + rect.h - border_radius,
+			rect.w - 2 * border_radius,
+			border_radius,
+		},
+	)
+	sdl2.RenderFillRectF(
+		renderer,
+		&sdl2.FRect{rect.x, rect.y + border_radius, border_radius, rect.h - 2 * border_radius},
+	)
+	sdl2.RenderFillRectF(
+		renderer,
+		&sdl2.FRect {
+			rect.x + rect.w - border_radius,
+			rect.y + border_radius,
+			border_radius,
+			rect.h - 2 * border_radius,
 		},
 	)
 

@@ -97,15 +97,16 @@ create_layout :: proc() -> clay.ClayArray(clay.RenderCommand) {
 		clay.Layout(
 			{
 				layoutDirection = .TOP_TO_BOTTOM,
-				padding = {100, 100},
 				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				padding = {16, 16},
+				childAlignment = {x = .CENTER, y = .CENTER},
 			},
 		),
-		clay.Rectangle({color = {244, 235, 230, 255}, cornerRadius = {10, 10, 10, 10}}),
+		clay.Rectangle({color = {244, 235, 230, 255}}),
 	) {
 		if clay.UI(
-			clay.Layout({sizing = {clay.SizingFixed(100), clay.SizingFixed(100)}}),
-			clay.Rectangle({color = {10, 24, 12, 255}, cornerRadius = {10, 10, 10, 10}}),
+			clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(1)}}),
+			clay.Rectangle({color = {10, 24, 12, 255}, cornerRadius = clay.CornerRadiusAll(5)}),
 		) {}
 	}
 
