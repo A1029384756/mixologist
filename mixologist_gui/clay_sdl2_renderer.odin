@@ -165,7 +165,7 @@ sdl2_RenderFillFRectRounded :: proc(
 	return
 }
 
-measure_text_temp_alloc :: proc "c" (
+clay_measure_text_sdl2 :: proc "c" (
 	text: ^clay.String,
 	config: ^clay.TextElementConfig,
 ) -> clay.Dimensions {
@@ -177,8 +177,8 @@ measure_text_temp_alloc :: proc "c" (
 	defer delete(text_cstr)
 
 	size: [2]i32
-	if ttf.SizeUTF8(font, text_cstr, &size.x, &size.y) < 0 do fmt.panicf("could not measure text")
-	return {f32(size.x), f32(size.y)}
+	if ttf.SizeUTF8(font, text_cstr, &size.x, &size.y) < 0 do fmt.panicf("could not measure text %s", ttf.GetError())
+	return {c.float(size.x), c.float(size.y)}
 }
 
 @(private = "file")

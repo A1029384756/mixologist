@@ -23,7 +23,8 @@ main :: proc() {
 	ttf.Init()
 	defer ttf.Quit()
 
-	font := ttf.OpenFont("resources/Roboto-Regular.ttf", 16)
+	font := ttf.OpenFont("mixologist_gui/resources/Roboto-Regular.ttf", 32)
+	assert(font != nil)
 	defer ttf.CloseFont(font)
 	register_font(font)
 
@@ -39,7 +40,7 @@ main :: proc() {
 	memory := make([]u8, min_mem)
 	defer delete(memory)
 	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(memory))
-	clay.SetMeasureTextFunction(measure_text_temp_alloc)
+	clay.SetMeasureTextFunction(clay_measure_text_sdl2)
 
 	window_size: [2]c.int
 	sdl.GetWindowSize(window, &window_size.x, &window_size.y)
@@ -102,12 +103,19 @@ create_layout :: proc() -> clay.ClayArray(clay.RenderCommand) {
 				childAlignment = {x = .CENTER, y = .CENTER},
 			},
 		),
-		clay.Rectangle({color = {244, 235, 230, 255}}),
+		clay.Rectangle({color = CRUST}),
 	) {
 		if clay.UI(
-			clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(1)}}),
-			clay.Rectangle({color = {10, 24, 12, 255}, cornerRadius = clay.CornerRadiusAll(5)}),
-		) {}
+			clay.Layout(
+				{
+					sizing = {clay.SizingPercent(1), clay.SizingPercent(1)},
+					childAlignment = {x = .CENTER, y = .CENTER},
+				},
+			),
+			clay.Rectangle({color = BASE, cornerRadius = clay.CornerRadiusAll(5)}),
+		) {
+			clay.Text("this is a test", clay.TextConfig({textColor = TEXT}))
+		}
 	}
 
 	return clay.EndLayout()
