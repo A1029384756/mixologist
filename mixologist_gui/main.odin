@@ -35,6 +35,7 @@ main :: proc() {
 		sdl.DestroyRenderer(renderer)
 		sdl.DestroyWindow(window)
 	}
+  sdl.SetWindowTitle(window, "Mixologist")
 
 	min_mem := clay.MinMemorySize()
 	memory := make([]u8, min_mem)
