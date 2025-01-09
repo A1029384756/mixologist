@@ -10,12 +10,62 @@ import "core:strings"
 import "vendor:sdl2"
 import "vendor:sdl2/ttf"
 
-@(private = "file")
-fonts: small_array.Small_Array(int(max(u16)), ^ttf.Font)
+Font :: struct {
+	sizes:     map[u16]^ttf.Font,
+	ttf_bytes: []u8,
+}
 
-register_font :: proc(font: ^ttf.Font) -> int {
-	small_array.append(&fonts, font)
-	return small_array.len(fonts) - 1
+Font_System :: struct {
+	fonts:     small_array.Small_Array(int(max(u16)), Font),
+	allocator: runtime.Allocator,
+}
+
+@(private = "file")
+font_system: Font_System
+
+font_system_init :: proc(allocator := context.allocator) {
+	font_system.allocator = allocator
+}
+
+font_system_deinit :: proc() {
+	for font in small_array.slice(&font_system.fonts) {
+		for _, sized_font in font.sizes {
+			ttf.CloseFont(sized_font)
+		}
+		delete(font.sizes)
+	}
+}
+
+font_system_register :: proc(font_bytes: []u8, font_size: u16 = 16) -> int {
+	ttf_font := ttf.OpenFontRW(
+		sdl2.RWFromMem(raw_data(font_bytes), c.int(len(font_bytes))),
+		true,
+		c.int(font_size),
+	)
+	font := Font {
+		sizes     = make(map[u16]^ttf.Font, font_system.allocator),
+		ttf_bytes = font_bytes,
+	}
+	font.sizes[u16(font_size)] = ttf_font
+
+	small_array.append(&font_system.fonts, font)
+	return small_array.len(font_system.fonts) - 1
+}
+
+font_system_retrieve :: proc(font_id, font_size: u16) -> ^ttf.Font {
+	font, font_id_get_err := small_array.get_ptr_safe(&font_system.fonts, int(font_id))
+	if !font_id_get_err do return nil
+
+	ttf_font, ttf_exists := font.sizes[font_size]
+	if !ttf_exists {
+		ttf_font = ttf.OpenFontRW(
+			sdl2.RWFromMem(raw_data(font.ttf_bytes), c.int(len(font.ttf_bytes))),
+			true,
+			c.int(font_size),
+		)
+		font.sizes[font_size] = ttf_font
+	}
+	return ttf_font
 }
 
 clay_bb_to_sdl2_rect :: proc(bb: clay.BoundingBox) -> sdl2.Rect {
@@ -171,7 +221,7 @@ clay_measure_text_sdl2 :: proc "c" (
 ) -> clay.Dimensions {
 	context = runtime.default_context()
 
-	font := small_array.get(fonts, int(config.fontId))
+	font := font_system_retrieve(config.fontId, config.fontSize)
 	text := transmute(string)text.chars[:text.length]
 	text_cstr := strings.clone_to_cstring(text)
 	defer delete(text_cstr)
@@ -201,7 +251,7 @@ clay_render :: proc(
 				transmute(string)text.chars[:text.length],
 				temp_allocator,
 			)
-			font := small_array.get(fonts, int(config.fontId))
+			font := font_system_retrieve(config.fontId, config.fontSize)
 			surface := ttf.RenderUTF8_Blended(
 				font,
 				text_cstr,

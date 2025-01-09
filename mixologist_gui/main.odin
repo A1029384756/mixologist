@@ -23,19 +23,23 @@ main :: proc() {
 	ttf.Init()
 	defer ttf.Quit()
 
-	font := ttf.OpenFont("mixologist_gui/resources/Roboto-Regular.ttf", 32)
-	assert(font != nil)
-	defer ttf.CloseFont(font)
-	register_font(font)
+	font_system_init()
+	font_system_register(#load("resources/Roboto-Regular.ttf"))
+	defer font_system_deinit()
 
-	window: ^sdl.Window
-	renderer: ^sdl.Renderer
-	sdl.CreateWindowAndRenderer(800, 600, {.RESIZABLE}, &window, &renderer)
-	defer {
-		sdl.DestroyRenderer(renderer)
-		sdl.DestroyWindow(window)
-	}
-  sdl.SetWindowTitle(window, "Mixologist")
+	window := sdl.CreateWindow(
+		"Mixologist",
+		sdl.WINDOWPOS_UNDEFINED,
+		sdl.WINDOWPOS_UNDEFINED,
+		800,
+		600,
+		{.RESIZABLE},
+	)
+	defer sdl.DestroyWindow(window)
+
+	renderer := sdl.CreateRenderer(window, 0, {.ACCELERATED, .PRESENTVSYNC})
+	defer sdl.DestroyRenderer(renderer)
+	sdl.SetWindowTitle(window, "Mixologist")
 
 	min_mem := clay.MinMemorySize()
 	memory := make([]u8, min_mem)
@@ -115,7 +119,7 @@ create_layout :: proc() -> clay.ClayArray(clay.RenderCommand) {
 			),
 			clay.Rectangle({color = BASE, cornerRadius = clay.CornerRadiusAll(5)}),
 		) {
-			clay.Text("this is a test", clay.TextConfig({textColor = TEXT}))
+			clay.Text("this is a test", clay.TextConfig({textColor = TEXT, fontSize = 32}))
 		}
 	}
 
