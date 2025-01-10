@@ -75,6 +75,29 @@ clay_color_to_sdl2_color :: proc(color: clay.Color) -> sdl2.Color {
 	return sdl2.Color{u8(color.r), u8(color.g), u8(color.b), u8(color.a)}
 }
 
+sdl2_RenderDrawArcF :: proc(
+	renderer: ^sdl2.Renderer,
+	pos: [2]c.float,
+	radius, start_angle, end_angle, thickness: c.float,
+) {
+	SEGMENTS :: 8
+	for t in 0 ..< thickness {
+		t := c.float(t)
+		curr_rad := radius + t
+		for i in 0 ..< SEGMENTS {
+			i := c.float(i)
+			angle_a_deg := start_angle + (end_angle - start_angle) * i / SEGMENTS
+			angle_b_deg := start_angle + (end_angle - start_angle) * (i + 1) / SEGMENTS
+			angle_a := math.to_radians(angle_a_deg)
+			angle_b := math.to_radians(angle_b_deg)
+
+			p1 := pos + {curr_rad * math.cos(angle_a), curr_rad * math.sin(angle_a)}
+			p2 := pos + {curr_rad * math.cos(angle_b), curr_rad * math.sin(angle_b)}
+			sdl2.RenderDrawLineF(renderer, p1.x, p1.y, p2.x, p2.y)
+		}
+	}
+}
+
 sdl2_RenderDrawCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
 	x, y := r, c.float(0)
 	t := 1 - x
@@ -121,7 +144,6 @@ sdl2_RenderDrawCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.f
 		sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a)
 	}
 }
-
 
 sdl2_RenderFillCircleF :: proc(renderer: ^sdl2.Renderer, pos: [2]c.float, r: c.float) {
 	x, y := r, c.float(0)
@@ -350,7 +372,7 @@ clay_render :: proc(
 					&sdl2.FRect {
 						boundingbox.x,
 						boundingbox.y + config.cornerRadius.topLeft,
-						f32(config.left.width),
+						c.float(config.left.width),
 						boundingbox.height -
 						config.cornerRadius.topLeft -
 						config.cornerRadius.bottomLeft,
@@ -369,9 +391,9 @@ clay_render :: proc(
 				sdl2.RenderFillRectF(
 					renderer,
 					&sdl2.FRect {
-						boundingbox.x + boundingbox.width - f32(config.right.width),
+						boundingbox.x + boundingbox.width - c.float(config.right.width),
 						boundingbox.y + config.cornerRadius.topRight,
-						f32(config.right.width),
+						c.float(config.right.width),
 						boundingbox.height -
 						config.cornerRadius.topRight -
 						config.cornerRadius.bottomRight,
@@ -395,7 +417,7 @@ clay_render :: proc(
 						boundingbox.width -
 						config.cornerRadius.topLeft -
 						config.cornerRadius.topRight,
-						f32(config.top.width),
+						c.float(config.top.width),
 					},
 				)
 			}
@@ -416,8 +438,104 @@ clay_render :: proc(
 						boundingbox.width -
 						config.cornerRadius.bottomLeft -
 						config.cornerRadius.bottomRight,
-						f32(config.bottom.width),
+						c.float(config.bottom.width),
 					},
+				)
+			}
+			if config.cornerRadius.topLeft > 0 {
+				color := config.top.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2_RenderDrawArcF(
+					renderer,
+					{
+						boundingbox.x + config.cornerRadius.topLeft,
+						boundingbox.y + config.cornerRadius.topLeft,
+					},
+					config.cornerRadius.topLeft,
+					180,
+					270,
+					c.float(config.top.width),
+				)
+			}
+			if config.cornerRadius.topRight > 0 {
+				color := config.top.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2_RenderDrawArcF(
+					renderer,
+					{
+						boundingbox.x +
+						boundingbox.width -
+						config.cornerRadius.topRight -
+						c.float(config.top.width),
+						boundingbox.y + config.cornerRadius.topRight,
+					},
+					config.cornerRadius.topRight,
+					270,
+					360,
+					c.float(config.top.width),
+				)
+			}
+			if config.cornerRadius.bottomLeft > 0 {
+				color := config.bottom.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2_RenderDrawArcF(
+					renderer,
+					{
+						boundingbox.x + config.cornerRadius.bottomLeft,
+						boundingbox.y +
+						boundingbox.height -
+						config.cornerRadius.bottomLeft -
+						c.float(config.bottom.width),
+					},
+					config.cornerRadius.bottomLeft,
+					90,
+					180,
+					c.float(config.bottom.width),
+				)
+			}
+			if config.cornerRadius.bottomRight > 0 {
+				color := config.bottom.color
+				sdl2.SetRenderDrawColor(
+					renderer,
+					u8(color.r),
+					u8(color.g),
+					u8(color.b),
+					u8(color.a),
+				)
+				sdl2_RenderDrawArcF(
+					renderer,
+					{
+						boundingbox.x +
+						boundingbox.width -
+						config.cornerRadius.bottomRight -
+						c.float(config.bottom.width),
+						boundingbox.y +
+						boundingbox.height -
+						config.cornerRadius.bottomRight -
+						c.float(config.bottom.width),
+					},
+					config.cornerRadius.bottomRight,
+					0,
+					90,
+					c.float(config.bottom.width),
 				)
 			}
 		case .ScissorStart:
