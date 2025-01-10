@@ -8,19 +8,21 @@ import "core:text/edit"
 import "vendor:sdl2"
 import "vendor:sdl2/ttf"
 
-KeyState :: enum u8 {
+ButtonState :: enum u8 {
 	PRESSED,
 	HELD,
 	RELEASED,
 }
 
-KeyStates :: bit_set[KeyState]
+ButtonStates :: bit_set[ButtonState]
 
 Context :: struct {
 	textbox_input:  strings.Builder,
 	textbox_state:  edit.State,
 	textbox_offset: int,
-	keyboard:       map[sdl2.Keycode]KeyStates,
+	keyboard:       map[sdl2.Keycode]ButtonStates,
+	mouse:          [3]ButtonStates,
+	mouse_pos:      [2]c.int,
 	debug_mode:     bool,
 }
 
@@ -91,6 +93,10 @@ main :: proc() {
 		for _, &state in ctx.keyboard {
 			if state == {.RELEASED} do state = {}
 		}
+		for &state in ctx.mouse {
+			if .PRESSED in state do state -= {.PRESSED}
+			if state == {.RELEASED} do state = {}
+		}
 
 		event: sdl2.Event
 		scroll_delta: clay.Vector2
@@ -110,18 +116,29 @@ main :: proc() {
 			case .KEYUP:
 				key := event.key.keysym.sym
 				ctx.keyboard[key] = {.RELEASED}
+			case .MOUSEBUTTONDOWN:
+				button := event.button.button
+				switch button {
+				case 1 ..= 3:
+					ctx.mouse[button - 1] += {.PRESSED, .HELD}
+				}
+			case .MOUSEBUTTONUP:
+				button := event.button.button
+				switch button {
+				case 1 ..= 3:
+					ctx.mouse[button - 1] = {.RELEASED}
+				}
 			}
 		}
 		last = now
 		now = sdl2.GetPerformanceCounter()
 		dt = c.float(now - last) * 1000 / c.float(sdl2.GetPerformanceFrequency())
 
-		mouse_pos_sdl: [2]c.int
-		mouse_state := sdl2.GetMouseState(&mouse_pos_sdl.x, &mouse_pos_sdl.y)
+		sdl2.GetMouseState(&ctx.mouse_pos.x, &ctx.mouse_pos.y)
 
-		mouse_pos := clay.Vector2{c.float(mouse_pos_sdl.x), c.float(mouse_pos_sdl.y)}
-		clay.SetPointerState(mouse_pos, (mouse_state & sdl2.BUTTON_LMASK) == 1)
-		clay.UpdateScrollContainers(true, scroll_delta, dt)
+		mouse_pos := clay.Vector2{c.float(ctx.mouse_pos.x), c.float(ctx.mouse_pos.y)}
+		clay.SetPointerState(mouse_pos, .PRESSED in ctx.mouse[0])
+		clay.UpdateScrollContainers(false, scroll_delta, dt)
 
 		when ODIN_DEBUG {
 			if .HELD in ctx.keyboard[sdl2.Keycode.LCTRL] &&
@@ -158,7 +175,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				childAlignment = {x = .CENTER, y = .CENTER},
 			},
 		),
-		clay.Rectangle({color = CRUST}),
+		clay.Rectangle({color = BASE}),
 	) {
 		if clay.UI(
 			clay.Layout(
@@ -168,14 +185,52 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				},
 			),
 			clay.Scroll({vertical = true}),
-			clay.Rectangle({color = BASE, cornerRadius = clay.CornerRadiusAll(5)}),
+			clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
 		) {
-			for i in 0 ..< 100 {
-				str := fmt.tprintf("this is a test %d", i)
-				clay.Text(str, clay.TextConfig({textColor = TEXT, fontSize = 32}))
-			}
+			for i in 0 ..< 100 do rule_line(ctx, i)
 		}
 	}
 
 	return clay.EndLayout()
+}
+
+rule_line :: proc(ctx: ^Context, idx: int) {
+	if clay.UI(
+		clay.Layout(
+			{
+				layoutDirection = .LEFT_TO_RIGHT,
+				sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+				padding = {16, 16},
+			},
+		),
+		clay.Rectangle({color = idx % 2 == 0 ? MANTLE : CRUST}),
+	) {
+		str := fmt.tprintf("this is a test %d", idx)
+		clay.Text(str, clay.TextConfig({textColor = TEXT, fontSize = 16}))
+
+		if clay.UI(
+			clay.Layout(
+				{
+					layoutDirection = .LEFT_TO_RIGHT,
+					childAlignment = {x = .RIGHT, y = .CENTER},
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				},
+			),
+		) {
+			if clay.UI() {
+				if clay.UI(
+					clay.Layout(
+						{
+							sizing = {clay.SizingFixed(16), clay.SizingFixed(16)},
+							padding = {16, 16},
+						},
+					),
+					clay.Rectangle({color = clay.Hovered() ? RED : MAUVE}),
+				) {
+					if clay.Hovered() && .PRESSED in ctx.mouse[0] do fmt.println("clicked", idx)
+					if clay.Hovered() && .RELEASED in ctx.mouse[0] do fmt.println("released", idx)
+				}
+			}
+		}
+	}
 }
