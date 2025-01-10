@@ -248,10 +248,10 @@ sdl2_RenderFillFRectRounded :: proc(
 	sdl2.RenderFillRectF(
 		renderer,
 		&sdl2.FRect {
-      border_radius,
-      border_radius,
-      rect.w - 2 * border_radius,
-      rect.h - 2 *border_radius
+			border_radius,
+			border_radius,
+			rect.w - 2 * border_radius,
+			rect.h - 2 * border_radius,
 		},
 	)
 
