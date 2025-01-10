@@ -13,7 +13,6 @@ ButtonState :: enum u8 {
 	HELD,
 	RELEASED,
 }
-
 ButtonStates :: bit_set[ButtonState]
 
 Context :: struct {
@@ -23,6 +22,7 @@ Context :: struct {
 	keyboard:       map[sdl2.Keycode]ButtonStates,
 	mouse:          [3]ButtonStates,
 	mouse_pos:      [2]c.int,
+	hovering:       bool,
 	debug_mode:     bool,
 }
 
@@ -39,6 +39,22 @@ sdl2_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 		ok = true
 	}
 	return
+}
+
+cursors := [sdl2.SystemCursor]^sdl2.Cursor {
+	.HAND               = nil,
+	.ARROW              = nil,
+	.NO                 = nil,
+	.WAIT               = nil,
+	.IBEAM              = nil,
+	.SIZEWE             = nil,
+	.SIZENS             = nil,
+	.SIZEALL            = nil,
+	.SIZENWSE           = nil,
+	.SIZENESW           = nil,
+	.CROSSHAIR          = nil,
+	.WAITARROW          = nil,
+	.NUM_SYSTEM_CURSORS = nil,
 }
 
 main :: proc() {
@@ -86,10 +102,20 @@ main :: proc() {
 		{handler = clay_error_handler},
 	)
 
+	for &cursor, system in cursors {
+		cursor = sdl2.CreateSystemCursor(system)
+	}
+	defer {
+		for cursor in cursors {
+			sdl2.FreeCursor(cursor)
+		}
+	}
+
 	dt: c.float
 	last: u64
 	now := sdl2.GetPerformanceCounter()
 	mainloop: for !sdl2.QuitRequested() {
+		ctx.hovering = false
 		for _, &state in ctx.keyboard {
 			if state == {.RELEASED} do state = {}
 		}
@@ -152,6 +178,8 @@ main :: proc() {
 		clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
 		render_cmds := create_layout(&ctx)
+		if ctx.hovering do sdl2.SetCursor(cursors[.HAND])
+		else do sdl2.SetCursor(cursors[.ARROW])
 
 		sdl2.SetRenderDrawColor(renderer, 0, 0, 0, 0)
 		sdl2.RenderClear(renderer)
@@ -217,20 +245,13 @@ rule_line :: proc(ctx: ^Context, idx: int) {
 				},
 			),
 		) {
-			if clay.UI() {
-				if clay.UI(
-					clay.Layout(
-						{
-							sizing = {clay.SizingFixed(16), clay.SizingFixed(16)},
-							padding = {16, 16},
-						},
-					),
-					clay.Rectangle({color = clay.Hovered() ? RED : MAUVE}),
-				) {
-					if clay.Hovered() && .PRESSED in ctx.mouse[0] do fmt.println("clicked", idx)
-					if clay.Hovered() && .RELEASED in ctx.mouse[0] do fmt.println("released", idx)
-				}
-			}
+			if button(
+				ctx,
+				clay.Layout(
+					{sizing = {clay.SizingFixed(16), clay.SizingFixed(16)}, padding = {16, 16}},
+				),
+				clay.Rectangle({color = clay.Hovered() ? RED : MAUVE}),
+			) { fmt.println("clicked", idx) }
 		}
 	}
 }
