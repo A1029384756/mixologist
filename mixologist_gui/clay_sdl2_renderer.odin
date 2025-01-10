@@ -196,64 +196,69 @@ sdl2_RenderFillFRectRounded :: proc(
 		corrected_radius = rect.h / 2
 	}
 
+	target := sdl2.CreateTexture(renderer, .RGBA8888, .TARGET, c.int(rect.w), c.int(rect.h))
+	defer sdl2.DestroyTexture(target)
+
+	sdl2.SetTextureBlendMode(target, .BLEND)
+	sdl2.SetRenderTarget(renderer, target)
+
+	color: [4]u8
+	sdl2.GetRenderDrawColor(renderer, &color.r, &color.g, &color.b, &color.a)
+
+	sdl2.SetRenderDrawColor(renderer, 0, 0, 0, 0)
+	sdl2.RenderClear(renderer)
+
+	sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, 255)
+
+	sdl2_RenderFillCircleF(renderer, {border_radius, border_radius}, border_radius)
+	sdl2_RenderFillCircleF(renderer, {rect.w - border_radius - 1, border_radius}, border_radius)
+	sdl2_RenderFillCircleF(renderer, {border_radius, rect.h - border_radius - 1}, border_radius)
 	sdl2_RenderFillCircleF(
 		renderer,
-		{rect.x + border_radius, rect.y + border_radius},
-		border_radius,
-	)
-	sdl2_RenderFillCircleF(
-		renderer,
-		{rect.x + rect.w - border_radius - 1, rect.y + border_radius},
-		border_radius,
-	)
-	sdl2_RenderFillCircleF(
-		renderer,
-		{rect.x + border_radius, rect.y + rect.h - border_radius - 1},
-		border_radius,
-	)
-	sdl2_RenderFillCircleF(
-		renderer,
-		{rect.x + rect.w - border_radius - 1, rect.y + rect.h - border_radius - 1},
+		{rect.w - border_radius - 1, rect.h - border_radius - 1},
 		border_radius,
 	)
 
 	sdl2.RenderFillRectF(
 		renderer,
-		&sdl2.FRect {
-			rect.x + border_radius,
-			rect.y + border_radius,
-			rect.w - 2 * border_radius,
-			rect.h - 2 * border_radius,
-		},
-	)
-
-	sdl2.RenderFillRectF(
-		renderer,
-		&sdl2.FRect{rect.x + border_radius, rect.y, rect.w - 2 * border_radius, border_radius},
+		&sdl2.FRect{border_radius, 0, rect.w - 2 * border_radius, border_radius},
 	)
 	sdl2.RenderFillRectF(
 		renderer,
 		&sdl2.FRect {
-			rect.x + border_radius,
-			rect.y + rect.h - border_radius,
+			border_radius,
+			rect.h - border_radius,
 			rect.w - 2 * border_radius,
 			border_radius,
 		},
 	)
 	sdl2.RenderFillRectF(
 		renderer,
-		&sdl2.FRect{rect.x, rect.y + border_radius, border_radius, rect.h - 2 * border_radius},
+		&sdl2.FRect{0, border_radius, border_radius, rect.h - 2 * border_radius},
 	)
 	sdl2.RenderFillRectF(
 		renderer,
 		&sdl2.FRect {
-			rect.x + rect.w - border_radius,
-			rect.y + border_radius,
+			rect.w - border_radius,
+			border_radius,
 			border_radius,
 			rect.h - 2 * border_radius,
 		},
 	)
+	sdl2.RenderFillRectF(
+		renderer,
+		&sdl2.FRect {
+      border_radius,
+      border_radius,
+      rect.w - 2 * border_radius,
+      rect.h - 2 *border_radius
+		},
+	)
 
+	sdl2.SetRenderTarget(renderer, nil)
+	sdl2.SetTextureAlphaMod(target, color.a)
+	sdl2.RenderCopyF(renderer, target, nil, rect)
+	sdl2.SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a)
 	return
 }
 
