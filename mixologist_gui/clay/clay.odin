@@ -308,7 +308,7 @@ foreign Clay {
 	Hovered :: proc() -> bool ---
 }
 
-@(link_prefix = "Clay_", default_calling_convention = "c", private)
+@(link_prefix = "Clay_", default_calling_convention = "c")
 foreign Clay {
 	_OpenElement :: proc() ---
 	_CloseElement :: proc() ---
