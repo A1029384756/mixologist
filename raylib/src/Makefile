@@ -58,7 +58,7 @@
 # Define required environment variables
 #------------------------------------------------------------------------------------------------
 # Define target platform
-PLATFORM             ?= PLATFORM_DESKTOP
+PLATFORM             ?= PLATFORM_DESKTOP_SDL
 
 ifeq ($(PLATFORM), PLATFORM_DESKTOP)
     TARGET_PLATFORM = PLATFORM_DESKTOP_GLFW
@@ -116,8 +116,8 @@ GLFW_LINUX_ENABLE_X11      ?= TRUE
 
 # PLATFORM_DESKTOP_SDL: It requires SDL library to be provided externally
 # WARNING: Library is not included in raylib, it MUST be configured by users
-SDL_INCLUDE_PATH      ?= $(RAYLIB_SRC_PATH)/external/SDL2/include
-SDL_LIBRARY_PATH      ?= $(RAYLIB_SRC_PATH)/external/SDL2/lib
+SDL_INCLUDE_PATH      ?= $(shell pkg-config --cflags sdl2)
+SDL_LIBRARY_PATH      ?= $(shell pkg-config --libs sdl2)
 SDL_LIBRARIES         ?= -lSDL2 -lSDL2main
 
 
@@ -472,7 +472,7 @@ ifeq ($(TARGET_PLATFORM),PLATFORM_DESKTOP_GLFW)
     endif
 endif
 ifeq ($(TARGET_PLATFORM),PLATFORM_DESKTOP_SDL)
-    INCLUDE_PATHS += -I$(SDL_INCLUDE_PATH)
+    INCLUDE_PATHS += $(SDL_INCLUDE_PATH)
 endif
 ifeq ($(TARGET_PLATFORM),PLATFORM_WEB)
     INCLUDE_PATHS += -Iexternal/glfw/include
@@ -528,7 +528,7 @@ ifeq ($(TARGET_PLATFORM),PLATFORM_DESKTOP_GLFW)
 endif
 ifeq ($(TARGET_PLATFORM),PLATFORM_DESKTOP_SDL)
     LDFLAGS += -Wl,-soname,lib$(RAYLIB_LIB_NAME).so.$(RAYLIB_API_VERSION)
-    LDFLAGS += -L$(SDL_LIBRARY_PATH)
+    LDFLAGS += $(SDL_LIBRARY_PATH)
 endif
 ifeq ($(TARGET_PLATFORM),PLATFORM_DRM)
     LDFLAGS += -Wl,-soname,lib$(RAYLIB_LIB_NAME).so.$(RAYLIB_API_VERSION)

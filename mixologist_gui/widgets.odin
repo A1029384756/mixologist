@@ -1,6 +1,7 @@
 package mixologist_gui
 
 import "./clay"
+import rl "./raylib"
 import "core:strings"
 
 textbox :: proc(ctx: ^Context, buf: []u8, len: ^int, configs: ..clay.TypedConfig) {
@@ -13,16 +14,22 @@ textbox :: proc(ctx: ^Context, buf: []u8, len: ^int, configs: ..clay.TypedConfig
 
 button :: proc(
 	ctx: ^Context,
-	configs: ..clay.TypedConfig,
+	color, hover_color: clay.Color,
+	corner_radius: clay.CornerRadius,
+	rect_configs: clay.TypedConfig,
 	click_on_release := true,
 ) -> (
 	res: bool,
 ) {
 	if clay.UI() {
-		if clay.UI(..configs) {
-			if clay.Hovered() do ctx.hovering = true
-			if !click_on_release && clay.Hovered() && .PRESSED in ctx.mouse[0] do res = true
-			if click_on_release && clay.Hovered() && .RELEASED in ctx.mouse[0] do res = true
+		if clay.UI(
+			clay.Rectangle({color = clay.Hovered() ? RED : MAUVE, cornerRadius = corner_radius}),
+		) {
+			if clay.UI(rect_configs) {
+				if clay.Hovered() do ctx.hovering = true
+				if !click_on_release && clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res = true
+				if click_on_release && clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res = true
+			}
 		}
 	}
 	return
