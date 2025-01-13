@@ -1,0 +1,12 @@
+[Unit]
+Description=Mixd Audio Daemon
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+ExecStart=/usr/bin/mixd
+RuntimeDirectory=mixologist
+Restart=always
+
+[Install]
+WantedBy=default.target
