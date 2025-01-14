@@ -23,6 +23,7 @@ textbox :: proc(
 	ctx: ^Context,
 	buf: []u8,
 	textlen: ^int,
+	placeholder_text: string,
 	active: bool,
 	text_config: ^clay.TextElementConfig,
 	rect_configs: []clay.TypedConfig,
@@ -172,11 +173,9 @@ textbox :: proc(
 				}
 			}
 
-
-			text_str := string(buf[:textlen^])
 			text_config.wrapMode = .None
-
 			if active {
+				text_str := string(buf[:textlen^])
 				text_clay_str := clay.MakeString(text_str)
 				text_size := measureText(&text_clay_str, text_config)
 
@@ -255,7 +254,7 @@ textbox :: proc(
 
 				clay.Text(text_str, text_config)
 			} else {
-				clay.Text(text_str, text_config)
+				clay.Text(placeholder_text, text_config)
 			}
 		}
 	}

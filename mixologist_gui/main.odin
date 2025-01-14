@@ -280,8 +280,9 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					active := ctx.active_row == 0
 					tb_res := textbox(
 						ctx,
-						active ? ctx.new_rule[:] : transmute([]u8)placeholder_str,
-						active ? &ctx.new_rule_len : &placeholder_str_len,
+						ctx.new_rule[:],
+						&ctx.new_rule_len,
+						placeholder_str,
 						active,
 						clay.TextConfig({textColor = TEXT, fontSize = 16}),
 						[]clay.TypedConfig {
@@ -384,8 +385,9 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 
 		tb_res := textbox(
 			ctx,
-			active ? ctx.active_line[:] : transmute([]u8)entry^,
-			active ? &ctx.active_line_len : &line_len,
+			ctx.active_line[:],
+			&ctx.active_line_len,
+			entry^,
 			active,
 			clay.TextConfig({textColor = TEXT, fontSize = 16}),
 			[]clay.TypedConfig {
