@@ -14,6 +14,8 @@ WidgetResult :: enum u8 {
 	CANCEL,
 	SUBMIT,
 	PRESS,
+	DOUBLE_PRESS,
+	TRIPLE_PRESS,
 	RELEASE,
 	HOVER,
 }
