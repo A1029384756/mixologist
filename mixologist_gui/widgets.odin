@@ -3,8 +3,6 @@ package mixologist_gui
 import "./clay"
 import rl "./raylib"
 import "core:c"
-import "core:container/small_array"
-import "core:fmt"
 import "core:math"
 import "core:strings"
 import "core:text/edit"

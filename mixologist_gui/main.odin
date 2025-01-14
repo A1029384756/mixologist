@@ -2,7 +2,6 @@ package mixologist_gui
 
 import "./clay"
 import rl "./raylib"
-import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:mem"
@@ -307,8 +306,6 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				// new rule textbox
 				{
 					placeholder_str := "New rule..."
-					placeholder_str_len := len(placeholder_str)
-
 					tb_res, tb_id := textbox(
 						ctx,
 						ctx.new_rule[:],
