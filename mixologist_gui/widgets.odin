@@ -47,6 +47,7 @@ textbox :: proc(
 		id = local_id.id
 
 		if !active do border_config.width = 0
+		if !active do bg_rect_config.color *= {0.8, 0.8, 0.8, 1}
 
 		if clay.UI(
 			clay.Layout(
