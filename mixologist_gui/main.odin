@@ -14,12 +14,15 @@ import "core:text/edit"
 
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
+DOUBLE_CLICK_INTERVAL_MS :: 300
 
 Context_Status :: enum {
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
 	RULES_UPDATED,
+	DOUBLE_CLICKED,
+	TRIPLE_CLICKED,
 }
 Context_Statuses :: bit_set[Context_Status]
 
@@ -28,12 +31,16 @@ Context :: struct {
 	textbox_input:   strings.Builder,
 	textbox_state:   edit.State,
 	textbox_offset:  int,
-	_text_store:     [1024]u8, // global text input per frame
 	active_line:     [1024]u8,
 	active_line_len: int,
 	new_rule:        [1024]u8,
 	new_rule_len:    int,
-	active_row:      int, // this is ONE INDEXED
+	active_widget:   clay.ElementId,
+	// input handling
+	_text_store:     [1024]u8, // global text input per frame
+	click_count:     int,
+	prev_click_time: f64,
+	click_debounce:  f64,
 	statuses:        Context_Statuses,
 	// config state
 	aux_rules:       [dynamic]string,
@@ -89,7 +96,6 @@ main :: proc() {
 	ctx.textbox_state.set_clipboard = rl_set_clipboard
 	ctx.textbox_state.get_clipboard = rl_get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
-	ctx.active_row = -1
 
 	// load config rules from disk
 	{
@@ -170,9 +176,35 @@ main :: proc() {
 			}
 		}
 
-		strings.builder_reset(&ctx.textbox_input)
-		for char := rl.GetCharPressed(); char != 0; char = rl.GetCharPressed() {
-			strings.write_rune(&ctx.textbox_input, char)
+		// mouse multi-click
+		{
+			current_time := rl.GetTime()
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if (current_time - ctx.prev_click_time) <= DOUBLE_CLICK_INTERVAL_MS / 1000. {
+					ctx.click_count += 1
+				} else {
+					ctx.click_count = 1
+				}
+
+				ctx.prev_click_time = current_time
+
+				if ctx.click_count == 2 {
+					ctx.statuses += {.DOUBLE_CLICKED}
+				} else if ctx.click_count == 3 {
+					ctx.statuses -= {.DOUBLE_CLICKED}
+					ctx.statuses += {.TRIPLE_CLICKED}
+				}
+			} else if current_time - ctx.prev_click_time >= DOUBLE_CLICK_INTERVAL_MS / 1000. {
+				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
+			}
+		}
+
+		// get global text input
+		{
+			strings.builder_reset(&ctx.textbox_input)
+			for char := rl.GetCharPressed(); char != 0; char = rl.GetCharPressed() {
+				strings.write_rune(&ctx.textbox_input, char)
+			}
 		}
 
 		window_size = {rl.GetScreenWidth(), rl.GetScreenHeight()}
@@ -200,7 +232,7 @@ main :: proc() {
 		rl.EndDrawing()
 
 		if .RULES_UPDATED in ctx.statuses do save_rules(&ctx)
-		if !(.TEXTBOX_SELECTED in ctx.statuses) do ctx.active_row = -1
+		if !(.TEXTBOX_SELECTED in ctx.statuses) do ctx.active_widget = {}
 
 		free_all(context.temp_allocator)
 	}
@@ -277,36 +309,22 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					placeholder_str := "New rule..."
 					placeholder_str_len := len(placeholder_str)
 
-					active := ctx.active_row == 0
-					tb_res := textbox(
+					tb_res, tb_id := textbox(
 						ctx,
 						ctx.new_rule[:],
 						&ctx.new_rule_len,
 						placeholder_str,
-						active,
-						clay.TextConfig({textColor = TEXT, fontSize = 16}),
-						[]clay.TypedConfig {
-							clay.Layout(
-								{
-									sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
-									padding = {5, 5},
-									childAlignment = {y = .CENTER},
-								},
-							),
-							clay.Rectangle(
-								{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
-							),
-							clay.BorderOutsideRadius(
-								clay.BorderData(
-									{color = MAUVE, width = ctx.active_row == 0 ? 2 : 0},
-								),
-								5,
-							),
-						},
+						{textColor = TEXT, fontSize = 16},
+						{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
+						{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
+						{color = MAUVE, width = 2},
+						{5, 5},
+						5,
 					)
 
+					active := tb_id == ctx.active_widget
 					if .PRESS in tb_res {
-						ctx.active_row = 0
+						ctx.active_widget = tb_id
 						if !active do ctx.new_rule_len = 0
 						ctx.statuses += {.TEXTBOX_SELECTED}
 					}
@@ -319,7 +337,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					}
 
 					if .CANCEL in tb_res {
-						ctx.active_row = -1
+						ctx.active_widget = {}
 					}
 
 					if .SUBMIT in tb_res && ctx.new_rule_len > 0 {
@@ -328,13 +346,13 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 							strings.clone(string(ctx.new_rule[:ctx.new_rule_len])),
 						)
 						ctx.new_rule_len = 0
-						ctx.active_row = -1
+						ctx.active_widget = {}
 						ctx.statuses += {.RULES_UPDATED}
 					}
 
 					spacer()
 
-					button_res := button(
+					button_res, _ := button(
 						ctx,
 						MAUVE,
 						RED,
@@ -355,7 +373,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 								strings.clone(string(ctx.new_rule[:ctx.new_rule_len])),
 							)
 							ctx.new_rule_len = 0
-							ctx.active_row = -1
+							ctx.active_widget = {}
 							ctx.statuses += {.RULES_UPDATED}
 						}
 					}
@@ -380,37 +398,20 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 		),
 		clay.Rectangle({color = idx % 2 == 0 ? MANTLE : CRUST}),
 	) {
-		active := ctx.active_row == idx
-		line_len := len(entry)
-
-		tb_res := textbox(
+		tb_res, tb_id := textbox(
 			ctx,
 			ctx.active_line[:],
 			&ctx.active_line_len,
 			entry^,
-			active,
-			clay.TextConfig({textColor = TEXT, fontSize = 16}),
-			[]clay.TypedConfig {
-				clay.Layout(
-					{
-						sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
-						padding = {5, 5},
-						childAlignment = {y = .CENTER},
-					},
-				),
-				clay.Rectangle(
-					{
-						color = active ? SURFACE_1 : SURFACE_0,
-						cornerRadius = clay.CornerRadiusAll(5),
-					},
-				),
-				clay.BorderOutsideRadius(
-					clay.BorderData({color = MAUVE, width = active ? 2 : 0}),
-					5,
-				),
-			},
+			{textColor = TEXT, fontSize = 16},
+			{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
+			{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
+			{color = MAUVE, width = 2},
+			{5, 5},
+			5,
 		)
 
+		active := tb_id == ctx.active_widget
 		if active {
 			if .SUBMIT in tb_res {
 				delete(entry^)
@@ -419,13 +420,13 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				} else {
 					entry^ = strings.clone(string(ctx.active_line[:ctx.active_line_len]))
 				}
-				ctx.active_row = -1
+				ctx.active_widget = {}
 				ctx.statuses += {.RULES_UPDATED}
 			} else if .CANCEL in tb_res {
-				ctx.active_row = -1
+				ctx.active_widget = {}
 			}
 			if .PRESS in tb_res {
-				ctx.active_row = idx
+				ctx.active_widget = tb_id
 				ctx.statuses += {.TEXTBOX_SELECTED}
 			}
 			if .HOVER in tb_res do ctx.statuses += {.TEXTBOX_HOVERING}
@@ -436,7 +437,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 
 		spacer()
 
-		button_res := button(
+		button_res, _ := button(
 			ctx,
 			MAUVE,
 			RED,
@@ -448,13 +449,13 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 
 		if .HOVER in button_res do ctx.statuses += {.BUTTON_HOVERING}
 		if .RELEASE in button_res {
-			if ctx.active_row == idx {
+			if active {
 				delete(entry^)
 				entry^ = strings.clone(string(ctx.active_line[:ctx.active_line_len]))
-				ctx.active_row = -1
+				ctx.active_widget = {}
 				ctx.statuses += {.RULES_UPDATED}
 			} else {
-				ctx.active_row = idx
+				ctx.active_widget = tb_id
 				ctx.statuses += {.TEXTBOX_SELECTED}
 				copy(ctx.active_line[:], entry^)
 				ctx.active_line_len = len(entry)
