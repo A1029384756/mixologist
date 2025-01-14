@@ -19,6 +19,7 @@ Context_Status :: enum {
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
+	BUTTON_HELD,
 	RULES_UPDATED,
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
@@ -231,7 +232,7 @@ main :: proc() {
 		rl.EndDrawing()
 
 		if .RULES_UPDATED in ctx.statuses do save_rules(&ctx)
-		if !(.TEXTBOX_SELECTED in ctx.statuses) do ctx.active_widget = {}
+		if !(.TEXTBOX_SELECTED in ctx.statuses || .BUTTON_HELD in ctx.statuses) do ctx.active_widget = {}
 
 		free_all(context.temp_allocator)
 	}
@@ -349,21 +350,26 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 
 					spacer()
 
-					button_res, _ := button(
+					button_res, button_id := text_button(
 						ctx,
-						MAUVE,
-						RED,
+						"Add Rule",
+						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
-						clay.Layout(
-							{
-								sizing = {clay.SizingFixed(16), clay.SizingFixed(16)},
-								padding = {16, 16},
-							},
-						),
+						SURFACE_2,
+						SURFACE_1,
+						SURFACE_0,
+						TEXT,
+						16,
+						5,
 					)
 
 					if .HOVER in button_res do ctx.statuses += {.BUTTON_HOVERING}
+					if .PRESS in button_res {
+						ctx.active_widget = button_id
+						ctx.statuses += {.BUTTON_HELD}
+					}
 					if .RELEASE in button_res {
+						ctx.statuses -= {.BUTTON_HELD}
 						if ctx.new_rule_len > 0 {
 							append(
 								&ctx.aux_rules,
@@ -434,18 +440,26 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 
 		spacer()
 
-		button_res, _ := button(
+		button_res, button_id := text_button(
 			ctx,
-			MAUVE,
-			RED,
+			"Edit",
+			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 			clay.CornerRadiusAll(5),
-			clay.Layout(
-				{sizing = {clay.SizingFixed(16), clay.SizingFixed(16)}, padding = {16, 16}},
-			),
+			SURFACE_2,
+			SURFACE_1,
+			SURFACE_0,
+			TEXT,
+			16,
+			5,
 		)
 
 		if .HOVER in button_res do ctx.statuses += {.BUTTON_HOVERING}
+		if .PRESS in button_res {
+			ctx.active_widget = button_id
+			ctx.statuses += {.BUTTON_HELD}
+		}
 		if .RELEASE in button_res {
+			ctx.statuses -= {.BUTTON_HELD}
 			if active {
 				delete(entry^)
 				entry^ = strings.clone(string(ctx.active_line[:ctx.active_line_len]))

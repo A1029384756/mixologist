@@ -3,6 +3,7 @@ package mixologist_gui
 import "./clay"
 import rl "./raylib"
 import "core:c"
+import "core:fmt"
 import "core:math"
 import "core:strings"
 import "core:text/edit"
@@ -41,9 +42,9 @@ textbox :: proc(
 
 	if clay.UI(clay.Layout(layout_config)) {
 		local_id := clay.ID_LOCAL(#procedure)
-		active := local_id.id == ctx.active_widget
 		id = local_id.id
 
+		active := local_id.id == ctx.active_widget
 		if !active do border_config.width = 0
 		if !active do bg_rect_config.color *= {0.8, 0.8, 0.8, 1}
 
@@ -312,27 +313,44 @@ textbox :: proc(
 	return
 }
 
-button :: proc(
+text_button :: proc(
 	ctx: ^Context,
-	color, hover_color: clay.Color,
+	text: string,
+	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
-	rect_configs: clay.TypedConfig,
+	color, hover_color, press_color, text_color: clay.Color,
+	text_size: u16,
+	text_padding: u16,
 ) -> (
 	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	if clay.UI() {
+	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
+
+	if clay.UI(clay.Layout(layout)) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id
+
+		active := local_id.id == ctx.active_widget
+		selected_color := color
+		if active do selected_color = press_color
+		else if clay.Hovered() do selected_color = hover_color
+
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+
 		if clay.UI(
 			local_id,
-			clay.Rectangle({color = clay.Hovered() ? RED : MAUVE, cornerRadius = corner_radius}),
+			clay.Layout(
+				{
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					padding = {text_padding, text_padding},
+				},
+			),
+			clay.Rectangle({color = selected_color, cornerRadius = corner_radius}),
 		) {
-			if clay.UI(rect_configs) {
-				if clay.Hovered() do res += {.HOVER}
-				if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-				if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
-			}
+			clay.Text(text, text_config)
 		}
 	}
 	return
