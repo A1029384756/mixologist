@@ -213,7 +213,11 @@ textbox :: proc(
 						clay.Rectangle(
 							{color = TEXT * {1, 1, 1, abs(math.sin(c.float(rl.GetTime() * 2)))}},
 						),
-					) {}
+					) {
+						if clay.Hovered() do res += {.HOVER}
+						if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+						if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+					}
 				}
 
 				// selection box
@@ -239,7 +243,11 @@ textbox :: proc(
 							},
 						),
 						clay.Rectangle({color = TEXT * {1, 1, 1, 0.25}}),
-					) {}
+					) {
+						if clay.Hovered() do res += {.HOVER}
+						if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+						if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+					}
 				}
 
 				scroll_data := clay.GetScrollContainerData(local_id.id)
