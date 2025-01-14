@@ -311,7 +311,6 @@ textbox :: proc(
 			}
 		}
 	}
-
 	return
 }
 
