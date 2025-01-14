@@ -20,7 +20,6 @@ Context_Status :: enum {
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
 	RULES_UPDATED,
-	DEBUG_MODE,
 }
 Context_Statuses :: bit_set[Context_Status]
 
@@ -71,12 +70,9 @@ load_font :: proc(fontId: u16, fontSize: u16, path: cstring) {
 }
 
 clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
-	context = runtime.default_context()
-	fmt.println(
-		"clay error detected of type: %v: %s",
-		errordata.errorType,
-		errordata.errorText.chars[:errordata.errorText.length],
-	)
+	// [TODO] find out why `ID_LOCAL` is producing duplicate id errors
+	// context = runtime.default_context()
+	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
 main :: proc() {
@@ -170,9 +166,7 @@ main :: proc() {
 
 		when ODIN_DEBUG {
 			if rl.IsKeyPressed(.D) && rl.IsKeyDown(.LEFT_CONTROL) {
-				if .DEBUG_MODE in ctx.statuses do ctx.statuses -= {.DEBUG_MODE}
-				else do ctx.statuses += {.DEBUG_MODE}
-				clay.SetDebugModeEnabled(.DEBUG_MODE in ctx.statuses)
+				clay.SetDebugModeEnabled(!clay.IsDebugModeEnabled())
 			}
 		}
 
@@ -283,17 +277,14 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					placeholder_str := "New rule..."
 					placeholder_str_len := len(placeholder_str)
 
-					id := fmt.tprintf("textbox_%d", 0)
 					active := ctx.active_row == 0
 					tb_res := textbox(
 						ctx,
-						id,
 						active ? ctx.new_rule[:] : transmute([]u8)placeholder_str,
 						active ? &ctx.new_rule_len : &placeholder_str_len,
 						active,
 						clay.TextConfig({textColor = TEXT, fontSize = 16}),
 						[]clay.TypedConfig {
-							clay.ID(id),
 							clay.Layout(
 								{
 									sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
@@ -391,16 +382,13 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 		active := ctx.active_row == idx
 		line_len := len(entry)
 
-		id := fmt.tprintf("textbox_%d", idx)
 		tb_res := textbox(
 			ctx,
-			id,
 			active ? ctx.active_line[:] : transmute([]u8)entry^,
 			active ? &ctx.active_line_len : &line_len,
 			active,
 			clay.TextConfig({textColor = TEXT, fontSize = 16}),
 			[]clay.TypedConfig {
-				clay.ID(id),
 				clay.Layout(
 					{
 						sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
