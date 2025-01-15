@@ -268,12 +268,23 @@ UI_slider :: proc(
 	ctx: ^UI_Context,
 	pos: ^f64,
 	min_val, max_val: f64,
+	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__slider(ctx, pos, 0, 1, {sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}})
+	res, id = UI__slider(
+		ctx,
+		pos,
+		0,
+		1,
+		color,
+		hover_color,
+		press_color,
+		line_color,
+		{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+	)
 
 	active := UI_widget_active(ctx, id)
 	if .PRESS in res {
@@ -284,6 +295,7 @@ UI_slider :: proc(
 	}
 
 	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
 	return
 }
 
@@ -632,6 +644,7 @@ UI__slider :: proc(
 	ctx: ^UI_Context,
 	pos: ^f64,
 	min_val, max_val: f64,
+	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
 ) -> (
 	res: UI_WidgetResults,
@@ -669,9 +682,13 @@ UI__slider :: proc(
 				pos^ = max_val * f64(slider_percent)
 			}
 
+			selected_color := color
+			if active do selected_color = press_color
+			else if clay.Hovered() do selected_color = hover_color
+
 			if clay.UI(
 				clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(0.25)}}),
-				clay.Rectangle({color = SURFACE_0}),
+				clay.Rectangle({color = line_color}),
 			) {}
 			if clay.UI(
 				clay.Floating(
@@ -679,7 +696,8 @@ UI__slider :: proc(
 						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
 						offset = {
 							c.float(abs(pos^ - min_val) / abs(max_val - min_val)) *
-							major_dimension,
+								major_dimension +
+							minor_dimension / 2,
 							0,
 						},
 						pointerCaptureMode = .PASSTHROUGH,
@@ -694,7 +712,10 @@ UI__slider :: proc(
 					},
 				),
 				clay.Rectangle(
-					{color = MAUVE, cornerRadius = clay.CornerRadiusAll(minor_dimension / 2)},
+					{
+						color = selected_color,
+						cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
+					},
 				),
 			) {}
 		}

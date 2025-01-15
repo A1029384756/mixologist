@@ -247,12 +247,16 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 		}
 
-		@(static) val := 0.0
+		@(static) val := 0.5
 		slider_res, slider_id := UI_slider(
 			&ctx.ui_ctx,
 			&val,
 			0,
 			1,
+			OVERLAY_2,
+			OVERLAY_1,
+			OVERLAY_0,
+			SURFACE_0,
 			{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
 		)
 	}
