@@ -3,8 +3,10 @@ package mixologist_gui
 import "./clay"
 import rl "./raylib"
 import "core:c"
+import sa "core:container/small_array"
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "core:text/edit"
 
@@ -13,13 +15,17 @@ UI_Context :: struct {
 	textbox_input:   strings.Builder,
 	textbox_state:   edit.State,
 	textbox_offset:  int,
-	active_widget:   clay.ElementId,
+	active_widgets:  sa.Small_Array(16, clay.ElementId),
 	// input handling
 	_text_store:     [1024]u8, // global text input per frame
 	click_count:     int,
 	prev_click_time: f64,
 	click_debounce:  f64,
 	statuses:        UI_Context_Statuses,
+	// allocated
+	memory:          []u8,
+	// persistent storage
+	curr_font_id:    u16,
 }
 
 UI_DOUBLE_CLICK_INTERVAL_MS :: 300
@@ -48,12 +54,41 @@ UI_WidgetResult :: enum u8 {
 UI_WidgetResults :: bit_set[UI_WidgetResult]
 
 UI_init :: proc(ctx: ^UI_Context) {
-	ctx.textbox_state.set_clipboard = rl_set_clipboard
-	ctx.textbox_state.get_clipboard = rl_get_clipboard
+	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
+	rl.InitWindow(800, 600, "Mixologist")
+	rl.SetExitKey(.KEY_NULL)
+
+
+	ctx.textbox_state.set_clipboard = UI__set_clipboard
+	ctx.textbox_state.get_clipboard = UI__get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
+
+	min_mem := clay.MinMemorySize()
+	ctx.memory = make([]u8, min_mem)
+	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.memory))
+	clay.SetMeasureTextFunction(measureText)
+
+	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenWidth()}
+	clay.Initialize(
+		arena,
+		{c.float(window_size.x), c.float(window_size.y)},
+		{handler = UI__clay_error_handler},
+	)
 }
 
-UI_tick :: proc(ctx: ^UI_Context) {
+UI_deinit :: proc(ctx: ^UI_Context) {
+	delete(ctx.memory)
+	rl.CloseWindow()
+}
+
+UI_tick :: proc(
+	ctx: ^UI_Context,
+	ui_create_layout: proc(
+		ctx: ^UI_Context,
+		userdata: rawptr,
+	) -> clay.ClayArray(clay.RenderCommand),
+	userdata: rawptr,
+) {
 	// mouse multi-click
 	{
 		current_time := rl.GetTime()
@@ -100,6 +135,11 @@ UI_tick :: proc(ctx: ^UI_Context) {
 	)
 	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
 
+	renderCommands := ui_create_layout(ctx, userdata)
+	rl.BeginDrawing()
+	clayRaylibRender(&renderCommands)
+	rl.EndDrawing()
+
 	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
 		rl.SetMouseCursor(.IBEAM)
 	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
@@ -109,16 +149,15 @@ UI_tick :: proc(ctx: ^UI_Context) {
 	}
 
 	if !(.BUTTON_HOVERING in ctx.statuses) do ctx.statuses -= {.BUTTON_HELD}
-	if !(.TEXTBOX_SELECTED in ctx.statuses || .BUTTON_HELD in ctx.statuses) do UI_unfocus_all(ctx)
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
 }
 
-UI_widget_active :: proc(ctx: UI_Context, id: clay.ElementId) -> bool {
-	return ctx.active_widget == id
+UI_widget_active :: proc(ctx: ^UI_Context, id: clay.ElementId) -> bool {
+	return slice.contains(sa.slice(&ctx.active_widgets), id)
 }
 
 UI_widget_focus :: proc(ctx: ^UI_Context, id: clay.ElementId) {
-	ctx.active_widget = id
+	if !slice.contains(sa.slice(&ctx.active_widgets), id) do sa.append(&ctx.active_widgets, id)
 }
 
 UI_status_add :: proc(ctx: ^UI_Context, statuses: UI_Context_Statuses) {
@@ -129,8 +168,49 @@ UI_textbox_reset :: proc(ctx: ^UI_Context, textlen: int) {
 	ctx.textbox_state.selection = {textlen, textlen}
 }
 
+UI_unfocus :: proc(ctx: ^UI_Context, id: clay.ElementId) {
+	idx, found := slice.linear_search(sa.slice(&ctx.active_widgets), id)
+	if found do sa.unordered_remove(&ctx.active_widgets, idx)
+}
+
 UI_unfocus_all :: proc(ctx: ^UI_Context) {
-	ctx.active_widget = {}
+	sa.clear(&ctx.active_widgets)
+}
+
+UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
+	return rl.WindowShouldClose()
+}
+
+UI_load_font :: proc(ctx: ^UI_Context, fontSize: u16, path: cstring) -> u16 {
+	raylibFonts[ctx.curr_font_id] = RaylibFont {
+		font   = rl.LoadFontEx(path, cast(i32)fontSize * 2, nil, 0),
+		fontId = ctx.curr_font_id,
+	}
+	rl.SetTextureFilter(raylibFonts[ctx.curr_font_id].font.texture, rl.TextureFilter.TRILINEAR)
+	ctx.curr_font_id += 1
+	return ctx.curr_font_id - 1
+}
+
+UI__set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
+	text_cstr := strings.clone_to_cstring(text)
+	rl.SetClipboardText(text_cstr)
+	delete(text_cstr)
+	return true
+}
+
+UI__get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
+	text_cstr := rl.GetClipboardText()
+	if text_cstr != nil {
+		text = string(text_cstr)
+		ok = true
+	}
+	return
+}
+
+UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
+	// [TODO] find out why `ID_LOCAL` is producing duplicate id errors
+	// context = runtime.default_context()
+	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
 UI_textbox :: proc(
@@ -163,7 +243,7 @@ UI_textbox :: proc(
 	)
 
 	if enabled {
-		active := UI_widget_active(ctx^, id)
+		active := UI_widget_active(ctx, id)
 		if .PRESS in res {
 			UI_widget_focus(ctx, id)
 			ctx.statuses += {.TEXTBOX_SELECTED}
@@ -176,12 +256,34 @@ UI_textbox :: proc(
 		else if !active && .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
 
 		if active {
-			if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do ctx.statuses -= {.TEXTBOX_SELECTED}
-			if .CANCEL in res do UI_unfocus_all(ctx)
-			if .SUBMIT in res && textlen^ > 0 do UI_unfocus_all(ctx)
+			if .CANCEL in res do UI_unfocus(ctx, id)
+			if .SUBMIT in res && textlen^ > 0 do UI_unfocus(ctx, id)
+		}
+	}
+	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	return
+}
+
+UI_slider :: proc(
+	ctx: ^UI_Context,
+	pos: ^f64,
+	min_val, max_val: f64,
+	layout: clay.LayoutConfig,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__slider(ctx, pos, 0, 1, {sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}})
+
+	active := UI_widget_active(ctx, id)
+	if .PRESS in res {
+		UI_widget_focus(ctx, id)
+		if !active {
+			res += {.FOCUS}
 		}
 	}
 
+	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	return
 }
 
@@ -210,15 +312,17 @@ UI_text_button :: proc(
 		text_padding,
 	)
 
-	active := UI_widget_active(ctx^, id)
+	active := UI_widget_active(ctx, id)
 	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+	else do UI_unfocus(ctx, id)
+
 	if .PRESS in res {
 		ctx.statuses += {.BUTTON_HELD}
 		UI_widget_focus(ctx, id)
 	}
 	if .RELEASE in res {
 		ctx.statuses -= {.BUTTON_HELD}
-		UI_unfocus_all(ctx)
+		UI_unfocus(ctx, id)
 	}
 	return
 }
@@ -247,7 +351,7 @@ UI__textbox :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id
 
-		active := UI_widget_active(ctx^, local_id.id)
+		active := UI_widget_active(ctx, local_id.id)
 		if !active do border_config.width = 0
 		if !active do bg_rect_config.color *= {0.8, 0.8, 0.8, 1}
 
@@ -283,8 +387,17 @@ UI__textbox :: proc(
 					builder := strings.builder_from_bytes(buf)
 					non_zero_resize(&builder.buf, textlen^)
 					ctx.textbox_state.builder = &builder
-					if ctx.textbox_state.id != u64(ctx.active_widget.id) {
-						ctx.textbox_state.id = u64(ctx.active_widget.id)
+
+					textbox_selected: bool
+					for widget in sa.slice(&ctx.active_widgets) {
+						if ctx.textbox_state.id == u64(widget.id) {
+							textbox_selected = true
+							break
+						}
+					}
+
+					if !textbox_selected {
+						ctx.textbox_state.id = u64(local_id.id.id)
 						ctx.textbox_state.selection = {}
 						edit.move_to(&ctx.textbox_state, .End)
 					}
@@ -515,6 +628,81 @@ UI__textbox :: proc(
 	return
 }
 
+UI__slider :: proc(
+	ctx: ^UI_Context,
+	pos: ^f64,
+	min_val, max_val: f64,
+	layout: clay.LayoutConfig,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI(clay.Layout(layout)) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id.id
+
+		active := UI_widget_active(ctx, local_id.id)
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+
+		if clay.UI(
+			local_id,
+			clay.Layout(
+				{
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					childAlignment = {y = .CENTER},
+				},
+			),
+		) {
+			boundingbox := clay.GetElementLocationData(id)
+			sizing := boundingbox.elementLocation
+			minor_dimension := min(sizing.width, sizing.height)
+			major_dimension := max(sizing.width, sizing.height)
+
+			if active && (!rl.IsMouseButtonPressed(.LEFT) && rl.IsMouseButtonDown(.LEFT)) {
+				relative_x := c.float(rl.GetMouseX()) - sizing.x
+				min_x := sizing.x
+				max_x := sizing.x + sizing.width
+
+				slider_percent := c.float(abs(relative_x - min_x) / abs(max_x - min_x))
+				pos^ = max_val * f64(slider_percent)
+			}
+
+			if clay.UI(
+				clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(0.25)}}),
+				clay.Rectangle({color = SURFACE_0}),
+			) {}
+			if clay.UI(
+				clay.Floating(
+					{
+						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+						offset = {
+							c.float(abs(pos^ - min_val) / abs(max_val - min_val)) *
+							major_dimension,
+							0,
+						},
+						pointerCaptureMode = .PASSTHROUGH,
+					},
+				),
+				clay.Layout(
+					{
+						sizing = {
+							clay.SizingFixed(minor_dimension),
+							clay.SizingFixed(minor_dimension),
+						},
+					},
+				),
+				clay.Rectangle(
+					{color = MAUVE, cornerRadius = clay.CornerRadiusAll(minor_dimension / 2)},
+				),
+			) {}
+		}
+	}
+	return
+}
+
+
 UI__text_button :: proc(
 	ctx: ^UI_Context,
 	text: string,
@@ -534,7 +722,7 @@ UI__text_button :: proc(
 			local_id := clay.ID_LOCAL(#procedure)
 			id = local_id.id
 
-			active := UI_widget_active(ctx^, id)
+			active := UI_widget_active(ctx, id)
 			selected_color := color
 			if active do selected_color = press_color
 			else if clay.Hovered() do selected_color = hover_color

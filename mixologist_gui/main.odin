@@ -33,42 +33,7 @@ Context :: struct {
 	allocator:       mem.Allocator,
 }
 
-rl_set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
-	text_cstr := strings.clone_to_cstring(text)
-	rl.SetClipboardText(text_cstr)
-	delete(text_cstr)
-	return true
-}
-
-rl_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
-	text_cstr := rl.GetClipboardText()
-	if text_cstr != nil {
-		text = string(text_cstr)
-		ok = true
-	}
-	return
-}
-
-load_font :: proc(fontId: u16, fontSize: u16, path: cstring) {
-	raylibFonts[fontId] = RaylibFont {
-		font   = rl.LoadFontEx(path, cast(i32)fontSize * 2, nil, 0),
-		fontId = cast(u16)fontId,
-	}
-	rl.SetTextureFilter(raylibFonts[fontId].font.texture, rl.TextureFilter.TRILINEAR)
-}
-
-clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
-	// [TODO] find out why `ID_LOCAL` is producing duplicate id errors
-	// context = runtime.default_context()
-	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
-}
-
 main :: proc() {
-	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
-	rl.InitWindow(800, 600, "Mixologist")
-	defer rl.CloseWindow()
-	rl.SetExitKey(.KEY_NULL)
-
 	ctx: Context
 	if virtual.arena_init_growing(&ctx.arena) != nil {
 		panic("Couldn't initialize arena")
@@ -107,23 +72,10 @@ main :: proc() {
 		}
 	}
 
-	min_mem := clay.MinMemorySize()
-	memory := make([]u8, min_mem)
-	defer delete(memory)
-	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(memory))
-	clay.SetMeasureTextFunction(measureText)
 	UI_init(&ctx.ui_ctx)
+	UI_load_font(&ctx.ui_ctx, 16, "mixologist_gui/resources/Roboto-Regular.ttf")
 
-	load_font(0, 16, "mixologist_gui/resources/Roboto-Regular.ttf")
-
-	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenWidth()}
-	clay.Initialize(
-		arena,
-		{c.float(window_size.x), c.float(window_size.y)},
-		{handler = clay_error_handler},
-	)
-
-	mainloop: for !rl.WindowShouldClose() {
+	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading
 		{
 			inotify_buf: [EVENT_BUF_LEN]u8
@@ -147,13 +99,7 @@ main :: proc() {
 			}
 		}
 
-		UI_tick(&ctx.ui_ctx)
-
-		renderCommands := create_layout(&ctx)
-		rl.BeginDrawing()
-		clayRaylibRender(&renderCommands)
-		rl.EndDrawing()
-
+		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
 		if ctx.rules_updated {
 			save_rules(&ctx)
@@ -163,6 +109,14 @@ main :: proc() {
 		}
 		free_all(context.temp_allocator)
 	}
+}
+
+UI_create_layout :: proc(
+	ctx: ^UI_Context,
+	userdata: rawptr,
+) -> clay.ClayArray(clay.RenderCommand) {
+	mgst_ctx := cast(^Context)userdata
+	return create_layout(mgst_ctx)
 }
 
 reload_config :: proc(ctx: ^Context) {
@@ -292,6 +246,15 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			}
 			for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 		}
+
+		@(static) val := 0.0
+		slider_res, slider_id := UI_slider(
+			&ctx.ui_ctx,
+			&val,
+			0,
+			1,
+			{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+		)
 	}
 
 	return clay.EndLayout()
@@ -315,7 +278,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			&ctx.ui_ctx,
 			ctx.active_line_buf[:],
 			&ctx.active_line_len,
-			entry^,
+			row_selected ? string(ctx.active_line_buf[:ctx.active_line_len]) : entry^,
 			{textColor = TEXT, fontSize = 16},
 			{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
 			{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
@@ -325,7 +288,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			row_selected,
 		)
 
-		active := UI_widget_active(ctx.ui_ctx, tb_id)
+		active := UI_widget_active(&ctx.ui_ctx, tb_id)
 		if .SUBMIT in tb_res {
 			delete(entry^)
 			if ctx.active_line_len == 0 {
@@ -368,9 +331,6 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 					5,
 				)
 
-				// [TODO] fix button flickering text
-				// to inactive when pressing this
-				// button
 				apply_res, apply_id := UI_text_button(
 					&ctx.ui_ctx,
 					"Apply",
@@ -391,6 +351,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				}
 				if .RELEASE in cancel_res {
 					ctx.active_line = 0
+					UI_unfocus(&ctx.ui_ctx, tb_id)
 				}
 				if .RELEASE in apply_res {
 					delete(entry^)
