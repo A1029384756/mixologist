@@ -8,20 +8,223 @@ import "core:math"
 import "core:strings"
 import "core:text/edit"
 
-WidgetResult :: enum u8 {
+
+UI_Context :: struct {
+	textbox_input:   strings.Builder,
+	textbox_state:   edit.State,
+	textbox_offset:  int,
+	active_widget:   clay.ElementId,
+	// input handling
+	_text_store:     [1024]u8, // global text input per frame
+	click_count:     int,
+	prev_click_time: f64,
+	click_debounce:  f64,
+	statuses:        UI_Context_Statuses,
+}
+
+UI_DOUBLE_CLICK_INTERVAL_MS :: 300
+
+UI_Context_Status :: enum {
+	TEXTBOX_SELECTED,
+	TEXTBOX_HOVERING,
+	BUTTON_HOVERING,
+	BUTTON_HELD,
+	DOUBLE_CLICKED,
+	TRIPLE_CLICKED,
+}
+UI_Context_Statuses :: bit_set[UI_Context_Status]
+
+UI_WidgetResult :: enum u8 {
 	CHANGE,
 	CANCEL,
 	SUBMIT,
 	PRESS,
+	FOCUS,
 	DOUBLE_PRESS,
 	TRIPLE_PRESS,
 	RELEASE,
 	HOVER,
 }
-WidgetResults :: bit_set[WidgetResult]
+UI_WidgetResults :: bit_set[UI_WidgetResult]
 
-textbox :: proc(
-	ctx: ^Context,
+UI_init :: proc(ctx: ^UI_Context) {
+	ctx.textbox_state.set_clipboard = rl_set_clipboard
+	ctx.textbox_state.get_clipboard = rl_get_clipboard
+	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
+}
+
+UI_tick :: proc(ctx: ^UI_Context) {
+	// mouse multi-click
+	{
+		current_time := rl.GetTime()
+		if rl.IsMouseButtonPressed(.LEFT) {
+			if (current_time - ctx.prev_click_time) <= UI_DOUBLE_CLICK_INTERVAL_MS / 1000. {
+				ctx.click_count += 1
+			} else {
+				ctx.click_count = 1
+			}
+
+			ctx.prev_click_time = current_time
+
+			if ctx.click_count == 2 {
+				ctx.statuses += {.DOUBLE_CLICKED}
+			} else if ctx.click_count == 3 {
+				ctx.statuses -= {.DOUBLE_CLICKED}
+				ctx.statuses += {.TRIPLE_CLICKED}
+			}
+		} else if current_time - ctx.prev_click_time >= UI_DOUBLE_CLICK_INTERVAL_MS / 1000. {
+			ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
+		}
+	}
+
+	// get global text input
+	{
+		strings.builder_reset(&ctx.textbox_input)
+		for char := rl.GetCharPressed(); char != 0; char = rl.GetCharPressed() {
+			strings.write_rune(&ctx.textbox_input, char)
+		}
+	}
+
+	when ODIN_DEBUG {
+		if rl.IsKeyPressed(.D) && rl.IsKeyDown(.LEFT_CONTROL) {
+			clay.SetDebugModeEnabled(!clay.IsDebugModeEnabled())
+		}
+	}
+
+	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenHeight()}
+	clay.SetPointerState(transmute(clay.Vector2)rl.GetMousePosition(), rl.IsMouseButtonDown(.LEFT))
+	clay.UpdateScrollContainers(
+		false,
+		transmute(clay.Vector2)rl.GetMouseWheelMoveV() * 5,
+		rl.GetFrameTime(),
+	)
+	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+
+	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
+		rl.SetMouseCursor(.IBEAM)
+	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
+		rl.SetMouseCursor(.POINTING_HAND)
+	} else {
+		rl.SetMouseCursor(.ARROW)
+	}
+
+	if !(.BUTTON_HOVERING in ctx.statuses) do ctx.statuses -= {.BUTTON_HELD}
+	if !(.TEXTBOX_SELECTED in ctx.statuses || .BUTTON_HELD in ctx.statuses) do UI_unfocus_all(ctx)
+	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
+}
+
+UI_widget_active :: proc(ctx: UI_Context, id: clay.ElementId) -> bool {
+	return ctx.active_widget == id
+}
+
+UI_widget_focus :: proc(ctx: ^UI_Context, id: clay.ElementId) {
+	ctx.active_widget = id
+}
+
+UI_status_add :: proc(ctx: ^UI_Context, statuses: UI_Context_Statuses) {
+	ctx.statuses += statuses
+}
+
+UI_textbox_reset :: proc(ctx: ^UI_Context, textlen: int) {
+	ctx.textbox_state.selection = {textlen, textlen}
+}
+
+UI_unfocus_all :: proc(ctx: ^UI_Context) {
+	ctx.active_widget = {}
+}
+
+UI_textbox :: proc(
+	ctx: ^UI_Context,
+	buf: []u8,
+	textlen: ^int,
+	placeholder_text: string,
+	text_config: clay.TextElementConfig,
+	layout_config: clay.LayoutConfig,
+	bg_rect_config: clay.RectangleElementConfig,
+	border_config: clay.BorderData,
+	padding: clay.Padding,
+	corner_radius: c.float,
+	enabled: bool,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__textbox(
+		ctx,
+		buf,
+		textlen,
+		placeholder_text,
+		text_config,
+		layout_config,
+		bg_rect_config,
+		border_config,
+		padding,
+		corner_radius,
+	)
+
+	if enabled {
+		active := UI_widget_active(ctx^, id)
+		if .PRESS in res {
+			UI_widget_focus(ctx, id)
+			ctx.statuses += {.TEXTBOX_SELECTED}
+			if !active {
+				res += {.FOCUS}
+			}
+		}
+
+		if active && .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
+		else if !active && .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+
+		if active {
+			if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do ctx.statuses -= {.TEXTBOX_SELECTED}
+			if .CANCEL in res do UI_unfocus_all(ctx)
+			if .SUBMIT in res && textlen^ > 0 do UI_unfocus_all(ctx)
+		}
+	}
+
+	return
+}
+
+UI_text_button :: proc(
+	ctx: ^UI_Context,
+	text: string,
+	layout: clay.LayoutConfig,
+	corner_radius: clay.CornerRadius,
+	color, hover_color, press_color, text_color: clay.Color,
+	text_size: u16,
+	text_padding: u16,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__text_button(
+		ctx,
+		text,
+		layout,
+		corner_radius,
+		color,
+		hover_color,
+		press_color,
+		text_color,
+		text_size,
+		text_padding,
+	)
+
+	active := UI_widget_active(ctx^, id)
+	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+	if .PRESS in res {
+		ctx.statuses += {.BUTTON_HELD}
+		UI_widget_focus(ctx, id)
+	}
+	if .RELEASE in res {
+		ctx.statuses -= {.BUTTON_HELD}
+		UI_unfocus_all(ctx)
+	}
+	return
+}
+
+UI__textbox :: proc(
+	ctx: ^UI_Context,
 	buf: []u8,
 	textlen: ^int,
 	placeholder_text: string,
@@ -32,7 +235,7 @@ textbox :: proc(
 	padding: clay.Padding,
 	corner_radius: c.float,
 ) -> (
-	res: WidgetResults,
+	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
 	text_config := clay.TextConfig(text_config)
@@ -44,7 +247,7 @@ textbox :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id
 
-		active := local_id.id == ctx.active_widget
+		active := UI_widget_active(ctx^, local_id.id)
 		if !active do border_config.width = 0
 		if !active do bg_rect_config.color *= {0.8, 0.8, 0.8, 1}
 
@@ -196,8 +399,7 @@ textbox :: proc(
 							edit.move_to(&ctx.textbox_state, .Word_Start)
 							edit.select_to(&ctx.textbox_state, .Word_End)
 						} else if .TRIPLE_CLICKED in ctx.statuses {
-							edit.move_to(&ctx.textbox_state, .Start)
-							edit.select_to(&ctx.textbox_state, .End)
+							ctx.textbox_state.selection = {textlen^, 0}
 						} else if rl.IsMouseButtonDown(.LEFT) {
 							idx := textlen^
 							for i in 0 ..< textlen^ {
@@ -313,8 +515,8 @@ textbox :: proc(
 	return
 }
 
-text_button :: proc(
-	ctx: ^Context,
+UI__text_button :: proc(
+	ctx: ^UI_Context,
 	text: string,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
@@ -322,7 +524,7 @@ text_button :: proc(
 	text_size: u16,
 	text_padding: u16,
 ) -> (
-	res: WidgetResults,
+	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
 	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
@@ -331,7 +533,7 @@ text_button :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id
 
-		active := local_id.id == ctx.active_widget
+		active := UI_widget_active(ctx^, id)
 		selected_color := color
 		if active do selected_color = press_color
 		else if clay.Hovered() do selected_color = hover_color
@@ -356,7 +558,7 @@ text_button :: proc(
 	return
 }
 
-spacer :: proc() -> (res: WidgetResults, id: clay.ElementId) {
+UI_spacer :: proc() -> (res: UI_WidgetResults, id: clay.ElementId) {
 	if clay.UI(clay.Layout({sizing = {clay.SizingGrow({}), clay.SizingGrow({})}})) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id

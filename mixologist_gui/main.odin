@@ -9,44 +9,25 @@ import "core:mem/virtual"
 import "core:os/os2"
 import "core:strings"
 import "core:sys/linux"
-import "core:text/edit"
 
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
-DOUBLE_CLICK_INTERVAL_MS :: 300
-
-Context_Status :: enum {
-	TEXTBOX_SELECTED,
-	TEXTBOX_HOVERING,
-	BUTTON_HOVERING,
-	BUTTON_HELD,
-	RULES_UPDATED,
-	DOUBLE_CLICKED,
-	TRIPLE_CLICKED,
-}
-Context_Statuses :: bit_set[Context_Status]
 
 Context :: struct {
-	// text editing
-	textbox_input:   strings.Builder,
-	textbox_state:   edit.State,
-	textbox_offset:  int,
-	active_line:     [1024]u8,
+	ui_ctx:          UI_Context,
+	// rule modification
+	active_line_buf: [1024]u8,
 	active_line_len: int,
-	new_rule:        [1024]u8,
+	active_line:     int,
+	// rule creation
+	new_rule_buf:    [1024]u8,
 	new_rule_len:    int,
-	active_widget:   clay.ElementId,
-	// input handling
-	_text_store:     [1024]u8, // global text input per frame
-	click_count:     int,
-	prev_click_time: f64,
-	click_debounce:  f64,
-	statuses:        Context_Statuses,
 	// config state
 	aux_rules:       [dynamic]string,
 	config_file:     string,
 	inotify_fd:      linux.Fd,
 	inotify_wd:      linux.Wd,
+	rules_updated:   bool,
 	// allocations
 	arena:           virtual.Arena,
 	allocator:       mem.Allocator,
@@ -93,9 +74,6 @@ main :: proc() {
 		panic("Couldn't initialize arena")
 	}
 	ctx.allocator = virtual.arena_allocator(&ctx.arena)
-	ctx.textbox_state.set_clipboard = rl_set_clipboard
-	ctx.textbox_state.get_clipboard = rl_get_clipboard
-	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
 
 	// load config rules from disk
 	{
@@ -134,6 +112,7 @@ main :: proc() {
 	defer delete(memory)
 	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(memory))
 	clay.SetMeasureTextFunction(measureText)
+	UI_init(&ctx.ui_ctx)
 
 	load_font(0, 16, "mixologist_gui/resources/Roboto-Regular.ttf")
 
@@ -168,72 +147,20 @@ main :: proc() {
 			}
 		}
 
-		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
+		UI_tick(&ctx.ui_ctx)
 
-		when ODIN_DEBUG {
-			if rl.IsKeyPressed(.D) && rl.IsKeyDown(.LEFT_CONTROL) {
-				clay.SetDebugModeEnabled(!clay.IsDebugModeEnabled())
-			}
-		}
-
-		// mouse multi-click
-		{
-			current_time := rl.GetTime()
-			if rl.IsMouseButtonPressed(.LEFT) {
-				if (current_time - ctx.prev_click_time) <= DOUBLE_CLICK_INTERVAL_MS / 1000. {
-					ctx.click_count += 1
-				} else {
-					ctx.click_count = 1
-				}
-
-				ctx.prev_click_time = current_time
-
-				if ctx.click_count == 2 {
-					ctx.statuses += {.DOUBLE_CLICKED}
-				} else if ctx.click_count == 3 {
-					ctx.statuses -= {.DOUBLE_CLICKED}
-					ctx.statuses += {.TRIPLE_CLICKED}
-				}
-			} else if current_time - ctx.prev_click_time >= DOUBLE_CLICK_INTERVAL_MS / 1000. {
-				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
-			}
-		}
-
-		// get global text input
-		{
-			strings.builder_reset(&ctx.textbox_input)
-			for char := rl.GetCharPressed(); char != 0; char = rl.GetCharPressed() {
-				strings.write_rune(&ctx.textbox_input, char)
-			}
-		}
-
-		window_size = {rl.GetScreenWidth(), rl.GetScreenHeight()}
-		clay.SetPointerState(
-			transmute(clay.Vector2)rl.GetMousePosition(),
-			rl.IsMouseButtonDown(.LEFT),
-		)
-		clay.UpdateScrollContainers(
-			false,
-			transmute(clay.Vector2)rl.GetMouseWheelMoveV() * 5,
-			rl.GetFrameTime(),
-		)
-		clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
 		renderCommands := create_layout(&ctx)
-		if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
-			rl.SetMouseCursor(.IBEAM)
-		} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
-			rl.SetMouseCursor(.POINTING_HAND)
-		} else {
-			rl.SetMouseCursor(.ARROW)
-		}
-
 		rl.BeginDrawing()
 		clayRaylibRender(&renderCommands)
 		rl.EndDrawing()
 
-		if .RULES_UPDATED in ctx.statuses do save_rules(&ctx)
-		if !(.TEXTBOX_SELECTED in ctx.statuses || .BUTTON_HELD in ctx.statuses) do ctx.active_widget = {}
 
+		if ctx.rules_updated {
+			save_rules(&ctx)
+			ctx.rules_updated = false
+			ctx.active_line = 0
+			UI_unfocus_all(&ctx.ui_ctx)
+		}
 		free_all(context.temp_allocator)
 	}
 }
@@ -307,9 +234,9 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				// new rule textbox
 				{
 					placeholder_str := "New rule..."
-					tb_res, tb_id := textbox(
-						ctx,
-						ctx.new_rule[:],
+					tb_res, tb_id := UI_textbox(
+						&ctx.ui_ctx,
+						ctx.new_rule_buf[:],
 						&ctx.new_rule_len,
 						placeholder_str,
 						{textColor = TEXT, fontSize = 16},
@@ -318,40 +245,28 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 						{color = MAUVE, width = 2},
 						{5, 5},
 						5,
+						true,
 					)
 
-					active := tb_id == ctx.active_widget
-					if .PRESS in tb_res {
-						ctx.active_widget = tb_id
-						if !active do ctx.new_rule_len = 0
-						ctx.statuses += {.TEXTBOX_SELECTED}
-					}
-
-					if active && .HOVER in tb_res do ctx.statuses += {.TEXTBOX_HOVERING}
-					else if !active && .HOVER in tb_res do ctx.statuses += {.BUTTON_HOVERING}
-
-					if !(.HOVER in tb_res) && rl.IsMouseButtonPressed(.LEFT) {
-						ctx.statuses -= {.TEXTBOX_SELECTED}
-					}
-
-					if .CANCEL in tb_res {
-						ctx.active_widget = {}
-					}
-
-					if .SUBMIT in tb_res && ctx.new_rule_len > 0 {
-						append(
-							&ctx.aux_rules,
-							strings.clone(string(ctx.new_rule[:ctx.new_rule_len])),
-						)
+					if .FOCUS in tb_res {
 						ctx.new_rule_len = 0
-						ctx.active_widget = {}
-						ctx.statuses += {.RULES_UPDATED}
 					}
 
-					spacer()
+					if .SUBMIT in tb_res {
+						if ctx.new_rule_len > 0 {
+							append(
+								&ctx.aux_rules,
+								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+							)
+							ctx.new_rule_len = 0
+							ctx.rules_updated = true
+						}
+					}
 
-					button_res, button_id := text_button(
-						ctx,
+					UI_spacer()
+
+					button_res, button_id := UI_text_button(
+						&ctx.ui_ctx,
 						"Add Rule",
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
@@ -363,21 +278,14 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 						5,
 					)
 
-					if .HOVER in button_res do ctx.statuses += {.BUTTON_HOVERING}
-					if .PRESS in button_res {
-						ctx.active_widget = button_id
-						ctx.statuses += {.BUTTON_HELD}
-					}
 					if .RELEASE in button_res {
-						ctx.statuses -= {.BUTTON_HELD}
 						if ctx.new_rule_len > 0 {
 							append(
 								&ctx.aux_rules,
-								strings.clone(string(ctx.new_rule[:ctx.new_rule_len])),
+								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
 							)
 							ctx.new_rule_len = 0
-							ctx.active_widget = {}
-							ctx.statuses += {.RULES_UPDATED}
+							ctx.rules_updated = true
 						}
 					}
 				}
@@ -401,9 +309,9 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 		),
 		clay.Rectangle({color = idx % 2 == 0 ? MANTLE : CRUST}),
 	) {
-		tb_res, tb_id := textbox(
-			ctx,
-			ctx.active_line[:],
+		tb_res, tb_id := UI_textbox(
+			&ctx.ui_ctx,
+			ctx.active_line_buf[:],
 			&ctx.active_line_len,
 			entry^,
 			{textColor = TEXT, fontSize = 16},
@@ -412,36 +320,26 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			{color = MAUVE, width = 2},
 			{5, 5},
 			5,
+			idx == ctx.active_line,
 		)
 
-		active := tb_id == ctx.active_widget
+		active := UI_widget_active(ctx.ui_ctx, tb_id)
 		if active {
 			if .SUBMIT in tb_res {
 				delete(entry^)
 				if ctx.active_line_len == 0 {
 					ordered_remove(&ctx.aux_rules, idx - 1)
 				} else {
-					entry^ = strings.clone(string(ctx.active_line[:ctx.active_line_len]))
+					entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 				}
-				ctx.active_widget = {}
-				ctx.statuses += {.RULES_UPDATED}
-			} else if .CANCEL in tb_res {
-				ctx.active_widget = {}
-			}
-			if .PRESS in tb_res {
-				ctx.active_widget = tb_id
-				ctx.statuses += {.TEXTBOX_SELECTED}
-			}
-			if .HOVER in tb_res do ctx.statuses += {.TEXTBOX_HOVERING}
-			if !(.HOVER in tb_res) && rl.IsMouseButtonPressed(.LEFT) {
-				ctx.statuses -= {.TEXTBOX_SELECTED}
+				ctx.rules_updated = true
 			}
 		}
 
-		spacer()
+		UI_spacer()
 
-		button_res, button_id := text_button(
-			ctx,
+		button_res, button_id := UI_text_button(
+			&ctx.ui_ctx,
 			"Edit",
 			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 			clay.CornerRadiusAll(5),
@@ -453,23 +351,19 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			5,
 		)
 
-		if .HOVER in button_res do ctx.statuses += {.BUTTON_HOVERING}
-		if .PRESS in button_res {
-			ctx.active_widget = button_id
-			ctx.statuses += {.BUTTON_HELD}
-		}
 		if .RELEASE in button_res {
-			ctx.statuses -= {.BUTTON_HELD}
 			if active {
 				delete(entry^)
-				entry^ = strings.clone(string(ctx.active_line[:ctx.active_line_len]))
-				ctx.active_widget = {}
-				ctx.statuses += {.RULES_UPDATED}
+				entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
+				ctx.rules_updated = true
+				ctx.active_line = 0
 			} else {
-				ctx.active_widget = tb_id
-				ctx.statuses += {.TEXTBOX_SELECTED}
-				copy(ctx.active_line[:], entry^)
+				UI_widget_focus(&ctx.ui_ctx, tb_id)
+				UI_status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
+				UI_textbox_reset(&ctx.ui_ctx, len(entry))
+				copy(ctx.active_line_buf[:], entry^)
 				ctx.active_line_len = len(entry)
+				ctx.active_line = idx
 			}
 		}
 	}
