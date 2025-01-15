@@ -529,30 +529,32 @@ UI__text_button :: proc(
 ) {
 	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
 
-	if clay.UI(clay.Layout(layout)) {
-		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id.id
+	if clay.UI() {
+		if clay.UI(clay.Layout(layout)) {
+			local_id := clay.ID_LOCAL(#procedure)
+			id = local_id.id
 
-		active := UI_widget_active(ctx^, id)
-		selected_color := color
-		if active do selected_color = press_color
-		else if clay.Hovered() do selected_color = hover_color
+			active := UI_widget_active(ctx^, id)
+			selected_color := color
+			if active do selected_color = press_color
+			else if clay.Hovered() do selected_color = hover_color
 
-		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+			if clay.Hovered() do res += {.HOVER}
+			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
 
-		if clay.UI(
-			local_id,
-			clay.Layout(
-				{
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					padding = {text_padding, text_padding},
-				},
-			),
-			clay.Rectangle({color = selected_color, cornerRadius = corner_radius}),
-		) {
-			clay.Text(text, text_config)
+			if clay.UI(
+				local_id,
+				clay.Layout(
+					{
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						padding = {text_padding, text_padding},
+					},
+				),
+				clay.Rectangle({color = selected_color, cornerRadius = corner_radius}),
+			) {
+				clay.Text(text, text_config)
+			}
 		}
 	}
 	return

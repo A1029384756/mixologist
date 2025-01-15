@@ -309,6 +309,8 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 		),
 		clay.Rectangle({color = idx % 2 == 0 ? MANTLE : CRUST}),
 	) {
+		row_selected := idx == ctx.active_line
+
 		tb_res, tb_id := UI_textbox(
 			&ctx.ui_ctx,
 			ctx.active_line_buf[:],
@@ -320,50 +322,115 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			{color = MAUVE, width = 2},
 			{5, 5},
 			5,
-			idx == ctx.active_line,
+			row_selected,
 		)
 
 		active := UI_widget_active(ctx.ui_ctx, tb_id)
-		if active {
-			if .SUBMIT in tb_res {
-				delete(entry^)
-				if ctx.active_line_len == 0 {
-					ordered_remove(&ctx.aux_rules, idx - 1)
-				} else {
-					entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
-				}
-				ctx.rules_updated = true
+		if .SUBMIT in tb_res {
+			delete(entry^)
+			if ctx.active_line_len == 0 {
+				ordered_remove(&ctx.aux_rules, idx - 1)
+			} else {
+				entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 			}
+			ctx.rules_updated = true
+			ctx.active_line = 0
+			row_selected = false
 		}
 
 		UI_spacer()
 
-		button_res, button_id := UI_text_button(
-			&ctx.ui_ctx,
-			"Edit",
-			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-			clay.CornerRadiusAll(5),
-			SURFACE_2,
-			SURFACE_1,
-			SURFACE_0,
-			TEXT,
-			16,
-			5,
-		)
+		if row_selected {
+			if clay.UI(clay.Layout({childGap = 5})) {
+				delete_res, delete_id := UI_text_button(
+					&ctx.ui_ctx,
+					"Delete",
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					TEXT,
+					16,
+					5,
+				)
 
-		if .RELEASE in button_res {
-			if active {
-				delete(entry^)
-				entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
-				ctx.rules_updated = true
-				ctx.active_line = 0
-			} else {
-				UI_widget_focus(&ctx.ui_ctx, tb_id)
-				UI_status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
-				UI_textbox_reset(&ctx.ui_ctx, len(entry))
-				copy(ctx.active_line_buf[:], entry^)
-				ctx.active_line_len = len(entry)
-				ctx.active_line = idx
+				cancel_res, cancel_id := UI_text_button(
+					&ctx.ui_ctx,
+					"Cancel",
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					TEXT,
+					16,
+					5,
+				)
+
+				// [TODO] fix button flickering text
+				// to inactive when pressing this
+				// button
+				apply_res, apply_id := UI_text_button(
+					&ctx.ui_ctx,
+					"Apply",
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					TEXT,
+					16,
+					5,
+				)
+
+				if .RELEASE in delete_res {
+					delete(entry^)
+					ordered_remove(&ctx.aux_rules, idx - 1)
+					ctx.rules_updated = true
+				}
+				if .RELEASE in cancel_res {
+					ctx.active_line = 0
+				}
+				if .RELEASE in apply_res {
+					delete(entry^)
+					if ctx.active_line_len == 0 {
+						ordered_remove(&ctx.aux_rules, idx - 1)
+					} else {
+						entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
+					}
+					ctx.rules_updated = true
+					ctx.active_line = 0
+				}
+			}
+		} else {
+			button_res, button_id := UI_text_button(
+				&ctx.ui_ctx,
+				"Edit",
+				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+				clay.CornerRadiusAll(5),
+				SURFACE_2,
+				SURFACE_1,
+				SURFACE_0,
+				TEXT,
+				16,
+				5,
+			)
+
+			if .RELEASE in button_res {
+				if active {
+					delete(entry^)
+					entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
+					ctx.rules_updated = true
+					ctx.active_line = 0
+				} else {
+					UI_widget_focus(&ctx.ui_ctx, tb_id)
+					UI_status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
+					UI_textbox_reset(&ctx.ui_ctx, len(entry))
+					copy(ctx.active_line_buf[:], entry^)
+					ctx.active_line_len = len(entry)
+					ctx.active_line = idx
+				}
 			}
 		}
 	}
