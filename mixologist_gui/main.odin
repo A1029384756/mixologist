@@ -5,6 +5,7 @@ import "./clay"
 import "core:c"
 import "core:encoding/cbor"
 import "core:fmt"
+import "core:log"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os/os2"
@@ -46,6 +47,12 @@ Context :: struct {
 }
 
 main :: proc() {
+	// set up logging
+	when ODIN_DEBUG {
+		context.logger = log.create_console_logger(lowest = common.get_log_level())
+		defer log.destroy_console_logger(context.logger)
+	}
+
 	ctx: Context
 	if virtual.arena_init_growing(&ctx.arena) != nil {
 		panic("Couldn't initialize arena")
@@ -87,6 +94,8 @@ main :: proc() {
 	// set up ipc
 	IPC_Client_init(&ctx.ipc)
 	defer IPC_Client_deinit(&ctx.ipc)
+
+	// sync up initial volume and subscribe to all updates
 	IPC_Client_send(&ctx.ipc, common.Volume{.Subscribe, 0})
 
 	UI_init(&ctx.ui_ctx)
@@ -117,11 +126,11 @@ main :: proc() {
 		}
 
 		// ipc
+		IPC_Client_recv(&ctx.ipc, &ctx)
 		if .VOLUME in ctx.updates {
 			ctx.updates -= {.VOLUME}
 			mixd_set_volume(&ctx)
 		}
-		IPC_Client_recv(&ctx.ipc, &ctx)
 
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
@@ -161,7 +170,7 @@ reload_config :: proc(ctx: ^Context) {
 	if config_file_err == nil {
 		file_string = string(file_bytes)
 	} else {
-		fmt.println("could not get read file")
+		log.errorf("could not get read file")
 	}
 
 	for line in strings.split_lines_iterator(&file_string) {
@@ -179,7 +188,7 @@ save_rules :: proc(ctx: ^Context) {
 	rules_file := strings.to_string(builder)
 	write_err := os2.write_entire_file(ctx.config_file, transmute([]u8)rules_file)
 	if write_err != nil {
-		fmt.println("could not save out config file: %v", write_err)
+		log.errorf("could not save out config file: %v", write_err)
 	}
 }
 
@@ -199,83 +208,93 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 		if clay.UI(
 			clay.Layout(
 				{
-					layoutDirection = .TOP_TO_BOTTOM,
-					sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					padding = {16, 16},
+					childAlignment = {x = .CENTER, y = .CENTER},
 				},
 			),
-			clay.Scroll({vertical = true}),
-			clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
 		) {
 			if clay.UI(
 				clay.Layout(
 					{
-						layoutDirection = .LEFT_TO_RIGHT,
-						sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
-						padding = {16, 16},
-						childAlignment = {y = .CENTER},
+						layoutDirection = .TOP_TO_BOTTOM,
+						sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
 					},
 				),
+				clay.Scroll({vertical = true}),
+				clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
 			) {
-				// new rule textbox
-				{
-					placeholder_str := "New rule..."
-					tb_res, tb_id := UI_textbox(
-						&ctx.ui_ctx,
-						ctx.new_rule_buf[:],
-						&ctx.new_rule_len,
-						placeholder_str,
-						{textColor = TEXT, fontSize = 16},
-						{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
-						{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
-						{color = MAUVE, width = 2},
-						{5, 5},
-						5,
-						true,
-					)
+				if clay.UI(
+					clay.Layout(
+						{
+							layoutDirection = .LEFT_TO_RIGHT,
+							sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+							padding = {16, 16},
+							childAlignment = {y = .CENTER},
+						},
+					),
+				) {
+					// new rule textbox
+					{
+						placeholder_str := "New rule..."
+						tb_res, tb_id := UI_textbox(
+							&ctx.ui_ctx,
+							ctx.new_rule_buf[:],
+							&ctx.new_rule_len,
+							placeholder_str,
+							{textColor = TEXT, fontSize = 16},
+							{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
+							{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
+							{color = MAUVE, width = 2},
+							{5, 5},
+							5,
+							true,
+						)
 
-					if .FOCUS in tb_res {
-						ctx.new_rule_len = 0
-					}
-
-					if .SUBMIT in tb_res {
-						if ctx.new_rule_len > 0 {
-							append(
-								&ctx.aux_rules,
-								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-							)
+						if .FOCUS in tb_res {
 							ctx.new_rule_len = 0
-							ctx.updates += {.RULES}
 						}
-					}
 
-					UI_spacer()
+						if .SUBMIT in tb_res {
+							if ctx.new_rule_len > 0 {
+								append(
+									&ctx.aux_rules,
+									strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+								)
+								ctx.new_rule_len = 0
+								ctx.updates += {.RULES}
+							}
+						}
 
-					button_res, button_id := UI_text_button(
-						&ctx.ui_ctx,
-						"Add Rule",
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-						clay.CornerRadiusAll(5),
-						SURFACE_2,
-						SURFACE_1,
-						SURFACE_0,
-						TEXT,
-						16,
-						5,
-					)
+						UI_spacer()
 
-					if .RELEASE in button_res {
-						if ctx.new_rule_len > 0 {
-							append(
-								&ctx.aux_rules,
-								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-							)
-							ctx.new_rule_len = 0
-							ctx.updates += {.RULES}
+						button_res, button_id := UI_text_button(
+							&ctx.ui_ctx,
+							"Add Rule",
+							{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+							clay.CornerRadiusAll(5),
+							SURFACE_2,
+							SURFACE_1,
+							SURFACE_0,
+							TEXT,
+							16,
+							5,
+						)
+
+						if .RELEASE in button_res {
+							if ctx.new_rule_len > 0 {
+								append(
+									&ctx.aux_rules,
+									strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+								)
+								ctx.new_rule_len = 0
+								ctx.updates += {.RULES}
+							}
 						}
 					}
 				}
+				for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 			}
-			for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 		}
 
 		if clay.UI(

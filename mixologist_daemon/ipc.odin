@@ -9,6 +9,7 @@ import "core:os/os2"
 import "core:slice"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/posix"
 
 SERVER_SOCKET :: "\x00mixologist"
 MAX_CLIENTS :: 64
@@ -18,12 +19,15 @@ IPC_Server_Context :: struct {
 	server_fd:            linux.Fd,
 	server_addr:          linux.Sock_Addr_Un,
 	_clients:             sa.Small_Array(MAX_CLIENTS, linux.Poll_Fd),
+	_removed_clients:     sa.Small_Array(MAX_CLIENTS, linux.Fd),
 	_volume_subscribers:  sa.Small_Array(MAX_CLIENTS, linux.Fd),
 	_program_subscribers: sa.Small_Array(MAX_CLIENTS, linux.Fd),
 	_buf:                 [BUF_SIZE]u8,
 }
 
 IPC_Server_init :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
+	posix.signal(.SIGPIPE, IPC_Server__handle_sigpipe)
+
 	sock_err: linux.Errno
 	ctx.server_fd, sock_err = linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
 	if sock_err != nil do log.panicf("could not create socket with error %v", sock_err)
@@ -46,23 +50,35 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context, mixd_ctx: ^Context) {
 	if sa.get(ctx._clients, 0).revents >= {.IN} {
 		client_fd, client_err := linux.accept(ctx.server_fd, &ctx.server_addr, {.NONBLOCK})
 		if client_err != nil do log.panicf("accept error %v", client_err)
+		log.debugf("client connected: socket %v", client_fd)
 		sa.append(&ctx._clients, linux.Poll_Fd{fd = client_fd, events = {.IN}})
 	}
 
+	sa.clear(&ctx._removed_clients)
 	#reverse for &client, idx in sa.slice(&ctx._clients)[1:] {
 		if client.revents >= {.IN} {
 			bytes_read, read_err := linux.read(client.fd, ctx._buf[:])
-			if read_err != nil do log.panicf("read error %v: socket %v", read_err, client.fd)
-			if bytes_read == 0 {
-				log.debugf("client disconnected: socket %v", client.fd)
-				linux.close(client.fd)
+			if read_err == .EWOULDBLOCK || read_err == .EAGAIN do continue
+			if read_err != nil {
+				log.debugf("client error %v disconnecting: socket %v", read_err, client.fd)
 				sa.unordered_remove(&ctx._clients, idx + 1)
+				sa.append(&ctx._removed_clients, client.fd)
+			} else if bytes_read == 0 {
+				log.debugf("client disconnected: socket %v", client.fd)
+				sa.unordered_remove(&ctx._clients, idx + 1)
+				sa.append(&ctx._removed_clients, client.fd)
 			} else {
 				log.debugf("read %v bytes: socket %v", bytes_read, client.fd)
 				msg_bytes := ctx._buf[:bytes_read]
 				IPC_Server__handle_msg(ctx, mixd_ctx, client, msg_bytes)
 			}
 		}
+	}
+
+	for fd in sa.slice(&ctx._removed_clients) {
+		IPC_Server_remove_volume_subscriber(ctx, fd)
+		IPC_Server_remove_program_subscriber(ctx, fd)
+		linux.close(fd)
 	}
 }
 
@@ -80,6 +96,7 @@ IPC_Server__handle_msg :: proc(
 		switch msg.act {
 		case .Subscribe:
 			IPC_Server_add_volume_subscriber(ctx, client.fd)
+			IPC_Server_notify_volume_subscription(ctx, mixd_ctx)
 		case .Set:
 			mixd_ctx.vol = clamp(msg.val, -1, 1)
 			mixd_ctx.default_sink.volume, mixd_ctx.aux_sink.volume = sink_vols_from_ctx_vol(
@@ -115,6 +132,7 @@ IPC_Server__handle_msg :: proc(
 		switch msg.act {
 		case .Subscribe:
 			IPC_Server_add_program_subscriber(ctx, client.fd)
+			IPC_Server_notify_program_subscription(ctx, mixd_ctx)
 		case .Add:
 			log.logf(.Info, "Adding program %s", msg.val)
 			add_program(mixd_ctx, msg.val)
@@ -142,11 +160,23 @@ IPC_Server__handle_msg :: proc(
 }
 
 IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: common.Message) {
+	_, found := slice.linear_search(sa.slice(&ctx._removed_clients), client_fd)
+	if found {
+		log.debugf("attempted to send to removed socket: %v, skipping", client_fd)
+		return
+	}
+
 	cbor_msg, _ := cbor.marshal(msg)
+	defer delete(cbor_msg)
+
 	bytes_sent, send_err := linux.send(client_fd, cbor_msg, {})
-	if send_err != nil do log.panicf("could not send with error %v", send_err)
-	log.debugf("sent %v bytes from server", bytes_sent)
-	delete(cbor_msg)
+	if send_err != nil {
+		log.errorf("could not send with error %v: socket %v", send_err, client_fd)
+		sa.append(&ctx._removed_clients, client_fd)
+		return
+	}
+
+	log.debugf("sent %v bytes from server: socket %v", bytes_sent, client_fd)
 }
 
 IPC_Server_add_volume_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd) {
@@ -189,3 +219,6 @@ IPC_Server_deinit :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
 	for client in sa.slice(&ctx._clients) do linux.close(client.fd)
 	return linux.close(ctx.server_fd)
 }
+
+// blank handler to ignore sigpipe
+IPC_Server__handle_sigpipe :: proc "c" (signum: posix.Signal) {}

@@ -11,7 +11,6 @@ import "core:strings"
 import "core:sys/linux"
 
 SERVER_SOCKET :: "\x00mixologist"
-MAX_CLIENTS :: 64
 BUF_SIZE :: 1024
 
 IPC_Client_Context :: struct {
@@ -59,6 +58,7 @@ IPC_Client_recv :: proc(ctx: ^IPC_Client_Context, mixgui_ctx: ^Context) {
 IPC_Client_send :: proc(ctx: ^IPC_Client_Context, msg: common.Message) {
 	cbor_msg, _ := cbor.marshal(msg)
 	res, _ := linux.send(ctx.client_fd, cbor_msg, {})
+	log.debugf("sent %v bytes: socket %v", res, ctx.client_fd)
 	delete(cbor_msg)
 }
 
