@@ -295,9 +295,7 @@ UI_slider :: proc(
 	active := UI_widget_active(ctx, id)
 	if .PRESS in res {
 		UI_widget_focus(ctx, id)
-		if !active {
-			res += {.FOCUS}
-		}
+		if !active do res += {.FOCUS}
 	}
 	if active && linalg.length2(rl.GetMouseDelta()) > 0 do res += {.CHANGE}
 

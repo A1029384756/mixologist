@@ -117,13 +117,11 @@ main :: proc() {
 		}
 
 		// ipc
-		IPC_Client_recv(&ctx.ipc, &ctx)
-		if (int(UI_get_time() / 1000) % IPC_DELAY_MS) == 0 {
-			if .VOLUME in ctx.updates {
-				ctx.updates -= {.VOLUME}
-				mixd_set_volume(&ctx)
-			}
+		if .VOLUME in ctx.updates {
+			ctx.updates -= {.VOLUME}
+			mixd_set_volume(&ctx)
 		}
+		IPC_Client_recv(&ctx.ipc, &ctx)
 
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
