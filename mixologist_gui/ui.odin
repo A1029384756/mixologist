@@ -2,10 +2,12 @@ package mixologist_gui
 
 import "./clay"
 import rl "./raylib"
+import "base:intrinsics"
 import "core:c"
 import sa "core:container/small_array"
 import "core:fmt"
 import "core:math"
+import "core:math/linalg"
 import "core:slice"
 import "core:strings"
 import "core:text/edit"
@@ -79,6 +81,10 @@ UI_init :: proc(ctx: ^UI_Context) {
 UI_deinit :: proc(ctx: ^UI_Context) {
 	delete(ctx.memory)
 	rl.CloseWindow()
+}
+
+UI_get_time :: proc() -> f64 {
+	return rl.GetTime()
 }
 
 UI_tick :: proc(
@@ -266,19 +272,19 @@ UI_textbox :: proc(
 
 UI_slider :: proc(
 	ctx: ^UI_Context,
-	pos: ^f64,
-	min_val, max_val: f64,
+	pos: ^$T,
+	min_val, max_val: T,
 	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
-) {
+) where intrinsics.type_is_float(T) {
 	res, id = UI__slider(
 		ctx,
 		pos,
-		0,
-		1,
+		min_val,
+		max_val,
 		color,
 		hover_color,
 		press_color,
@@ -293,6 +299,7 @@ UI_slider :: proc(
 			res += {.FOCUS}
 		}
 	}
+	if active && linalg.length2(rl.GetMouseDelta()) > 0 do res += {.CHANGE}
 
 	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
@@ -627,8 +634,10 @@ UI__textbox :: proc(
 						}
 					}
 
+					// [TODO] fix nested scrolldata fetching
 					scroll_data := clay.GetScrollContainerData(local_id.id)
-					scroll_data.scrollPosition^ = {c.float(ctx.textbox_offset), 0}
+					if scroll_data.found do scroll_data.scrollPosition^ = {c.float(ctx.textbox_offset), 0}
+					else do fmt.eprintln("Could not get scroll data for:", local_id.id.id)
 
 					clay.Text(text_str, text_config)
 				} else {
@@ -642,14 +651,14 @@ UI__textbox :: proc(
 
 UI__slider :: proc(
 	ctx: ^UI_Context,
-	pos: ^f64,
-	min_val, max_val: f64,
+	pos: ^$T,
+	min_val, max_val: T,
 	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
-) {
+) where intrinsics.type_is_float(T) {
 	if clay.UI(clay.Layout(layout)) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id.id
@@ -674,12 +683,10 @@ UI__slider :: proc(
 			major_dimension := max(sizing.width, sizing.height)
 
 			if active && (!rl.IsMouseButtonPressed(.LEFT) && rl.IsMouseButtonDown(.LEFT)) {
-				relative_x := c.float(rl.GetMouseX()) - sizing.x
-				min_x := sizing.x
-				max_x := sizing.x + sizing.width
-
-				slider_percent := c.float(abs(relative_x - min_x) / abs(max_x - min_x))
-				pos^ = max_val * f64(slider_percent)
+				relative_x := T(rl.GetMouseX()) - T(sizing.x)
+				slope := T(max_val - min_val) / T(sizing.width)
+				pos^ = min_val + slope * (relative_x)
+				pos^ = clamp(pos^, min_val, max_val)
 			}
 
 			selected_color := color
@@ -695,8 +702,8 @@ UI__slider :: proc(
 					{
 						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
 						offset = {
-							c.float(abs(pos^ - min_val) / abs(max_val - min_val)) *
-								major_dimension +
+							c.float(abs(pos^ - T(min_val)) / abs(T(max_val - min_val))) *
+								major_dimension -
 							minor_dimension / 2,
 							0,
 						},

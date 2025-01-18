@@ -3,8 +3,6 @@ package mixologist_daemon
 import "../common"
 import pw "../pipewire"
 import "base:runtime"
-import "core:encoding/cbor"
-import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
@@ -46,8 +44,7 @@ Context :: struct {
 	allocator:         mem.Allocator,
 	// control flow/ipc state
 	should_exit:       bool,
-	ipc:               posix.FD,
-	addr:              posix.sockaddr_un,
+	ipc_server:        IPC_Server_Context,
 }
 
 main :: proc() {
@@ -114,24 +111,13 @@ main :: proc() {
 		retry_delay_seconds := time.Duration(1)
 		max_retry_count := 5
 		for retry_count in 0 ..< max(int) {
-			ctx.ipc = posix.socket(.UNIX, .STREAM)
-			if ctx.ipc == -1 {
-				log.panic("could not create socket")
-			}
-
-			flags := transmute(posix.O_Flags)posix.fcntl(ctx.ipc, .GETFL) + {.NONBLOCK}
-			posix.fcntl(ctx.ipc, .SETFL, flags)
-
-			ctx.addr.sun_family = .UNIX
-			posix.unlink("\x00mixologist")
-			copy(ctx.addr.sun_path[:], "\x00mixologist")
-			bind_err := posix.bind(ctx.ipc, cast(^posix.sockaddr)(&ctx.addr), size_of(ctx.addr))
-			if bind_err != .OK && retry_count == max_retry_count {
-				log.panicf("could not bind socket %v", posix.errno())
-			} else if bind_err != .OK {
+			bind_err := IPC_Server_init(&ctx.ipc_server)
+			if bind_err != nil && retry_count == max_retry_count {
+				log.panicf("could not bind socket %v", bind_err)
+			} else if bind_err != nil {
 				log.errorf(
 					"could not bind socket %v, waiting %v seconds to try again. is mixd already running?",
-					posix.errno(),
+					bind_err,
 					retry_delay_seconds * time.Second,
 				)
 				time.sleep(retry_delay_seconds * time.Second)
@@ -139,10 +125,6 @@ main :: proc() {
 			} else {
 				break
 			}
-		}
-
-		if posix.listen(ctx.ipc, 5) != .OK {
-			log.panicf("could not listen on socket %v", posix.errno())
 		}
 	}
 
@@ -234,6 +216,8 @@ main :: proc() {
 	pw.thread_loop_start(ctx.main_loop)
 
 	event_loop: for !ctx.should_exit {
+		free_all(context.temp_allocator)
+
 		time: linux.Time_Spec
 		pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
 		pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
@@ -261,29 +245,10 @@ main :: proc() {
 			}
 		}
 
-		conn := posix.accept(ctx.ipc, nil, nil)
-		if conn == -1 {
-			if posix.errno() != .EWOULDBLOCK {
-				log.panicf("could not accept connection with error %v", posix.errno())
-			} else {
-				continue event_loop
-			}
-		}
-		defer posix.close(conn)
-
-		buf: [1024]u8
-		bytes_read := posix.recv(conn, &buf, len(buf), {})
-		log.logf(.Debug, "read %d bytes", bytes_read)
-
-		msg: common.Message
-		msg_err := cbor.unmarshal(string(buf[:bytes_read]), &msg)
-		assert(msg_err == nil)
-
-		log.logf(.Info, "read message %v", msg)
-		handle_message(&ctx, msg)
-
-		free_all(context.temp_allocator)
+		IPC_Server_poll(&ctx.ipc_server, &ctx)
 	}
+
+	free_all(context.allocator)
 
 	pw.thread_loop_unlock(ctx.main_loop)
 	pw.thread_loop_stop(ctx.main_loop)
@@ -307,7 +272,7 @@ main :: proc() {
 	}
 
 	// ipc cleanup
-	posix.close(ctx.ipc)
+	IPC_Server_deinit(&ctx.ipc_server)
 
 	// ctx cleanup
 	for rule in ctx.aux_rules {
@@ -605,56 +570,6 @@ rebuild_connections :: proc(ctx: ^Context) {
 		}
 
 		sink_set_volume(sink, sink.volume)
-	}
-}
-
-handle_message :: proc(ctx: ^Context, msg: common.Message) {
-	switch res in msg {
-	case common.Volume:
-		switch res.act {
-		case .Set:
-			ctx.vol = clamp(res.val, -1, 1)
-			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(res.val)
-		case .Shift:
-			ctx.vol += res.val
-			ctx.vol = clamp(ctx.vol, -1, 1)
-			ctx.default_sink.volume, ctx.aux_sink.volume = sink_vols_from_ctx_vol(ctx.vol)
-		}
-
-		sink_set_volume(&ctx.default_sink, ctx.default_sink.volume)
-		sink_set_volume(&ctx.aux_sink, ctx.aux_sink.volume)
-		// save out config volume to file
-		{
-			vol_str := fmt.tprintf("%f", ctx.vol)
-			write_err := os2.write_entire_file(ctx.cache_file, transmute([]u8)vol_str)
-			if write_err != nil {
-				log.logf(.Error, "could not save out config file: %v", write_err)
-			}
-		}
-	case common.Program:
-		switch res.act {
-		case .Add:
-			log.logf(.Info, "Adding program %s", res.val)
-			add_program(ctx, res.val)
-		case .Remove:
-			log.logf(.Info, "Removing program %s", res.val)
-			remove_program(ctx, res.val)
-			delete(res.val)
-		}
-
-		// save out rules to file
-		{
-			builder: strings.Builder
-			strings.builder_init(&builder, context.temp_allocator)
-			for rule in ctx.aux_rules {
-				fmt.sbprintln(&builder, rule)
-			}
-			rules_file := strings.to_string(builder)
-			write_err := os2.write_entire_file(ctx.config_file, transmute([]u8)rules_file)
-			if write_err != nil {
-				log.logf(.Error, "could not save out config file: %v", write_err)
-			}
-		}
 	}
 }
 

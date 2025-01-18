@@ -1,17 +1,26 @@
 package mixologist_gui
 
+import "../common"
 import "./clay"
-import rl "./raylib"
 import "core:c"
+import "core:encoding/cbor"
 import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os/os2"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/posix"
 
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
+IPC_DELAY_MS :: 500
+
+Context_Update :: enum u8 {
+	RULES,
+	VOLUME,
+}
+Context_Updates :: bit_set[Context_Update]
 
 Context :: struct {
 	ui_ctx:          UI_Context,
@@ -19,6 +28,7 @@ Context :: struct {
 	active_line_buf: [1024]u8,
 	active_line_len: int,
 	active_line:     int,
+	volume:          f32,
 	// rule creation
 	new_rule_buf:    [1024]u8,
 	new_rule_len:    int,
@@ -27,7 +37,9 @@ Context :: struct {
 	config_file:     string,
 	inotify_fd:      linux.Fd,
 	inotify_wd:      linux.Wd,
-	rules_updated:   bool,
+	updates:         Context_Updates,
+	// ipc
+	ipc:             IPC_Client_Context,
 	// allocations
 	arena:           virtual.Arena,
 	allocator:       mem.Allocator,
@@ -72,6 +84,11 @@ main :: proc() {
 		}
 	}
 
+	// set up ipc
+	IPC_Client_init(&ctx.ipc)
+	defer IPC_Client_deinit(&ctx.ipc)
+	IPC_Client_send(&ctx.ipc, common.Volume{.Subscribe, 0})
+
 	UI_init(&ctx.ui_ctx)
 	UI_load_font(&ctx.ui_ctx, 16, "mixologist_gui/resources/Roboto-Regular.ttf")
 
@@ -99,11 +116,20 @@ main :: proc() {
 			}
 		}
 
+		// ipc
+		IPC_Client_recv(&ctx.ipc, &ctx)
+		if (int(UI_get_time() / 1000) % IPC_DELAY_MS) == 0 {
+			if .VOLUME in ctx.updates {
+				ctx.updates -= {.VOLUME}
+				mixd_set_volume(&ctx)
+			}
+		}
+
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
-		if ctx.rules_updated {
+		if .RULES in ctx.updates {
 			save_rules(&ctx)
-			ctx.rules_updated = false
+			ctx.updates -= {.RULES}
 			ctx.active_line = 0
 			UI_unfocus_all(&ctx.ui_ctx)
 		}
@@ -117,6 +143,14 @@ UI_create_layout :: proc(
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^Context)userdata
 	return create_layout(mgst_ctx)
+}
+
+mixd_set_volume :: proc(ctx: ^Context) {
+	msg := common.Volume {
+		act = .Set,
+		val = ctx.volume,
+	}
+	IPC_Client_send(&ctx.ipc, msg)
 }
 
 reload_config :: proc(ctx: ^Context) {
@@ -159,7 +193,6 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			{
 				layoutDirection = .TOP_TO_BOTTOM,
 				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-				padding = {16, 16},
 				childAlignment = {x = .CENTER, y = .CENTER},
 			},
 		),
@@ -213,7 +246,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
 							)
 							ctx.new_rule_len = 0
-							ctx.rules_updated = true
+							ctx.updates += {.RULES}
 						}
 					}
 
@@ -239,7 +272,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 								strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
 							)
 							ctx.new_rule_len = 0
-							ctx.rules_updated = true
+							ctx.updates += {.RULES}
 						}
 					}
 				}
@@ -247,18 +280,30 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 		}
 
-		@(static) val := 0.5
-		slider_res, slider_id := UI_slider(
-			&ctx.ui_ctx,
-			&val,
-			0,
-			1,
-			OVERLAY_2,
-			OVERLAY_1,
-			OVERLAY_0,
-			SURFACE_0,
-			{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
-		)
+		if clay.UI(
+			clay.Layout(
+				{
+					sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+					padding = {16, 16},
+					childAlignment = {.CENTER, .CENTER},
+				},
+			),
+			clay.Rectangle({color = SURFACE_0}),
+		) {
+			slider_res, slider_id := UI_slider(
+				&ctx.ui_ctx,
+				&ctx.volume,
+				-1,
+				1,
+				OVERLAY_2,
+				OVERLAY_1,
+				OVERLAY_0,
+				SURFACE_2,
+				{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+			)
+
+			if .CHANGE in slider_res do ctx.updates += {.VOLUME}
+		}
 	}
 
 	return clay.EndLayout()
@@ -300,7 +345,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			} else {
 				entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 			}
-			ctx.rules_updated = true
+			ctx.updates += {.RULES}
 			ctx.active_line = 0
 			row_selected = false
 		}
@@ -351,7 +396,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				if .RELEASE in delete_res {
 					delete(entry^)
 					ordered_remove(&ctx.aux_rules, idx - 1)
-					ctx.rules_updated = true
+					ctx.updates += {.RULES}
 				}
 				if .RELEASE in cancel_res {
 					ctx.active_line = 0
@@ -364,7 +409,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 					} else {
 						entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 					}
-					ctx.rules_updated = true
+					ctx.updates += {.RULES}
 					ctx.active_line = 0
 				}
 			}
@@ -386,7 +431,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				if active {
 					delete(entry^)
 					entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
-					ctx.rules_updated = true
+					ctx.updates += {.RULES}
 					ctx.active_line = 0
 				} else {
 					UI_widget_focus(&ctx.ui_ctx, tb_id)

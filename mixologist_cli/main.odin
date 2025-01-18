@@ -7,13 +7,16 @@ import "core:fmt"
 import "core:io"
 import "core:log"
 import "core:os/os2"
-import "core:sys/posix"
+import "core:sys/linux"
+
+SERVER_SOCKET :: "\x00mixologist"
 
 Options :: struct {
 	set_volume:     f32 `args:"name=set-volume" usage:"volume to assign nodes"`,
 	shift_volume:   f32 `args:"name=shift-volume" usage:"volume to increment nodes"`,
 	add_program:    [dynamic]string `args:"name=add-program" usage:"name of program to add to aux"`,
 	remove_program: [dynamic]string `args:"name=remove-program" usage:"name of program to remove from aux"`,
+	get_volume:     bool `args:"name=get-volume" usage:"the current mixologist volume"`,
 }
 
 State :: struct {
@@ -54,7 +57,7 @@ flag_checker :: proc(
 
 state: State
 main :: proc() {
-	context.logger = log.create_console_logger()
+	context.logger = log.create_console_logger(lowest = common.get_log_level())
 	defer log.destroy_console_logger(context.logger)
 
 	flags.register_flag_checker(flag_checker)
@@ -85,28 +88,52 @@ main :: proc() {
 		}
 		send_message(msg)
 	}
+
+	if state.opts.get_volume {
+		msg := common.Volume {
+			act = .Get,
+			val = 0,
+		}
+		send_message(msg, true)
+	}
 }
 
-send_message :: proc(msg: common.Message) {
+send_message :: proc(msg: common.Message, recv := false) {
 	message, encoding_err := cbor.marshal(msg)
 	assert(encoding_err == nil)
 	defer delete(message)
 
-	sock := posix.socket(.UNIX, .STREAM)
-	flags := transmute(posix.O_Flags)posix.fcntl(sock, .GETFL) + {.NONBLOCK}
-	posix.fcntl(sock, .SETFL, flags)
+	client_fd, socket_err := linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
+	defer linux.close(client_fd)
+	if socket_err != nil do log.panicf("could not create socket with error %v", socket_err)
 
-	addr: posix.sockaddr_un
-	addr.sun_family = .UNIX
-	copy(addr.sun_path[:], "\x00mixologist")
+	client_addr: linux.Sock_Addr_Un
+	client_addr.sun_family = .UNIX
+	copy(client_addr.sun_path[:], SERVER_SOCKET)
 
-	if posix.connect(sock, cast(^posix.sockaddr)(&addr), size_of(addr)) != .OK {
-		log.panic("could not connect to socket, is the mixologist daemon running?")
+	connect_err := linux.connect(client_fd, &client_addr)
+	if connect_err != nil do log.panicf("could not connect to socket with error %v", connect_err)
+
+	bytes_sent, send_err := linux.send(client_fd, message, {})
+	if send_err != nil do log.panicf("could not send data with error %v", send_err)
+	log.debugf("sent bytes %d bytes to server", bytes_sent)
+	if !recv do return
+
+	buf: [1024]u8
+	for {
+		bytes_read, recv_err := linux.recv(client_fd, buf[:], {})
+		if recv_err != nil {
+			if recv_err == .EWOULDBLOCK || recv_err == .EAGAIN do continue
+			else do log.panicf("could not recv data with error %v", recv_err)
+		}
+
+		log.logf(.Debug, "recieved %d bytes from server", bytes_read)
+
+		response: common.Message
+		response_err := cbor.unmarshal(string(buf[:bytes_read]), &response)
+		if response_err != nil do log.panicf("unmarhal from server failed: %v", response_err)
+		res := response.(common.Volume)
+		fmt.println(res.val)
+		break
 	}
-
-	n_bytes := posix.send(sock, raw_data(message), len(message), {})
-	if n_bytes == -1 {
-		log.panicf("could not send data with error %v", posix.errno())
-	}
-	log.logf(.Debug, "sent bytes to server, got %d bytes", n_bytes)
 }
