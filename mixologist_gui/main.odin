@@ -99,7 +99,7 @@ main :: proc() {
 	IPC_Client_send(&ctx.ipc, common.Volume{.Subscribe, 0})
 
 	UI_init(&ctx.ui_ctx)
-	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"))
+	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"), ".ttf")
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading

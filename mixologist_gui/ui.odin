@@ -187,9 +187,9 @@ UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
 	return rl.WindowShouldClose()
 }
 
-UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
+UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8, extension: cstring) -> u16 {
 	font := rl.LoadFontFromMemory(
-		".ttf",
+		extension,
 		raw_data(data),
 		c.int(len(data)),
 		c.int(fontsize * 2),
