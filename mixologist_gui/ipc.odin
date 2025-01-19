@@ -56,11 +56,13 @@ IPC_Client_recv :: proc(ctx: ^IPC_Client_Context, mixgui_ctx: ^Context) {
 	}
 }
 
-IPC_Client_send :: proc(ctx: ^IPC_Client_Context, msg: common.Message) {
+IPC_Client_send :: proc(ctx: ^IPC_Client_Context, msg: common.Message) -> (res: linux.Errno) {
 	cbor_msg, _ := cbor.marshal(msg)
-	res, _ := linux.send(ctx.client_fd, cbor_msg, {})
-	log.debugf("sent %v bytes: socket %v", res, ctx.client_fd)
+	bytes_sent: int
+	bytes_sent, res = linux.send(ctx.client_fd, cbor_msg, {})
+	log.debugf("sent %v bytes: socket %v", bytes_sent, ctx.client_fd)
 	delete(cbor_msg)
+	return
 }
 
 IPC_Client_deinit :: proc(ctx: ^IPC_Client_Context) -> linux.Errno {

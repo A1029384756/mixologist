@@ -17,11 +17,12 @@ EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 IPC_DELAY_MS :: 500
 
-Context_Update :: enum u8 {
+Context_Status :: enum u8 {
 	RULES,
 	VOLUME,
+	CONNECTED,
 }
-Context_Updates :: bit_set[Context_Update]
+Context_Statuses :: bit_set[Context_Status]
 
 Context :: struct {
 	ui_ctx:          UI_Context,
@@ -38,7 +39,7 @@ Context :: struct {
 	config_file:     string,
 	inotify_fd:      linux.Fd,
 	inotify_wd:      linux.Wd,
-	updates:         Context_Updates,
+	statuses:        Context_Statuses,
 	// ipc
 	ipc:             IPC_Client_Context,
 	// allocations
@@ -91,12 +92,8 @@ main :: proc() {
 		}
 	}
 
-	// set up ipc
-	IPC_Client_init(&ctx.ipc)
-	defer IPC_Client_deinit(&ctx.ipc)
-
-	// sync up initial volume and subscribe to all updates
-	IPC_Client_send(&ctx.ipc, common.Volume{.Subscribe, 0})
+	connection := mixgui_connect(&ctx)
+	if connection == nil do ctx.statuses += {.CONNECTED}
 
 	UI_init(&ctx.ui_ctx)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"), ".ttf")
@@ -126,22 +123,28 @@ main :: proc() {
 		}
 
 		// ipc
-		if .VOLUME in ctx.updates {
-			ctx.updates -= {.VOLUME}
-			mixd_set_volume(&ctx)
+		if .CONNECTED in ctx.statuses {
+			if .VOLUME in ctx.statuses {
+				ctx.statuses -= {.VOLUME}
+				mixd_set_volume(&ctx)
+			}
+			IPC_Client_recv(&ctx.ipc, &ctx)
+		} else {
+			if mixgui_connect(&ctx) == .NONE do ctx.statuses += {.CONNECTED}
 		}
-		IPC_Client_recv(&ctx.ipc, &ctx)
 
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
-		if .RULES in ctx.updates {
+		if .RULES in ctx.statuses {
 			save_rules(&ctx)
-			ctx.updates -= {.RULES}
+			ctx.statuses -= {.RULES}
 			ctx.active_line = 0
 			UI_unfocus_all(&ctx.ui_ctx)
 		}
 		free_all(context.temp_allocator)
 	}
+
+	if .CONNECTED in ctx.statuses do IPC_Client_deinit(&ctx.ipc)
 }
 
 UI_create_layout :: proc(
@@ -150,6 +153,12 @@ UI_create_layout :: proc(
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^Context)userdata
 	return create_layout(mgst_ctx)
+}
+
+mixgui_connect :: proc(ctx: ^Context) -> linux.Errno {
+	log.debugf("attempting to connect to mixd...")
+	IPC_Client_init(&ctx.ipc) or_return
+	return IPC_Client_send(&ctx.ipc, common.Volume{.Subscribe, 0})
 }
 
 mixd_set_volume :: proc(ctx: ^Context) {
@@ -197,130 +206,169 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
 
 	if clay.UI(
-		clay.Layout(
-			{
-				layoutDirection = .TOP_TO_BOTTOM,
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-				childAlignment = {x = .CENTER, y = .CENTER},
-			},
-		),
-		clay.Rectangle({color = BASE}),
+		clay.ID("root"),
+		clay.Layout({sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}),
 	) {
 		if clay.UI(
 			clay.Layout(
 				{
+					layoutDirection = .TOP_TO_BOTTOM,
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					padding = {16, 16},
 					childAlignment = {x = .CENTER, y = .CENTER},
 				},
 			),
+			clay.Rectangle({color = BASE}),
 		) {
 			if clay.UI(
 				clay.Layout(
 					{
-						layoutDirection = .TOP_TO_BOTTOM,
-						sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						padding = {16, 16},
+						childAlignment = {x = .CENTER, y = .CENTER},
 					},
 				),
-				clay.Scroll({vertical = true}),
-				clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
 			) {
 				if clay.UI(
 					clay.Layout(
 						{
-							layoutDirection = .LEFT_TO_RIGHT,
-							sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
-							padding = {16, 16},
-							childAlignment = {y = .CENTER},
+							layoutDirection = .TOP_TO_BOTTOM,
+							sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
 						},
 					),
+					clay.Scroll({vertical = true}),
+					clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
 				) {
-					// new rule textbox
-					{
-						placeholder_str := "New rule..."
-						tb_res, tb_id := UI_textbox(
-							&ctx.ui_ctx,
-							ctx.new_rule_buf[:],
-							&ctx.new_rule_len,
-							placeholder_str,
-							{textColor = TEXT, fontSize = 16},
-							{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
-							{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
-							{color = MAUVE, width = 2},
-							{5, 5},
-							5,
-							true,
-						)
+					if clay.UI(
+						clay.Layout(
+							{
+								layoutDirection = .LEFT_TO_RIGHT,
+								sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+								padding = {16, 16},
+								childAlignment = {y = .CENTER},
+							},
+						),
+					) {
+						// new rule textbox
+						{
+							placeholder_str := "New rule..."
+							tb_res, tb_id := UI_textbox(
+								&ctx.ui_ctx,
+								ctx.new_rule_buf[:],
+								&ctx.new_rule_len,
+								placeholder_str,
+								{textColor = TEXT, fontSize = 16},
+								{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
+								{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
+								{color = MAUVE, width = 2},
+								{5, 5},
+								5,
+								true,
+							)
 
-						if .FOCUS in tb_res {
-							ctx.new_rule_len = 0
-						}
-
-						if .SUBMIT in tb_res {
-							if ctx.new_rule_len > 0 {
-								append(
-									&ctx.aux_rules,
-									strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-								)
+							if .FOCUS in tb_res {
 								ctx.new_rule_len = 0
-								ctx.updates += {.RULES}
 							}
-						}
 
-						UI_spacer()
+							if .SUBMIT in tb_res {
+								if ctx.new_rule_len > 0 {
+									append(
+										&ctx.aux_rules,
+										strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+									)
+									ctx.new_rule_len = 0
+									ctx.statuses += {.RULES}
+								}
+							}
 
-						button_res, button_id := UI_text_button(
-							&ctx.ui_ctx,
-							"Add Rule",
-							{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-							clay.CornerRadiusAll(5),
-							SURFACE_2,
-							SURFACE_1,
-							SURFACE_0,
-							TEXT,
-							16,
-							5,
-						)
+							UI_spacer()
 
-						if .RELEASE in button_res {
-							if ctx.new_rule_len > 0 {
-								append(
-									&ctx.aux_rules,
-									strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-								)
-								ctx.new_rule_len = 0
-								ctx.updates += {.RULES}
+							button_res, button_id := UI_text_button(
+								&ctx.ui_ctx,
+								"Add Rule",
+								{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+								clay.CornerRadiusAll(5),
+								SURFACE_2,
+								SURFACE_1,
+								SURFACE_0,
+								TEXT,
+								16,
+								5,
+							)
+
+							if .RELEASE in button_res {
+								if ctx.new_rule_len > 0 {
+									append(
+										&ctx.aux_rules,
+										strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+									)
+									ctx.new_rule_len = 0
+									ctx.statuses += {.RULES}
+								}
 							}
 						}
 					}
+					for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 				}
-				for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
+			}
+
+			if clay.UI(
+				clay.Layout(
+					{
+						sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+						padding = {16, 16},
+						childAlignment = {.CENTER, .CENTER},
+					},
+				),
+				clay.Rectangle({color = SURFACE_0}),
+			) {
+				slider_res, slider_id := UI_slider(
+					&ctx.ui_ctx,
+					&ctx.volume,
+					-1,
+					1,
+					OVERLAY_2,
+					OVERLAY_1,
+					OVERLAY_0,
+					SURFACE_2,
+					{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+				)
+
+				if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
 			}
 		}
 
-		if clay.UI(
-			clay.Layout(
-				{
-					sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
-					padding = {16, 16},
-					childAlignment = {.CENTER, .CENTER},
-				},
-			),
-			clay.Rectangle({color = SURFACE_0}),
-		) {
-			slider_res, slider_id := UI_slider(
-				&ctx.ui_ctx,
-				&ctx.volume,
-				-1,
-				1,
-				OVERLAY_2,
-				OVERLAY_1,
-				OVERLAY_0,
-				SURFACE_2,
-				{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
-			)
-
-			if .CHANGE in slider_res do ctx.updates += {.VOLUME}
+		if !(.CONNECTED in ctx.statuses) {
+			if clay.UI(
+				clay.Floating({attachment = {element = .CENTER_CENTER, parent = .CENTER_CENTER}}),
+				clay.Layout(
+					{
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						childAlignment = {x = .CENTER, y = .CENTER},
+					},
+				),
+				clay.Rectangle({color = CRUST * {1, 1, 1, 0.75}}),
+			) {
+				if clay.UI(
+					clay.Layout(
+						{
+							sizing = {clay.SizingPercent(0.7), clay.SizingPercent(0.7)},
+							childAlignment = {x = .CENTER, y = .CENTER},
+							layoutDirection = .TOP_TO_BOTTOM,
+							childGap = 16,
+						},
+					),
+					clay.Rectangle({color = BASE, cornerRadius = clay.CornerRadiusAll(5)}),
+				) {
+					clay.Text(
+						"Could not connect to Mixd",
+						clay.TextConfig({textColor = TEXT, fontSize = 16}),
+					)
+					clay.Text(
+						"Is it running?",
+						clay.TextConfig({textColor = SUBTEXT_0, fontSize = 16}),
+					)
+				}
+			}
 		}
 	}
 
@@ -363,7 +411,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			} else {
 				entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 			}
-			ctx.updates += {.RULES}
+			ctx.statuses += {.RULES}
 			ctx.active_line = 0
 			row_selected = false
 		}
@@ -414,7 +462,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				if .RELEASE in delete_res {
 					delete(entry^)
 					ordered_remove(&ctx.aux_rules, idx - 1)
-					ctx.updates += {.RULES}
+					ctx.statuses += {.RULES}
 				}
 				if .RELEASE in cancel_res {
 					ctx.active_line = 0
@@ -427,7 +475,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 					} else {
 						entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
 					}
-					ctx.updates += {.RULES}
+					ctx.statuses += {.RULES}
 					ctx.active_line = 0
 				}
 			}
@@ -449,7 +497,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				if active {
 					delete(entry^)
 					entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
-					ctx.updates += {.RULES}
+					ctx.statuses += {.RULES}
 					ctx.active_line = 0
 				} else {
 					UI_widget_focus(&ctx.ui_ctx, tb_id)
