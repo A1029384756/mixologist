@@ -187,9 +187,28 @@ UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
 	return rl.WindowShouldClose()
 }
 
+UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
+	font := rl.LoadFontFromMemory(
+		".ttf",
+		raw_data(data),
+		c.int(len(data)),
+		c.int(fontsize * 2),
+		nil,
+		0,
+	)
+
+	raylibFonts[ctx.curr_font_id] = RaylibFont {
+		font   = font,
+		fontId = ctx.curr_font_id,
+	}
+	rl.SetTextureFilter(raylibFonts[ctx.curr_font_id].font.texture, rl.TextureFilter.TRILINEAR)
+	ctx.curr_font_id += 1
+	return ctx.curr_font_id - 1
+}
+
 UI_load_font :: proc(ctx: ^UI_Context, fontSize: u16, path: cstring) -> u16 {
 	raylibFonts[ctx.curr_font_id] = RaylibFont {
-		font   = rl.LoadFontEx(path, cast(i32)fontSize * 2, nil, 0),
+		font   = rl.LoadFontEx(path, c.int(fontSize * 2), nil, 0),
 		fontId = ctx.curr_font_id,
 	}
 	rl.SetTextureFilter(raylibFonts[ctx.curr_font_id].font.texture, rl.TextureFilter.TRILINEAR)
