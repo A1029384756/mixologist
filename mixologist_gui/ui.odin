@@ -8,6 +8,7 @@ import sa "core:container/small_array"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
 import "core:text/edit"
@@ -26,8 +27,7 @@ UI_Context :: struct {
 	statuses:        UI_Context_Statuses,
 	// allocated
 	memory:          []u8,
-	// persistent storage
-	curr_font_id:    u16,
+	font_allocator:  virtual.Arena,
 }
 
 UI_DOUBLE_CLICK_INTERVAL_MS :: 300
@@ -60,6 +60,8 @@ UI_init :: proc(ctx: ^UI_Context) {
 	rl.InitWindow(800, 600, "Mixologist")
 	rl.SetExitKey(.KEY_NULL)
 
+	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
+	if arena_init_err != nil do panic("font allocator initialization failed")
 
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
@@ -79,6 +81,7 @@ UI_init :: proc(ctx: ^UI_Context) {
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
+	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.memory)
 	rl.CloseWindow()
 }
@@ -196,24 +199,22 @@ UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8, extension:
 		nil,
 		0,
 	)
+	rl.SetTextureFilter(font.texture, .TRILINEAR)
 
-	raylibFonts[ctx.curr_font_id] = RaylibFont {
-		font   = font,
-		fontId = ctx.curr_font_id,
+	font_map := make(map[u16]rl.Font, 16, virtual.arena_allocator(&ctx.font_allocator))
+	font_map[fontsize] = font
+	raylib_font := RaylibFont {
+		font      = font_map,
+		bytes     = data,
+		extension = extension,
 	}
-	rl.SetTextureFilter(raylibFonts[ctx.curr_font_id].font.texture, rl.TextureFilter.TRILINEAR)
-	ctx.curr_font_id += 1
-	return ctx.curr_font_id - 1
+
+	sa.append(&raylibFonts, raylib_font)
+	return u16(sa.len(raylibFonts) - 1)
 }
 
-UI_load_font :: proc(ctx: ^UI_Context, fontSize: u16, path: cstring) -> u16 {
-	raylibFonts[ctx.curr_font_id] = RaylibFont {
-		font   = rl.LoadFontEx(path, c.int(fontSize * 2), nil, 0),
-		fontId = ctx.curr_font_id,
-	}
-	rl.SetTextureFilter(raylibFonts[ctx.curr_font_id].font.texture, rl.TextureFilter.TRILINEAR)
-	ctx.curr_font_id += 1
-	return ctx.curr_font_id - 1
+UI_load_font :: proc(ctx: ^UI_Context, fontsize: u16, path: cstring) -> u16 {
+	unimplemented()
 }
 
 UI__set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {

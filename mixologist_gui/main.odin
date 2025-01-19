@@ -361,11 +361,11 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				) {
 					clay.Text(
 						"Could not connect to Mixd",
-						clay.TextConfig({textColor = TEXT, fontSize = 16}),
+						clay.TextConfig({textColor = TEXT, fontSize = 32}),
 					)
 					clay.Text(
 						"Is it running?",
-						clay.TextConfig({textColor = SUBTEXT_0, fontSize = 16}),
+						clay.TextConfig({textColor = SUBTEXT_0, fontSize = 24}),
 					)
 				}
 			}

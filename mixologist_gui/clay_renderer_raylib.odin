@@ -2,21 +2,43 @@ package mixologist_gui
 
 import clay "./clay"
 import "./raylib"
+import "base:runtime"
+import "core:c"
+import sa "core:container/small_array"
 import "core:math"
 import "core:strings"
 
 RaylibFont :: struct {
-	fontId: u16,
-	font:   raylib.Font,
+	font:      map[u16]raylib.Font,
+	bytes:     []u8,
+	extension: cstring,
 }
 
 clayColorToRaylibColor :: proc(color: clay.Color) -> raylib.Color {
 	return raylib.Color{cast(u8)color.r, cast(u8)color.g, cast(u8)color.b, cast(u8)color.a}
 }
 
-raylibFonts := [10]RaylibFont{}
+raylibFonts: sa.Small_Array(16, RaylibFont)
+
+retrieve_font :: proc(id, size: u16) -> raylib.Font {
+	rlfont := sa.get_ptr(&raylibFonts, int(id))
+	font_size, font, just_inserted, err := map_entry(&rlfont.font, size)
+	if just_inserted {
+		font^ = raylib.LoadFontFromMemory(
+			rlfont.extension,
+			raw_data(rlfont.bytes),
+			c.int(len(rlfont.bytes)),
+			c.int(size * 2),
+			nil,
+			0,
+		)
+		raylib.SetTextureFilter(font.texture, .TRILINEAR)
+	}
+	return font^
+}
 
 measureText :: proc "c" (text: ^clay.String, config: ^clay.TextElementConfig) -> clay.Dimensions {
+	context = runtime.default_context()
 	// Measure string size for Font
 	textSize: clay.Dimensions = {0, 0}
 
@@ -24,7 +46,7 @@ measureText :: proc "c" (text: ^clay.String, config: ^clay.TextElementConfig) ->
 	lineTextWidth: f32 = 0
 
 	textHeight := cast(f32)config.fontSize
-	fontToUse := raylibFonts[config.fontId].font
+	fontToUse := retrieve_font(config.fontId, config.fontSize)
 
 	for i in 0 ..< int(text.length) {
 		if (text.chars[i] == '\n') {
@@ -63,8 +85,10 @@ clayRaylibRender :: proc(
 			// Raylib uses standard C strings so isn't compatible with cheap slices, we need to clone the string to append null terminator
 			text := string(renderCommand.text.chars[:renderCommand.text.length])
 			cloned := strings.clone_to_cstring(text, allocator)
-			fontToUse: raylib.Font =
-				raylibFonts[renderCommand.config.textElementConfig.fontId].font
+			fontToUse := retrieve_font(
+				renderCommand.config.textElementConfig.fontId,
+				renderCommand.config.textElementConfig.fontSize,
+			)
 			raylib.DrawTextEx(
 				fontToUse,
 				cloned,
