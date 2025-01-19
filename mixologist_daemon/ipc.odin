@@ -95,22 +95,26 @@ IPC_Server__handle_msg :: proc(
 	case common.Volume:
 		switch msg.act {
 		case .Subscribe:
+			log.debugf("adding volume subscriber %v", client)
 			IPC_Server_add_volume_subscriber(ctx, client.fd)
 			IPC_Server_notify_volume_subscription(ctx, mixd_ctx)
 		case .Set:
 			mixd_ctx.vol = clamp(msg.val, -1, 1)
+			log.debugf("setting vol to %v", msg.val)
 			mixd_ctx.default_sink.volume, mixd_ctx.aux_sink.volume = sink_vols_from_ctx_vol(
 				msg.val,
 			)
 			IPC_Server_notify_volume_subscription(ctx, mixd_ctx)
 		case .Shift:
 			mixd_ctx.vol += msg.val
+			log.debugf("shifting vol by %v", msg.val)
 			mixd_ctx.vol = clamp(mixd_ctx.vol, -1, 1)
 			mixd_ctx.default_sink.volume, mixd_ctx.aux_sink.volume = sink_vols_from_ctx_vol(
 				mixd_ctx.vol,
 			)
 			IPC_Server_notify_volume_subscription(ctx, mixd_ctx)
 		case .Get:
+			log.debugf("getting volume %v: socket %v", mixd_ctx.vol, client)
 			vol := common.Volume {
 				act = .Get,
 				val = mixd_ctx.vol,

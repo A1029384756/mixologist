@@ -297,7 +297,7 @@ UI_slider :: proc(
 		UI_widget_focus(ctx, id)
 		if !active do res += {.FOCUS}
 	}
-	if active && linalg.length2(rl.GetMouseDelta()) > 0 do res += {.CHANGE}
+	if active && rl.IsMouseButtonDown(.LEFT) do res += {.CHANGE}
 
 	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)

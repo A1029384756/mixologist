@@ -126,11 +126,11 @@ main :: proc() {
 		}
 
 		// ipc
-		IPC_Client_recv(&ctx.ipc, &ctx)
 		if .VOLUME in ctx.updates {
 			ctx.updates -= {.VOLUME}
 			mixd_set_volume(&ctx)
 		}
+		IPC_Client_recv(&ctx.ipc, &ctx)
 
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
@@ -157,6 +157,7 @@ mixd_set_volume :: proc(ctx: ^Context) {
 		act = .Set,
 		val = ctx.volume,
 	}
+	log.debugf("sending volume of %v", msg.val)
 	IPC_Client_send(&ctx.ipc, msg)
 }
 

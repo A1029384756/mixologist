@@ -43,6 +43,7 @@ IPC_Client_recv :: proc(ctx: ^IPC_Client_Context, mixgui_ctx: ^Context) {
 	case common.Volume:
 		#partial switch msg.act {
 		case .Get:
+			log.debugf("set volume to %v", msg.val)
 			mixgui_ctx.volume = msg.val
 		case:
 			panic("recieved invalid action")
