@@ -331,6 +331,8 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					OVERLAY_0,
 					SURFACE_2,
 					{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+					0.025,
+					0,
 				)
 
 				if .CHANGE in slider_res do ctx.statuses += {.VOLUME}

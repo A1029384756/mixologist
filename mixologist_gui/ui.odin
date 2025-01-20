@@ -296,6 +296,8 @@ UI_slider :: proc(
 	min_val, max_val: T,
 	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
+	snap_threshhold: T,
+	notches: ..T,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -310,6 +312,7 @@ UI_slider :: proc(
 		press_color,
 		line_color,
 		{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+		..notches,
 	)
 
 	active := UI_widget_active(ctx, id)
@@ -321,6 +324,13 @@ UI_slider :: proc(
 
 	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
+
+	for notch in notches {
+		if abs(pos^ - notch) < snap_threshhold {
+			pos^ = notch
+			break
+		}
+	}
 	return
 }
 
@@ -673,6 +683,7 @@ UI__slider :: proc(
 	min_val, max_val: T,
 	color, hover_color, press_color, line_color: clay.Color,
 	layout: clay.LayoutConfig,
+	notches: ..T,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -715,34 +726,58 @@ UI__slider :: proc(
 				clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(0.25)}}),
 				clay.Rectangle({color = line_color}),
 			) {}
-			if clay.UI(
-				clay.Floating(
-					{
-						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-						offset = {
-							c.float(abs(pos^ - T(min_val)) / abs(T(max_val - min_val))) *
-								major_dimension -
-							minor_dimension / 2,
-							0,
+			for notch in notches {
+				if clay.UI(
+					clay.Floating(
+						{
+							attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+							offset = {
+								c.float(abs(notch - T(min_val)) / abs(T(max_val - min_val))) *
+								major_dimension,
+								0,
+							},
+							pointerCaptureMode = .PASSTHROUGH,
 						},
-						pointerCaptureMode = .PASSTHROUGH,
-					},
-				),
-				clay.Layout(
-					{
-						sizing = {
-							clay.SizingFixed(minor_dimension),
-							clay.SizingFixed(minor_dimension),
+					),
+					clay.Layout(
+						{sizing = {clay.SizingFixed(2), clay.SizingFixed(minor_dimension)}},
+					),
+					clay.Rectangle(
+						{
+							color = line_color,
+							cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
 						},
-					},
-				),
-				clay.Rectangle(
-					{
-						color = selected_color,
-						cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
-					},
-				),
-			) {}
+					),
+				) {}
+				if clay.UI(
+					clay.Floating(
+						{
+							attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+							offset = {
+								c.float(abs(pos^ - T(min_val)) / abs(T(max_val - min_val))) *
+									major_dimension -
+								minor_dimension / 2,
+								0,
+							},
+							pointerCaptureMode = .PASSTHROUGH,
+						},
+					),
+					clay.Layout(
+						{
+							sizing = {
+								clay.SizingFixed(minor_dimension),
+								clay.SizingFixed(minor_dimension),
+							},
+						},
+					),
+					clay.Rectangle(
+						{
+							color = selected_color,
+							cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
+						},
+					),
+				) {}
+			}
 		}
 	}
 	return
