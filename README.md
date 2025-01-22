@@ -26,6 +26,7 @@ Mixologist can be installed via the latest
 Dependencies:
 - [Odin](https://odin-lang.org)
 - `libpipewire`
+- `sdl2` (for mixgui)
 - `systemd` (if using systemd unit)
 
 ```
