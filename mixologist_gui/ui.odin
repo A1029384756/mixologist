@@ -293,8 +293,8 @@ UI_textbox :: proc(
 UI_slider :: proc(
 	ctx: ^UI_Context,
 	pos: ^$T,
-	min_val, max_val: T,
-	color, hover_color, press_color, line_color: clay.Color,
+	default_val, min_val, max_val: T,
+	color, hover_color, press_color, line_color, line_highlight: clay.Color,
 	layout: clay.LayoutConfig,
 	snap_threshhold: T,
 	notches: ..T,
@@ -305,12 +305,14 @@ UI_slider :: proc(
 	res, id = UI__slider(
 		ctx,
 		pos,
+		default_val,
 		min_val,
 		max_val,
 		color,
 		hover_color,
 		press_color,
 		line_color,
+		line_highlight,
 		{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
 		..notches,
 	)
@@ -680,8 +682,8 @@ UI__textbox :: proc(
 UI__slider :: proc(
 	ctx: ^UI_Context,
 	pos: ^$T,
-	min_val, max_val: T,
-	color, hover_color, press_color, line_color: clay.Color,
+	default_val, min_val, max_val: T,
+	color, hover_color, press_color, line_color, line_highlight: clay.Color,
 	layout: clay.LayoutConfig,
 	notches: ..T,
 ) -> (
@@ -722,41 +724,69 @@ UI__slider :: proc(
 			if active do selected_color = press_color
 			else if clay.Hovered() do selected_color = hover_color
 
+			val_to_pos :: proc(
+				val, min_val, max_val, major, minor: $T,
+			) -> T where intrinsics.type_is_float(T) {
+				return abs(val - min_val) / abs(max_val - min_val) * major
+			}
+
+			slider_pos := val_to_pos(pos^, min_val, max_val, major_dimension, minor_dimension)
+			default_mark := val_to_pos(
+				default_val,
+				min_val,
+				max_val,
+				major_dimension,
+				minor_dimension,
+			)
+
+			LINE_THICKNESS :: 0.25
 			if clay.UI(
-				clay.Layout({sizing = {clay.SizingPercent(1), clay.SizingPercent(0.25)}}),
+				clay.Layout(
+					{
+						sizing = {
+							clay.SizingPercent(1),
+							clay.SizingFixed(minor_dimension * LINE_THICKNESS),
+						},
+					},
+				),
 				clay.Rectangle({color = line_color}),
 			) {}
+			if clay.UI(
+				clay.Floating(
+					{
+						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+						offset = {min(slider_pos, default_mark), 0},
+					},
+				),
+				clay.Layout(
+					{
+						sizing = {
+							clay.SizingFixed(
+								major_dimension *
+								(abs(pos^ - default_val) / abs(max_val - min_val)),
+							),
+							clay.SizingFixed(minor_dimension * LINE_THICKNESS),
+						},
+					},
+				),
+				clay.Rectangle({color = line_highlight}),
+			) {}
+
+			NOTCH_WIDTH :: 2
 			for notch in notches {
 				if clay.UI(
 					clay.Floating(
 						{
 							attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
 							offset = {
-								c.float(abs(notch - T(min_val)) / abs(T(max_val - min_val))) *
-								major_dimension,
-								0,
-							},
-							pointerCaptureMode = .PASSTHROUGH,
-						},
-					),
-					clay.Layout(
-						{sizing = {clay.SizingFixed(2), clay.SizingFixed(minor_dimension)}},
-					),
-					clay.Rectangle(
-						{
-							color = line_color,
-							cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
-						},
-					),
-				) {}
-				if clay.UI(
-					clay.Floating(
-						{
-							attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-							offset = {
-								c.float(abs(pos^ - T(min_val)) / abs(T(max_val - min_val))) *
-									major_dimension -
-								minor_dimension / 2,
+								val_to_pos(
+									notch,
+									min_val,
+									max_val,
+									major_dimension,
+									minor_dimension,
+								) -
+								NOTCH_WIDTH / 2,
 								0,
 							},
 							pointerCaptureMode = .PASSTHROUGH,
@@ -765,19 +795,42 @@ UI__slider :: proc(
 					clay.Layout(
 						{
 							sizing = {
-								clay.SizingFixed(minor_dimension),
+								clay.SizingFixed(NOTCH_WIDTH),
 								clay.SizingFixed(minor_dimension),
 							},
 						},
 					),
 					clay.Rectangle(
 						{
-							color = selected_color,
+							color = line_color,
 							cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
 						},
 					),
 				) {}
 			}
+			if clay.UI(
+				clay.Floating(
+					{
+						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+						offset = {slider_pos - minor_dimension / 2, 0},
+						pointerCaptureMode = .PASSTHROUGH,
+					},
+				),
+				clay.Layout(
+					{
+						sizing = {
+							clay.SizingFixed(minor_dimension),
+							clay.SizingFixed(minor_dimension),
+						},
+					},
+				),
+				clay.Rectangle(
+					{
+						color = selected_color,
+						cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
+					},
+				),
+			) {}
 		}
 	}
 	return
