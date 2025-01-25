@@ -341,7 +341,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			}
 		}
 
-		if !(.CONNECTED in ctx.statuses) {
+		if .CONNECTED not_in ctx.statuses {
 			if clay.UI(
 				clay.Floating({attachment = {element = .CENTER_CENTER, parent = .CENTER_CENTER}}),
 				clay.Layout(

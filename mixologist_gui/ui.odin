@@ -157,7 +157,7 @@ UI_tick :: proc(
 		rl.SetMouseCursor(.ARROW)
 	}
 
-	if !(.BUTTON_HOVERING in ctx.statuses) do ctx.statuses -= {.BUTTON_HELD}
+	if .BUTTON_HOVERING not_in ctx.statuses do ctx.statuses -= {.BUTTON_HELD}
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
 }
 
@@ -286,7 +286,7 @@ UI_textbox :: proc(
 			if .SUBMIT in res && textlen^ > 0 do UI_unfocus(ctx, id)
 		}
 	}
-	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	return
 }
 
@@ -324,7 +324,7 @@ UI_slider :: proc(
 	}
 	if active && rl.IsMouseButtonDown(.LEFT) do res += {.CHANGE}
 
-	if !(.HOVER in res) && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
 	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
 
 	for notch in notches {
