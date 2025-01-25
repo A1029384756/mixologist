@@ -42,7 +42,7 @@ UI_Context_Status :: enum {
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
 
-UI_WidgetResult :: enum u8 {
+UI_WidgetResult :: enum {
 	CHANGE,
 	CANCEL,
 	SUBMIT,
