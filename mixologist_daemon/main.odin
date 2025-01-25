@@ -609,8 +609,7 @@ remove_program :: proc(ctx: ^Context, program: string) {
 			delete(ctx.aux_rules[idx])
 			unordered_remove(&ctx.aux_rules, idx)
 
-			for id, node in ctx.aux_sink.associated_nodes {
-				if !check_name(node.name, {program}) {continue}
+			for id, _ in ctx.aux_sink.associated_nodes {
 				k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
 				ctx.default_sink.associated_nodes[k] = v
 
