@@ -2,8 +2,6 @@ package mixologist_gui
 
 import "../common"
 import "./clay"
-import "core:c"
-import "core:encoding/cbor"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -11,7 +9,6 @@ import "core:mem/virtual"
 import "core:os/os2"
 import "core:strings"
 import "core:sys/linux"
-import "core:sys/posix"
 
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
@@ -251,7 +248,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 						// new rule textbox
 						{
 							placeholder_str := "New rule..."
-							tb_res, tb_id := UI_textbox(
+							tb_res, _ := UI_textbox(
 								&ctx.ui_ctx,
 								ctx.new_rule_buf[:],
 								&ctx.new_rule_len,
@@ -286,7 +283,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 
 							UI_spacer()
 
-							button_res, button_id := UI_text_button(
+							button_res, _ := UI_text_button(
 								&ctx.ui_ctx,
 								"Add Rule",
 								{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
@@ -325,7 +322,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				backgroundColor = SURFACE_0,
 			},
 			) {
-				slider_res, slider_id := UI_slider(
+				slider_res, _ := UI_slider(
 					&ctx.ui_ctx,
 					&ctx.volume,
 					0,
@@ -436,7 +433,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
-				delete_res, delete_id := UI_text_button(
+				delete_res, _ := UI_text_button(
 					&ctx.ui_ctx,
 					"Delete",
 					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
@@ -449,7 +446,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 					5,
 				)
 
-				cancel_res, cancel_id := UI_text_button(
+				cancel_res, _ := UI_text_button(
 					&ctx.ui_ctx,
 					"Cancel",
 					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
@@ -462,7 +459,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 					5,
 				)
 
-				apply_res, apply_id := UI_text_button(
+				apply_res, _ := UI_text_button(
 					&ctx.ui_ctx,
 					"Apply",
 					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
@@ -496,7 +493,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 				}
 			}
 		} else {
-			button_res, button_id := UI_text_button(
+			button_res, _ := UI_text_button(
 				&ctx.ui_ctx,
 				"Edit",
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},

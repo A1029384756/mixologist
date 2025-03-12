@@ -1,13 +1,8 @@
 package mixologist_gui
 
 import "../common"
-import sa "core:container/small_array"
 import "core:encoding/cbor"
-import "core:fmt"
 import "core:log"
-import "core:os/os2"
-import "core:slice"
-import "core:strings"
 import "core:sys/linux"
 
 SERVER_SOCKET :: "\x00mixologist"

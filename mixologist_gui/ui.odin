@@ -3,17 +3,14 @@ package mixologist_gui
 import "./clay"
 import rl "./raylib"
 import "base:intrinsics"
-import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
 import "core:fmt"
 import "core:math"
-import "core:math/linalg"
 import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
 import "core:text/edit"
-
 
 UI_Context :: struct {
 	textbox_input:   strings.Builder,
@@ -136,7 +133,6 @@ UI_tick :: proc(
 		}
 	}
 
-	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenHeight()}
 	clay.SetPointerState(transmute(clay.Vector2)rl.GetMousePosition(), rl.IsMouseButtonDown(.LEFT))
 	clay.UpdateScrollContainers(
 		false,
@@ -348,7 +344,6 @@ UI_text_button :: proc(
 		text_padding,
 	)
 
-	active := UI_widget_active(ctx, id)
 	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
 	else do UI_unfocus(ctx, id)
 

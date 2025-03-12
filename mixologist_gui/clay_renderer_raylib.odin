@@ -22,7 +22,7 @@ raylibFonts: sa.Small_Array(16, RaylibFont)
 
 retrieve_font :: proc(id, size: u16) -> raylib.Font {
 	rlfont := sa.get_ptr(&raylibFonts, int(id))
-	font_size, font, just_inserted, err := map_entry(&rlfont.font, size)
+	_, font, just_inserted, _ := map_entry(&rlfont.font, size)
 	if just_inserted {
 		font^ = raylib.LoadFontFromMemory(
 			rlfont.extension,
