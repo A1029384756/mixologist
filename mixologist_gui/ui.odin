@@ -3,6 +3,7 @@ package mixologist_gui
 import "./clay"
 import rl "./raylib"
 import "base:intrinsics"
+import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
 import "core:fmt"
@@ -56,10 +57,6 @@ UI_WidgetResult :: enum {
 UI_WidgetResults :: bit_set[UI_WidgetResult]
 
 UI_init :: proc(ctx: ^UI_Context) {
-	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
-	rl.InitWindow(800, 600, "Mixologist")
-	rl.SetExitKey(.KEY_NULL)
-
 	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if arena_init_err != nil do panic("font allocator initialization failed")
 
@@ -67,17 +64,21 @@ UI_init :: proc(ctx: ^UI_Context) {
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
 
-	min_mem := clay.MinMemorySize()
+	min_mem := c.size_t(clay.MinMemorySize())
 	ctx.memory = make([]u8, min_mem)
 	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.memory))
-	clay.SetMeasureTextFunction(measureText)
-
 	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenWidth()}
 	clay.Initialize(
 		arena,
 		{c.float(window_size.x), c.float(window_size.y)},
 		{handler = UI__clay_error_handler},
 	)
+
+	clay.SetMeasureTextFunction(measureText, nil)
+
+	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
+	rl.InitWindow(800, 600, "Mixologist")
+	rl.SetExitKey(.KEY_NULL)
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
@@ -244,29 +245,15 @@ UI_textbox :: proc(
 	buf: []u8,
 	textlen: ^int,
 	placeholder_text: string,
+	config: clay.ElementDeclaration,
+	border_config: clay.BorderElementConfig,
 	text_config: clay.TextElementConfig,
-	layout_config: clay.LayoutConfig,
-	bg_rect_config: clay.RectangleElementConfig,
-	border_config: clay.BorderData,
-	padding: clay.Padding,
-	corner_radius: c.float,
 	enabled: bool,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__textbox(
-		ctx,
-		buf,
-		textlen,
-		placeholder_text,
-		text_config,
-		layout_config,
-		bg_rect_config,
-		border_config,
-		padding,
-		corner_radius,
-	)
+	res, id = UI__textbox(ctx, buf, textlen, placeholder_text, config, border_config, text_config)
 
 	if enabled {
 		active := UI_widget_active(ctx, id)
@@ -381,56 +368,45 @@ UI__textbox :: proc(
 	buf: []u8,
 	textlen: ^int,
 	placeholder_text: string,
+	config: clay.ElementDeclaration,
+	border_config: clay.BorderElementConfig,
 	text_config: clay.TextElementConfig,
-	layout_config: clay.LayoutConfig,
-	bg_rect_config: clay.RectangleElementConfig,
-	border_config: clay.BorderData,
-	padding: clay.Padding,
-	corner_radius: c.float,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	text_config := clay.TextConfig(text_config)
-	layout_config := layout_config
-	bg_rect_config := bg_rect_config
+	config := config
 	border_config := border_config
+	text_config := clay.TextConfig(text_config)
 
-	if clay.UI(clay.Layout(layout_config)) {
+	if clay.UI()({layout = {sizing = config.layout.sizing}}) {
 		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id.id
+		id = local_id
 
-		active := UI_widget_active(ctx, local_id.id)
-		if !active do border_config.width = 0
-		if !active do bg_rect_config.color *= {0.8, 0.8, 0.8, 1}
+		active := UI_widget_active(ctx, local_id)
+		if !active do border_config.width = {}
+		if !active do config.backgroundColor *= {0.8, 0.8, 0.8, 1}
+		config.border = border_config
+		config.layout.sizing = {clay.SizingGrow({}), clay.SizingGrow({})}
 
-		if clay.UI(
-			clay.Layout(
-				{
+
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+
+		if clay.UI()(config) {
+			if clay.UI()(
+			{
+				id = local_id,
+				layout = {
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					padding = padding,
-					childAlignment = {y = .CENTER},
+					childAlignment = {y = .Center},
 				},
-			),
-			clay.Rectangle(bg_rect_config),
-			clay.BorderAllRadius(border_config, corner_radius),
-		) {
-			if clay.Hovered() do res += {.HOVER}
-			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
-
-			if clay.UI(
-				local_id,
-				clay.Layout(
-					{
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-						childAlignment = {y = .CENTER},
-					},
-				),
-				clay.Scroll({horizontal = true}),
+				scroll = {horizontal = true},
+			},
 			) {
-				elem_loc_data := clay.GetElementLocationData(local_id.id)
-				boundingbox := elem_loc_data.elementLocation
+				elem_loc_data := clay.GetElementData(local_id)
+				boundingbox := elem_loc_data.boundingBox
 
 				if active {
 					builder := strings.builder_from_bytes(buf)
@@ -446,7 +422,7 @@ UI__textbox :: proc(
 					}
 
 					if !textbox_selected {
-						ctx.textbox_state.id = u64(local_id.id.id)
+						ctx.textbox_state.id = u64(local_id.id)
 						ctx.textbox_state.selection = {}
 						edit.move_to(&ctx.textbox_state, .End)
 					}
@@ -568,7 +544,15 @@ UI__textbox :: proc(
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
 
 								clay_str := clay.MakeString(string(buf[:i]))
-								text_size := measureText(&clay_str, text_config)
+								text_size := measureText(
+									clay.StringSlice {
+										clay_str.length,
+										clay_str.chars,
+										clay_str.chars,
+									},
+									text_config,
+									nil,
+								)
 
 								if c.float(rl.GetMouseX()) <
 								   boundingbox.x + text_size.width + c.float(ctx.textbox_offset) {
@@ -586,47 +570,66 @@ UI__textbox :: proc(
 
 					text_str := string(buf[:textlen^])
 					text_clay_str := clay.MakeString(text_str)
-					text_size := measureText(&text_clay_str, text_config)
+					text_size := measureText(
+						clay.StringSlice {
+							text_clay_str.length,
+							text_clay_str.chars,
+							text_clay_str.chars,
+						},
+						text_config,
+						nil,
+					)
 
 					head_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[0]])
-					head_size := measureText(&head_clay_str, text_config)
+					head_size := measureText(
+						clay.StringSlice {
+							head_clay_str.length,
+							head_clay_str.chars,
+							head_clay_str.chars,
+						},
+						text_config,
+						nil,
+					)
 					tail_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[1]])
-					tail_size := measureText(&tail_clay_str, text_config)
+					tail_size := measureText(
+						clay.StringSlice {
+							tail_clay_str.length,
+							tail_clay_str.chars,
+							tail_clay_str.chars,
+						},
+						text_config,
+						nil,
+					)
 
 					PADDING :: 20
-					sizing := elem_loc_data.elementLocation
-					ofmin := max(
-						PADDING - head_size.width,
-						sizing.width - text_size.width - PADDING,
-					)
-					ofmax := min(sizing.width - head_size.width - PADDING, PADDING)
+					sizing := [2]c.float {
+						elem_loc_data.boundingBox.width,
+						elem_loc_data.boundingBox.height,
+					}
+					ofmin := max(PADDING - head_size.width, sizing.x - text_size.width - PADDING)
+					ofmax := min(sizing.x - head_size.width - PADDING, PADDING)
 					ctx.textbox_offset = clamp(ctx.textbox_offset, int(ofmin), int(ofmax))
 					ctx.textbox_offset = clamp(ctx.textbox_offset, min(int), 0)
 
 					// cursor
 					{
-						if clay.UI(
-							clay.Floating(
-								{
-									attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-									offset = {head_size.width + c.float(ctx.textbox_offset), 0},
-									pointerCaptureMode = .PASSTHROUGH,
+						if clay.UI()(
+						{
+							floating = {
+								attachment = {element = .LeftCenter, parent = .LeftCenter},
+								offset = {head_size.width + c.float(ctx.textbox_offset), 0},
+								pointerCaptureMode = .Passthrough,
+								attachTo = .Parent,
+							},
+							layout = {
+								sizing = {
+									clay.SizingFixed(2),
+									clay.SizingFixed(boundingbox.height - 6),
 								},
-							),
-							clay.Layout(
-								{
-									sizing = {
-										clay.SizingFixed(2),
-										clay.SizingFixed(boundingbox.height - 6),
-									},
-								},
-							),
-							clay.Rectangle(
-								{
-									color = TEXT *
-									{1, 1, 1, abs(math.sin(c.float(rl.GetTime() * 2)))},
-								},
-							),
+							},
+							backgroundColor = TEXT *
+							{1, 1, 1, abs(math.sin(c.float(rl.GetTime() * 2)))},
+						},
 						) {
 							if clay.Hovered() do res += {.HOVER}
 							if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
@@ -636,27 +639,26 @@ UI__textbox :: proc(
 
 					// selection box
 					{
-						if clay.UI(
-							clay.Floating(
-								{
-									attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-									offset = {
-										min(head_size.width, tail_size.width) +
-										c.float(ctx.textbox_offset),
-										0,
-									},
-									pointerCaptureMode = .PASSTHROUGH,
+						if clay.UI()(
+						{
+							floating = {
+								attachment = {element = .LeftCenter, parent = .LeftCenter},
+								offset = {
+									min(head_size.width, tail_size.width) +
+									c.float(ctx.textbox_offset),
+									0,
 								},
-							),
-							clay.Layout(
-								{
-									sizing = {
-										clay.SizingFixed(abs(head_size.width - tail_size.width)),
-										clay.SizingFixed(boundingbox.height - 6),
-									},
+								pointerCaptureMode = .Passthrough,
+								attachTo = .Parent,
+							},
+							layout = {
+								sizing = {
+									clay.SizingFixed(abs(head_size.width - tail_size.width)),
+									clay.SizingFixed(boundingbox.height - 6),
 								},
-							),
-							clay.Rectangle({color = TEXT * {1, 1, 1, 0.25}}),
+							},
+							backgroundColor = TEXT * {1, 1, 1, 0.25},
+						},
 						) {
 							if clay.Hovered() do res += {.HOVER}
 							if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
@@ -665,9 +667,9 @@ UI__textbox :: proc(
 					}
 
 					// [TODO] fix nested scrolldata fetching
-					scroll_data := clay.GetScrollContainerData(local_id.id)
+					scroll_data := clay.GetScrollContainerData(local_id)
 					if scroll_data.found do scroll_data.scrollPosition^ = {c.float(ctx.textbox_offset), 0}
-					else do fmt.eprintln("Could not get scroll data for:", local_id.id.id)
+					else do fmt.eprintln("Could not get scroll data for:", local_id)
 
 					clay.Text(text_str, text_config)
 				} else {
@@ -690,32 +692,31 @@ UI__slider :: proc(
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) where intrinsics.type_is_float(T) {
-	if clay.UI(clay.Layout(layout)) {
+	if clay.UI()({layout = layout}) {
 		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id.id
+		id = local_id
 
-		active := UI_widget_active(ctx, local_id.id)
+		active := UI_widget_active(ctx, local_id)
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
 		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
 
-		if clay.UI(
-			local_id,
-			clay.Layout(
-				{
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					childAlignment = {y = .CENTER},
-				},
-			),
+		if clay.UI()(
+		{
+			id = local_id,
+			layout = {
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				childAlignment = {y = .Center},
+			},
+		},
 		) {
-			boundingbox := clay.GetElementLocationData(id)
-			sizing := boundingbox.elementLocation
-			minor_dimension := min(sizing.width, sizing.height)
-			major_dimension := max(sizing.width, sizing.height)
+			boundingbox := clay.GetElementData(id).boundingBox
+			minor_dimension := min(boundingbox.width, boundingbox.height)
+			major_dimension := max(boundingbox.width, boundingbox.height)
 
 			if active && (!rl.IsMouseButtonPressed(.LEFT) && rl.IsMouseButtonDown(.LEFT)) {
-				relative_x := T(rl.GetMouseX()) - T(sizing.x)
-				slope := T(max_val - min_val) / T(sizing.width)
+				relative_x := T(rl.GetMouseX()) - T(boundingbox.x)
+				slope := T(max_val - min_val) / T(boundingbox.width)
 				pos^ = min_val + slope * (relative_x)
 				pos^ = clamp(pos^, min_val, max_val)
 			}
@@ -740,26 +741,25 @@ UI__slider :: proc(
 			)
 
 			LINE_THICKNESS :: 0.25
-			if clay.UI(
-				clay.Layout(
-					{
-						sizing = {
-							clay.SizingPercent(1),
-							clay.SizingFixed(minor_dimension * LINE_THICKNESS),
-						},
+			if clay.UI()(
+			{
+				layout = {
+					sizing = {
+						clay.SizingPercent(1),
+						clay.SizingFixed(minor_dimension * LINE_THICKNESS),
 					},
-				),
-				clay.Rectangle({color = line_color}),
-			) {}
-			if clay.UI(
-				clay.Floating(
-					{
-						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
+				},
+				backgroundColor = line_color,
+			},
+			) {
+				if clay.UI()(
+				{
+					floating = {
+						attachment = {element = .LeftCenter, parent = .LeftCenter},
 						offset = {min(slider_pos, default_mark), 0},
+						attachTo = .Parent,
 					},
-				),
-				clay.Layout(
-					{
+					layout = {
 						sizing = {
 							clay.SizingFixed(
 								major_dimension *
@@ -768,68 +768,53 @@ UI__slider :: proc(
 							clay.SizingFixed(minor_dimension * LINE_THICKNESS),
 						},
 					},
-				),
-				clay.Rectangle({color = line_highlight}),
-			) {}
+					backgroundColor = line_highlight,
+				},
+				) {}
+			}
 
 			NOTCH_WIDTH :: 2
 			for notch in notches {
-				if clay.UI(
-					clay.Floating(
-						{
-							attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-							offset = {
-								val_to_pos(
-									notch,
-									min_val,
-									max_val,
-									major_dimension,
-									minor_dimension,
-								) -
-								NOTCH_WIDTH / 2,
-								0,
-							},
-							pointerCaptureMode = .PASSTHROUGH,
+				if clay.UI()(
+				{
+					floating = {
+						attachment = {element = .LeftCenter, parent = .LeftCenter},
+						offset = {
+							val_to_pos(notch, min_val, max_val, major_dimension, minor_dimension) -
+							NOTCH_WIDTH / 2,
+							0,
 						},
-					),
-					clay.Layout(
-						{
-							sizing = {
-								clay.SizingFixed(NOTCH_WIDTH),
-								clay.SizingFixed(minor_dimension),
-							},
+						pointerCaptureMode = .Passthrough,
+						attachTo = .Parent,
+					},
+					layout = {
+						sizing = {
+							clay.SizingFixed(NOTCH_WIDTH),
+							clay.SizingFixed(minor_dimension),
 						},
-					),
-					clay.Rectangle(
-						{
-							color = line_color,
-							cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
-						},
-					),
+					},
+					backgroundColor = line_color,
+					cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
+				},
 				) {}
 			}
-			if clay.UI(
-				clay.Floating(
-					{
-						attachment = {element = .LEFT_CENTER, parent = .LEFT_CENTER},
-						offset = {slider_pos - minor_dimension / 2, 0},
-						pointerCaptureMode = .PASSTHROUGH,
+			if clay.UI()(
+			{
+				floating = {
+					attachment = {element = .LeftCenter, parent = .LeftCenter},
+					offset = {slider_pos - minor_dimension / 2, 0},
+					pointerCaptureMode = .Passthrough,
+					attachTo = .Parent,
+				},
+				layout = {
+					sizing = {
+						clay.SizingFixed(minor_dimension),
+						clay.SizingFixed(minor_dimension),
 					},
-				),
-				clay.Layout(
-					{
-						sizing = {
-							clay.SizingFixed(minor_dimension),
-							clay.SizingFixed(minor_dimension),
-						},
-					},
-				),
-				clay.Rectangle(
-					{
-						color = selected_color,
-						cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
-					},
-				),
+				},
+				backgroundColor = selected_color,
+				cornerRadius = clay.CornerRadiusAll(minor_dimension / 2),
+			},
 			) {}
 		}
 	}
@@ -851,42 +836,41 @@ UI__text_button :: proc(
 ) {
 	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
 
-	if clay.UI() {
-		if clay.UI(clay.Layout(layout)) {
-			local_id := clay.ID_LOCAL(#procedure)
-			id = local_id.id
+	if clay.UI()({layout = layout}) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
 
-			active := UI_widget_active(ctx, id)
-			selected_color := color
-			if active do selected_color = press_color
-			else if clay.Hovered() do selected_color = hover_color
+		active := UI_widget_active(ctx, id)
+		selected_color := color
+		if active do selected_color = press_color
+		else if clay.Hovered() do selected_color = hover_color
 
-			if clay.Hovered() do res += {.HOVER}
-			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
 
-			if clay.UI(
-				local_id,
-				clay.Layout(
-					{
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-						padding = {text_padding, text_padding},
-					},
-				),
-				clay.Rectangle({color = selected_color, cornerRadius = corner_radius}),
-			) {
-				clay.Text(text, text_config)
-			}
+		if clay.UI()(
+		{
+			id = local_id,
+			layout = {
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				padding = clay.PaddingAll(text_padding),
+			},
+			backgroundColor = selected_color,
+			cornerRadius = corner_radius,
+		},
+		) {
+			clay.Text(text, text_config)
 		}
 	}
 	return
 }
 
 UI_spacer :: proc() -> (res: UI_WidgetResults, id: clay.ElementId) {
-	if clay.UI(clay.Layout({sizing = {clay.SizingGrow({}), clay.SizingGrow({})}})) {
+	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id.id
-		if clay.UI(local_id) {
+		id = local_id
+		if clay.UI()({id = local_id}) {
 			if clay.Hovered() do res += {.HOVER}
 			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
 			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}

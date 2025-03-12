@@ -205,48 +205,48 @@ save_rules :: proc(ctx: ^Context) {
 create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
 
-	if clay.UI(
-		clay.ID("root"),
-		clay.Layout({sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}),
+	if clay.UI()(
+	{id = clay.ID("root"), layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}},
 	) {
-		if clay.UI(
-			clay.Layout(
-				{
-					layoutDirection = .TOP_TO_BOTTOM,
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					childAlignment = {x = .CENTER, y = .CENTER},
-				},
-			),
-			clay.Rectangle({color = BASE}),
+		if clay.UI()(
+		{
+			layout = {
+				layoutDirection = .TopToBottom,
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				childAlignment = {x = .Center, y = .Center},
+			},
+			backgroundColor = BASE,
+		},
 		) {
-			if clay.UI(
-				clay.Layout(
-					{
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-						padding = {16, 16},
-						childAlignment = {x = .CENTER, y = .CENTER},
-					},
-				),
+			if clay.UI()(
+			{
+				layout = {
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					padding = clay.PaddingAll(16),
+					childAlignment = {x = .Center, y = .Center},
+				},
+			},
 			) {
-				if clay.UI(
-					clay.Layout(
-						{
-							layoutDirection = .TOP_TO_BOTTOM,
-							sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
-						},
-					),
-					clay.Scroll({vertical = true}),
-					clay.Rectangle({color = MANTLE, cornerRadius = clay.CornerRadiusAll(5)}),
+				if clay.UI()(
+				{
+					layout = {
+						layoutDirection = .TopToBottom,
+						sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
+					},
+					scroll = {vertical = true},
+					backgroundColor = MANTLE,
+					cornerRadius = clay.CornerRadiusAll(5),
+				},
 				) {
-					if clay.UI(
-						clay.Layout(
-							{
-								layoutDirection = .LEFT_TO_RIGHT,
-								sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
-								padding = {16, 16},
-								childAlignment = {y = .CENTER},
-							},
-						),
+					if clay.UI()(
+					{
+						layout = {
+							layoutDirection = .LeftToRight,
+							sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+							padding = clay.PaddingAll(16),
+							childAlignment = {y = .Center},
+						},
+					},
 					) {
 						// new rule textbox
 						{
@@ -256,12 +256,16 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 								ctx.new_rule_buf[:],
 								&ctx.new_rule_len,
 								placeholder_str,
+								{
+									layout = {
+										sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
+										padding = clay.PaddingAll(5),
+									},
+									backgroundColor = SURFACE_1,
+									cornerRadius = clay.CornerRadiusAll(5),
+								},
+								{color = MAUVE, width = {2, 2, 2, 2, 2}},
 								{textColor = TEXT, fontSize = 16},
-								{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
-								{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
-								{color = MAUVE, width = 2},
-								{5, 5},
-								5,
 								true,
 							)
 
@@ -311,15 +315,15 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				}
 			}
 
-			if clay.UI(
-				clay.Layout(
-					{
-						sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
-						padding = {16, 16},
-						childAlignment = {.CENTER, .CENTER},
-					},
-				),
-				clay.Rectangle({color = SURFACE_0}),
+			if clay.UI()(
+			{
+				layout = {
+					sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+					padding = clay.PaddingAll(16),
+					childAlignment = {.Center, .Center},
+				},
+				backgroundColor = SURFACE_0,
+			},
 			) {
 				slider_res, slider_id := UI_slider(
 					&ctx.ui_ctx,
@@ -342,26 +346,30 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 		}
 
 		if .CONNECTED not_in ctx.statuses {
-			if clay.UI(
-				clay.Floating({attachment = {element = .CENTER_CENTER, parent = .CENTER_CENTER}}),
-				clay.Layout(
-					{
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-						childAlignment = {x = .CENTER, y = .CENTER},
-					},
-				),
-				clay.Rectangle({color = CRUST * {1, 1, 1, 0.75}}),
+			if clay.UI()(
+			{
+				floating = {
+					attachment = {element = .CenterCenter, parent = .CenterCenter},
+					attachTo = .Parent,
+				},
+				layout = {
+					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					childAlignment = {x = .Center, y = .Center},
+				},
+				backgroundColor = CRUST * {1, 1, 1, 0.75},
+			},
 			) {
-				if clay.UI(
-					clay.Layout(
-						{
-							sizing = {clay.SizingPercent(0.7), clay.SizingPercent(0.7)},
-							childAlignment = {x = .CENTER, y = .CENTER},
-							layoutDirection = .TOP_TO_BOTTOM,
-							childGap = 16,
-						},
-					),
-					clay.Rectangle({color = BASE, cornerRadius = clay.CornerRadiusAll(5)}),
+				if clay.UI()(
+				{
+					layout = {
+						sizing = {clay.SizingPercent(0.7), clay.SizingPercent(0.7)},
+						childAlignment = {x = .Center, y = .Center},
+						layoutDirection = .TopToBottom,
+						childGap = 16,
+					},
+					backgroundColor = BASE,
+					cornerRadius = clay.CornerRadiusAll(5),
+				},
 				) {
 					clay.Text(
 						"Could not connect to Mixd",
@@ -380,16 +388,16 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 }
 
 rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
-	if clay.UI(
-		clay.Layout(
-			{
-				layoutDirection = .LEFT_TO_RIGHT,
-				sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
-				padding = {16, 16},
-				childAlignment = {y = .CENTER},
-			},
-		),
-		clay.Rectangle({color = idx % 2 == 0 ? MANTLE : CRUST}),
+	if clay.UI()(
+	{
+		layout = {
+			layoutDirection = .LeftToRight,
+			sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+			padding = clay.PaddingAll(16),
+			childAlignment = {y = .Center},
+		},
+		backgroundColor = idx % 2 == 0 ? MANTLE : CRUST,
+	},
 	) {
 		row_selected := idx == ctx.active_line
 
@@ -398,12 +406,16 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			ctx.active_line_buf[:],
 			&ctx.active_line_len,
 			row_selected ? string(ctx.active_line_buf[:ctx.active_line_len]) : entry^,
+			{
+				layout = {
+					sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
+					padding = clay.PaddingAll(5),
+				},
+				backgroundColor = SURFACE_1,
+				cornerRadius = clay.CornerRadiusAll(5),
+			},
+			{color = MAUVE, width = {2, 2, 2, 2, 2}},
 			{textColor = TEXT, fontSize = 16},
-			{sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)}},
-			{color = SURFACE_1, cornerRadius = clay.CornerRadiusAll(5)},
-			{color = MAUVE, width = 2},
-			{5, 5},
-			5,
 			row_selected,
 		)
 
@@ -423,7 +435,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 		UI_spacer()
 
 		if row_selected {
-			if clay.UI(clay.Layout({childGap = 5})) {
+			if clay.UI()({layout = {childGap = 5}}) {
 				delete_res, delete_id := UI_text_button(
 					&ctx.ui_ctx,
 					"Delete",

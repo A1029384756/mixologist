@@ -144,7 +144,7 @@ sink_init :: proc(
 		pw.properties_serialize_dict(&sb, &sink.device.playback_props.dict)
 		fmt.sbprintf(&sb, " }} }}")
 
-		args := strings.to_cstring(&sb)
+		args, _ := strings.to_cstring(&sb)
 		log.logf(.Info, "loading module with value %s", args)
 
 		sink.device.module = pw.context_load_module(ctx, "libpipewire-module-loopback", args, nil)
