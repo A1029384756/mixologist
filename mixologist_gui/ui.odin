@@ -923,7 +923,7 @@ UI__slider :: proc(
 				slope := T(max_val - min_val) / T(boundingbox.width)
 				pos^ = min_val + slope * (relative_x)
 				pos^ = clamp(pos^, min_val, max_val)
-			} else if scroll != 0 {
+			} else if clay.Hovered() && scroll != 0 {
 				pos^ -= scroll / 10
 			}
 
