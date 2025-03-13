@@ -31,6 +31,7 @@ Context :: struct {
 	// rule creation
 	new_rule_buf:    [1024]u8,
 	new_rule_len:    int,
+	rule_scrollbar:  UI_Scrollbar_Data,
 	// config state
 	aux_rules:       [dynamic]string,
 	config_file:     string,
@@ -312,18 +313,15 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 				}
 
-				scroll_data := clay.GetScrollContainerData(
-					clay.GetElementId(clay.MakeString("rules")),
-				)
-
 				UI_scrollbar(
 					&ctx.ui_ctx,
-					scroll_data,
+					clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
+					&ctx.rule_scrollbar,
 					12,
-					SURFACE_0,
 					SURFACE_1,
 					SURFACE_2,
 					OVERLAY_0,
+					OVERLAY_1,
 				)
 			}
 

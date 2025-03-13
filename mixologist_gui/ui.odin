@@ -28,6 +28,11 @@ UI_Context :: struct {
 	font_allocator:  virtual.Arena,
 }
 
+UI_Scrollbar_Data :: struct {
+	click_origin: clay.Vector2,
+	pos_origin:   clay.Vector2,
+}
+
 UI_DOUBLE_CLICK_INTERVAL_MS :: 300
 
 UI_Context_Status :: enum {
@@ -238,7 +243,8 @@ UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
 
 UI_scrollbar :: proc(
 	ctx: ^UI_Context,
-	scroll_data: clay.ScrollContainerData,
+	scroll_container_data: clay.ScrollContainerData,
+	scrollbar_data: ^UI_Scrollbar_Data,
 	bar_width: int,
 	bar_color, target_color, hover_color, press_color: clay.Color,
 ) -> (
@@ -247,7 +253,8 @@ UI_scrollbar :: proc(
 ) {
 	res, id = UI__scrollbar(
 		ctx,
-		scroll_data,
+		scroll_container_data,
+		scrollbar_data,
 		bar_width,
 		bar_color,
 		target_color,
@@ -260,9 +267,38 @@ UI_scrollbar :: proc(
 		UI_widget_focus(ctx, id)
 		if !active do res += {.FOCUS}
 	}
-	if active && rl.IsMouseButtonDown(.LEFT) do res += {.CHANGE}
+	if active && rl.IsMouseButtonDown(.LEFT) {
+		res += {.CHANGE}
+		target_height := int(
+			(scroll_container_data.scrollContainerDimensions.height /
+				scroll_container_data.contentDimensions.height) *
+			scroll_container_data.scrollContainerDimensions.height,
+		)
 
-	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+		ratio := clay.Vector2 {
+			scroll_container_data.contentDimensions.width /
+			scroll_container_data.scrollContainerDimensions.width,
+			scroll_container_data.contentDimensions.height /
+			scroll_container_data.scrollContainerDimensions.height,
+		}
+		scroll_pos := (scrollbar_data.click_origin - rl.GetMousePosition()) * ratio
+		scroll_pos.x += c.float(target_height) / 2
+
+		scroll_pos.x = clamp(
+			scroll_pos.x,
+			-(scroll_container_data.contentDimensions.width -
+				scroll_container_data.scrollContainerDimensions.width),
+			0,
+		)
+		scroll_pos.y = clamp(
+			scroll_pos.y,
+			-(scroll_container_data.contentDimensions.height -
+				scroll_container_data.scrollContainerDimensions.height),
+			0,
+		)
+
+		scroll_container_data.scrollPosition^ = scroll_pos
+	}
 	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
 
 	return
@@ -391,13 +427,17 @@ UI_text_button :: proc(
 
 UI__scrollbar :: proc(
 	ctx: ^UI_Context,
-	scroll_data: clay.ScrollContainerData,
+	scroll_container_data: clay.ScrollContainerData,
+	scrollbar_data: ^UI_Scrollbar_Data,
 	bar_width: int,
 	bar_color, target_color, hover_color, press_color: clay.Color,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
+	bar_width := bar_width
+	if scroll_container_data.contentDimensions.height <= scroll_container_data.scrollContainerDimensions.height do bar_width = 0
+
 	if clay.UI()(
 	{
 		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow({})}},
@@ -408,43 +448,119 @@ UI__scrollbar :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		active := UI_widget_active(ctx, local_id)
-		selected_color := target_color
-		if active do selected_color = press_color
-		else if clay.Hovered() do selected_color = hover_color
+		scroll_res, scroll_id := UI__scroll_target(
+			ctx,
+			scroll_container_data,
+			bar_width,
+			target_color,
+			hover_color,
+			press_color,
+		)
+
+		scroll_active := UI_widget_active(ctx, scroll_id)
+		if .PRESS in scroll_res {
+			UI_widget_focus(ctx, scroll_id)
+			if !scroll_active {
+				res += {.FOCUS}
+				scrollbar_data.click_origin = rl.GetMousePosition()
+				scrollbar_data.pos_origin = scroll_container_data.scrollPosition^
+			}
+		}
+		if scroll_active {
+			scroll_res += {.CHANGE}
+
+			ratio := clay.Vector2 {
+				scroll_container_data.contentDimensions.width /
+				scroll_container_data.scrollContainerDimensions.width,
+				scroll_container_data.contentDimensions.height /
+				scroll_container_data.scrollContainerDimensions.height,
+			}
+
+			scroll_pos :=
+				scrollbar_data.pos_origin +
+				(scrollbar_data.click_origin - rl.GetMousePosition()) * ratio
+			scroll_pos.x = clamp(
+				scroll_pos.x,
+				-(scroll_container_data.contentDimensions.width -
+					scroll_container_data.scrollContainerDimensions.width),
+				0,
+			)
+			scroll_pos.y = clamp(
+				scroll_pos.y,
+				-(scroll_container_data.contentDimensions.height -
+					scroll_container_data.scrollContainerDimensions.height),
+				0,
+			)
+
+			scroll_container_data.scrollPosition^ = scroll_pos
+		}
+		if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, scroll_id)
 
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+	}
+	return
+}
 
-		scroll_height := scroll_data.contentDimensions.height
+UI__scroll_target :: proc(
+	ctx: ^UI_Context,
+	scroll_container_data: clay.ScrollContainerData,
+	width: int,
+	color, hover_color, press_color: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	target_height := int(
+		(scroll_container_data.scrollContainerDimensions.height /
+			scroll_container_data.contentDimensions.height) *
+		scroll_container_data.scrollContainerDimensions.height,
+	)
+	size := [2]int{width, target_height}
+
+	if clay.UI()(
+	{
+		floating = {
+			offset = {
+				0,
+				-(scroll_container_data.scrollPosition.y /
+					scroll_container_data.contentDimensions.height) *
+				scroll_container_data.scrollContainerDimensions.height,
+			},
+			attachment = {element = .RightTop, parent = .RightTop},
+			attachTo = .Parent,
+		},
+	},
+	) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
+
 		if clay.UI()(
 		{
 			id = local_id,
 			layout = {
-				sizing = {
-					clay.SizingFixed(c.float(bar_width)),
-					clay.SizingFixed(
-						(scroll_data.scrollContainerDimensions.height /
-							scroll_data.contentDimensions.height) *
-						scroll_data.scrollContainerDimensions.height,
-					),
-				},
+				sizing = {clay.SizingFixed(c.float(size.x)), clay.SizingFixed(c.float(size.y))},
 			},
-			floating = {
-				attachment = {element = .LeftTop, parent = .LeftTop},
-				attachTo = .Parent,
-				offset = {
-					0,
-					-(scroll_data.scrollPosition.y / scroll_data.contentDimensions.height) *
-					scroll_height,
-				},
-				pointerCaptureMode = .Passthrough,
-			},
-			backgroundColor = selected_color,
-			cornerRadius = clay.CornerRadiusAll(c.float(bar_width) / 2),
 		},
 		) {
+			active := UI_widget_active(ctx, local_id)
+			selected_color := color
+			if active do selected_color = press_color
+			else if clay.Hovered() do selected_color = hover_color
+
+			if clay.Hovered() do res += {.HOVER}
+			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+
+			if clay.UI()(
+			{
+				layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}},
+				backgroundColor = selected_color,
+				cornerRadius = clay.CornerRadiusAll(c.float(size.x) / 2),
+			},
+			) {
+			}
 		}
 	}
 	return
@@ -489,7 +605,7 @@ UI__textbox :: proc(
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
 					childAlignment = {y = .Center},
 				},
-				scroll = {horizontal = true},
+				scroll = {horizontal = active},
 			},
 			) {
 				elem_loc_data := clay.GetElementData(local_id)
