@@ -217,11 +217,13 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 		) {
 			if clay.UI()(
 			{
+				id = clay.ID("rules"),
 				layout = {
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
 					padding = clay.PaddingAll(16),
-					childAlignment = {x = .Center, y = .Center},
+					childAlignment = {x = .Center},
 				},
+				scroll = {vertical = true},
 			},
 			) {
 				if clay.UI()(
@@ -230,7 +232,6 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 						layoutDirection = .TopToBottom,
 						sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
 					},
-					scroll = {vertical = true},
 					backgroundColor = MANTLE,
 					cornerRadius = clay.CornerRadiusAll(5),
 				},
@@ -310,6 +311,20 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 					}
 					for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 				}
+
+				scroll_data := clay.GetScrollContainerData(
+					clay.GetElementId(clay.MakeString("rules")),
+				)
+
+				UI_scrollbar(
+					&ctx.ui_ctx,
+					scroll_data,
+					12,
+					SURFACE_0,
+					SURFACE_1,
+					SURFACE_2,
+					OVERLAY_0,
+				)
 			}
 
 			if clay.UI()(

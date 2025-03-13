@@ -236,6 +236,38 @@ UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
 	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
+UI_scrollbar :: proc(
+	ctx: ^UI_Context,
+	scroll_data: clay.ScrollContainerData,
+	bar_width: int,
+	bar_color, target_color, hover_color, press_color: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__scrollbar(
+		ctx,
+		scroll_data,
+		bar_width,
+		bar_color,
+		target_color,
+		hover_color,
+		press_color,
+	)
+
+	active := UI_widget_active(ctx, id)
+	if .PRESS in res {
+		UI_widget_focus(ctx, id)
+		if !active do res += {.FOCUS}
+	}
+	if active && rl.IsMouseButtonDown(.LEFT) do res += {.CHANGE}
+
+	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
+
+	return
+}
+
 UI_textbox :: proc(
 	ctx: ^UI_Context,
 	buf: []u8,
@@ -261,8 +293,7 @@ UI_textbox :: proc(
 			}
 		}
 
-		if active && .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
-		else if !active && .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+		if .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
 
 		if active {
 			if .CANCEL in res do UI_unfocus(ctx, id)
@@ -354,6 +385,67 @@ UI_text_button :: proc(
 	if .RELEASE in res {
 		ctx.statuses -= {.BUTTON_HELD}
 		UI_unfocus(ctx, id)
+	}
+	return
+}
+
+UI__scrollbar :: proc(
+	ctx: ^UI_Context,
+	scroll_data: clay.ScrollContainerData,
+	bar_width: int,
+	bar_color, target_color, hover_color, press_color: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()(
+	{
+		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow({})}},
+		floating = {attachment = {element = .RightTop, parent = .RightTop}, attachTo = .Parent},
+		backgroundColor = bar_color,
+	},
+	) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
+
+		active := UI_widget_active(ctx, local_id)
+		selected_color := target_color
+		if active do selected_color = press_color
+		else if clay.Hovered() do selected_color = hover_color
+
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
+		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+
+		scroll_height := scroll_data.contentDimensions.height
+		if clay.UI()(
+		{
+			id = local_id,
+			layout = {
+				sizing = {
+					clay.SizingFixed(c.float(bar_width)),
+					clay.SizingFixed(
+						(scroll_data.scrollContainerDimensions.height /
+							scroll_data.contentDimensions.height) *
+						scroll_data.scrollContainerDimensions.height,
+					),
+				},
+			},
+			floating = {
+				attachment = {element = .LeftTop, parent = .LeftTop},
+				attachTo = .Parent,
+				offset = {
+					0,
+					-(scroll_data.scrollPosition.y / scroll_data.contentDimensions.height) *
+					scroll_height,
+				},
+				pointerCaptureMode = .Passthrough,
+			},
+			backgroundColor = selected_color,
+			cornerRadius = clay.CornerRadiusAll(c.float(bar_width) / 2),
+		},
+		) {
+		}
 	}
 	return
 }
