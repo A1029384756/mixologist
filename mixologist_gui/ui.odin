@@ -917,11 +917,14 @@ UI__slider :: proc(
 			minor_dimension := min(boundingbox.width, boundingbox.height)
 			major_dimension := max(boundingbox.width, boundingbox.height)
 
+			scroll := rl.GetMouseWheelMove()
 			if active && (!rl.IsMouseButtonPressed(.LEFT) && rl.IsMouseButtonDown(.LEFT)) {
 				relative_x := T(rl.GetMouseX()) - T(boundingbox.x)
 				slope := T(max_val - min_val) / T(boundingbox.width)
 				pos^ = min_val + slope * (relative_x)
 				pos^ = clamp(pos^, min_val, max_val)
+			} else if scroll != 0 {
+				pos^ -= scroll / 10
 			}
 
 			selected_color := color
