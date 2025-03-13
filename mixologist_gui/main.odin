@@ -216,113 +216,131 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 			backgroundColor = BASE,
 		},
 		) {
-			if clay.UI()(
-			{
-				id = clay.ID("rules"),
-				layout = {
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					padding = clay.PaddingAll(16),
-					childAlignment = {x = .Center},
-				},
-				scroll = {vertical = true},
-			},
-			) {
+			if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
 				if clay.UI()(
 				{
+					id = clay.ID("rules"),
 					layout = {
-						layoutDirection = .TopToBottom,
-						sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
+						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						padding = clay.PaddingAll(16),
+						childAlignment = {x = .Center},
 					},
-					backgroundColor = MANTLE,
-					cornerRadius = clay.CornerRadiusAll(5),
+					scroll = {vertical = true},
 				},
 				) {
 					if clay.UI()(
 					{
 						layout = {
-							layoutDirection = .LeftToRight,
-							sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
-							padding = clay.PaddingAll(16),
-							childAlignment = {y = .Center},
+							layoutDirection = .TopToBottom,
+							sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
 						},
+						backgroundColor = MANTLE,
+						cornerRadius = clay.CornerRadiusAll(5),
 					},
 					) {
-						// new rule textbox
+						if clay.UI()(
 						{
-							placeholder_str := "New rule..."
-							tb_res, _ := UI_textbox(
-								&ctx.ui_ctx,
-								ctx.new_rule_buf[:],
-								&ctx.new_rule_len,
-								placeholder_str,
-								{
-									layout = {
-										sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
-										padding = clay.PaddingAll(5),
+							layout = {
+								layoutDirection = .LeftToRight,
+								sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+								padding = clay.PaddingAll(16),
+								childAlignment = {y = .Center},
+							},
+						},
+						) {
+							// new rule textbox
+							{
+								placeholder_str := "New rule..."
+								tb_res, _ := UI_textbox(
+									&ctx.ui_ctx,
+									ctx.new_rule_buf[:],
+									&ctx.new_rule_len,
+									placeholder_str,
+									{
+										layout = {
+											sizing = {
+												clay.SizingPercent(0.5),
+												clay.SizingPercent(1),
+											},
+											padding = clay.PaddingAll(5),
+										},
+										backgroundColor = SURFACE_1,
+										cornerRadius = clay.CornerRadiusAll(5),
 									},
-									backgroundColor = SURFACE_1,
-									cornerRadius = clay.CornerRadiusAll(5),
-								},
-								{color = MAUVE, width = {2, 2, 2, 2, 2}},
-								{textColor = TEXT, fontSize = 16},
-								true,
-							)
+									{color = MAUVE, width = {2, 2, 2, 2, 2}},
+									{textColor = TEXT, fontSize = 16},
+									true,
+								)
 
-							if .FOCUS in tb_res {
-								ctx.new_rule_len = 0
-							}
-
-							if .SUBMIT in tb_res {
-								if ctx.new_rule_len > 0 {
-									append(
-										&ctx.aux_rules,
-										strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-									)
+								if .FOCUS in tb_res {
 									ctx.new_rule_len = 0
-									ctx.statuses += {.RULES}
 								}
-							}
 
-							UI_spacer()
+								if .SUBMIT in tb_res {
+									if ctx.new_rule_len > 0 {
+										append(
+											&ctx.aux_rules,
+											strings.clone(
+												string(ctx.new_rule_buf[:ctx.new_rule_len]),
+											),
+										)
+										ctx.new_rule_len = 0
+										ctx.statuses += {.RULES}
+									}
+								}
 
-							button_res, _ := UI_text_button(
-								&ctx.ui_ctx,
-								"Add Rule",
-								{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-								clay.CornerRadiusAll(5),
-								SURFACE_2,
-								SURFACE_1,
-								SURFACE_0,
-								TEXT,
-								16,
-								5,
-							)
+								UI_spacer()
 
-							if .RELEASE in button_res {
-								if ctx.new_rule_len > 0 {
-									append(
-										&ctx.aux_rules,
-										strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
-									)
-									ctx.new_rule_len = 0
-									ctx.statuses += {.RULES}
+								button_res, _ := UI_text_button(
+									&ctx.ui_ctx,
+									"Add Rule",
+									{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+									clay.CornerRadiusAll(5),
+									SURFACE_2,
+									SURFACE_1,
+									SURFACE_0,
+									TEXT,
+									16,
+									5,
+								)
+
+								if .RELEASE in button_res {
+									if ctx.new_rule_len > 0 {
+										append(
+											&ctx.aux_rules,
+											strings.clone(
+												string(ctx.new_rule_buf[:ctx.new_rule_len]),
+											),
+										)
+										ctx.new_rule_len = 0
+										ctx.statuses += {.RULES}
+									}
 								}
 							}
 						}
+						for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 					}
-					for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 				}
 
-				UI_scrollbar(
-					&ctx.ui_ctx,
-					clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
-					&ctx.rule_scrollbar,
-					12,
-					SURFACE_1,
-					SURFACE_2,
-					OVERLAY_0,
-					OVERLAY_1,
-				)
+				if clay.UI()(
+				{
+					layout = {
+						sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+						childAlignment = {.Right, .Top},
+					},
+				},
+				) {
+					UI_scrollbar(
+						&ctx.ui_ctx,
+						clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
+						&ctx.rule_scrollbar,
+						8,
+						SURFACE_1,
+						SURFACE_2,
+						OVERLAY_0,
+						OVERLAY_1,
+					)
+				}
 			}
 
 			if clay.UI()(
