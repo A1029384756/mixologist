@@ -969,6 +969,7 @@ UI__slider :: proc(
 					floating = {
 						attachment = {element = .LeftCenter, parent = .LeftCenter},
 						offset = {min(slider_pos, default_mark), 0},
+						pointerCaptureMode = .Passthrough,
 						attachTo = .Parent,
 					},
 					layout = {
