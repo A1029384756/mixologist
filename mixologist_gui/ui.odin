@@ -930,6 +930,7 @@ UI__slider :: proc(
 				pos^ = clamp(pos^, min_val, max_val)
 			} else if clay.Hovered() && scroll != 0 {
 				pos^ -= scroll / 10
+				pos^ = clamp(pos^, min_val, max_val)
 			}
 
 			selected_color := color
