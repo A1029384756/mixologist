@@ -294,7 +294,7 @@ UI_scrollbar :: proc(
 			scroll_container_data.scrollContainerDimensions.height,
 		}
 		scroll_pos := (scrollbar_data.click_origin - rl.GetMousePosition()) * ratio
-		scroll_pos.x += c.float(target_height) / 2
+		scroll_pos.y += (c.float(target_height) * ratio.y) / 2
 
 		scroll_pos.x = clamp(
 			scroll_pos.x,
