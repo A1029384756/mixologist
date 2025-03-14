@@ -42,7 +42,6 @@ UI_Context_Status :: enum {
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
-	BUTTON_HELD,
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
 }
@@ -173,7 +172,6 @@ UI_tick :: proc(
 		rl.SetMouseCursor(.ARROW)
 	}
 
-	if .BUTTON_HOVERING not_in ctx.statuses do ctx.statuses -= {.BUTTON_HELD}
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
 }
 
@@ -426,16 +424,9 @@ UI_text_button :: proc(
 	)
 
 	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+	else if .PRESS in res do UI_widget_focus(ctx, id)
 	else do UI_unfocus(ctx, id)
 
-	if .PRESS in res {
-		ctx.statuses += {.BUTTON_HELD}
-		UI_widget_focus(ctx, id)
-	}
-	if .RELEASE in res {
-		ctx.statuses -= {.BUTTON_HELD}
-		UI_unfocus(ctx, id)
-	}
 	return
 }
 
