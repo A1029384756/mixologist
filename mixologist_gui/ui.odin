@@ -11,6 +11,7 @@ import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
 import "core:text/edit"
+import "core:time"
 
 UI_Context :: struct {
 	textbox_input:   strings.Builder,
@@ -34,6 +35,8 @@ UI_Scrollbar_Data :: struct {
 }
 
 UI_DOUBLE_CLICK_INTERVAL_MS :: 300
+DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
+UI_DEBUG_PREV_TIME: time.Time
 
 UI_Context_Status :: enum {
 	TEXTBOX_SELECTED,
@@ -146,7 +149,18 @@ UI_tick :: proc(
 	)
 	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
 
+	start := time.now()
 	renderCommands := ui_create_layout(ctx, userdata)
+	layout_time := time.diff(start, time.now())
+	when ODIN_DEBUG {
+		if clay.IsDebugModeEnabled() {
+			if time.diff(UI_DEBUG_PREV_TIME, time.now()) > DEBUG_LAYOUT_TIMER_INTERVAL {
+				fmt.println("Layout time:", layout_time)
+				UI_DEBUG_PREV_TIME = time.now()
+			}
+		}
+	}
+
 	rl.BeginDrawing()
 	clayRaylibRender(&renderCommands)
 	rl.EndDrawing()

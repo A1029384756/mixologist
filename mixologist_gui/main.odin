@@ -326,20 +326,31 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				{
 					layout = {
 						sizing = {clay.SizingFit({}), clay.SizingGrow({})},
-						childAlignment = {.Right, .Top},
+						padding = {right = 4},
 					},
 				},
 				) {
-					UI_scrollbar(
-						&ctx.ui_ctx,
-						clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
-						&ctx.rule_scrollbar,
-						8,
-						SURFACE_1,
-						SURFACE_2,
-						OVERLAY_0,
-						OVERLAY_1,
-					)
+					if clay.UI()(
+					{
+						layout = {
+							sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+							childAlignment = {.Right, .Top},
+						},
+					},
+					) {
+						UI_scrollbar(
+							&ctx.ui_ctx,
+							clay.GetScrollContainerData(
+								clay.GetElementId(clay.MakeString("rules")),
+							),
+							&ctx.rule_scrollbar,
+							8,
+							SURFACE_1,
+							SURFACE_2,
+							OVERLAY_0,
+							OVERLAY_1,
+						)
+					}
 				}
 			}
 
