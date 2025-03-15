@@ -3,6 +3,7 @@ package mixologist_gui
 import "../common"
 import "./clay"
 import rl "./raylib"
+import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -14,6 +15,10 @@ import "core:sys/linux"
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 IPC_DELAY_MS :: 500
+
+MUSIC_ICON :: #load("resources/music-note-symbolic.png")
+GAME_ICON :: #load("resources/gamepad2-symbolic.png")
+music_icon, game_icon: rl.Texture2D
 
 Context_Status :: enum u8 {
 	ADDING_NEW,
@@ -118,6 +123,10 @@ main :: proc() {
 
 	UI_init(&ctx.ui_ctx)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"), ".ttf")
+	game_icon_img := rl.LoadImageFromMemory(".png", raw_data(GAME_ICON), c.int(len(GAME_ICON)))
+	music_icon_img := rl.LoadImageFromMemory(".png", raw_data(MUSIC_ICON), c.int(len(MUSIC_ICON)))
+	game_icon = rl.LoadTextureFromImage(game_icon_img)
+	music_icon = rl.LoadTextureFromImage(music_icon_img)
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading
@@ -354,11 +363,19 @@ volume_slider :: proc(ctx: ^Context) {
 		layout = {
 			sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
 			padding = clay.PaddingAll(16),
+			childGap = 12,
 			childAlignment = {.Center, .Center},
+			layoutDirection = .LeftToRight,
 		},
 		backgroundColor = SURFACE_0,
 	},
 	) {
+		if clay.UI()(
+		{
+			layout = {sizing = {width = clay.SizingFixed(24)}},
+			image = {imageData = &music_icon, sourceDimensions = {128, 128}},
+		},
+		) {}
 		slider_res, _ := UI_slider(
 			&ctx.ui_ctx,
 			&ctx.volume,
@@ -376,6 +393,13 @@ volume_slider :: proc(ctx: ^Context) {
 		)
 
 		if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
+
+		if clay.UI()(
+		{
+			layout = {sizing = {width = clay.SizingFixed(24)}},
+			image = {imageData = &game_icon, sourceDimensions = {128, 128}},
+		},
+		) {}
 	}
 }
 
@@ -684,7 +708,7 @@ rule_add :: proc(ui_ctx: ^UI_Context, ctx: rawptr) -> (res: UI_WidgetResults, id
 				&ctx.ui_ctx,
 				"Add Rule",
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-				clay.CornerRadiusAll(5),
+				clay.CornerRadiusAll(32),
 				SURFACE_2,
 				SURFACE_1,
 				SURFACE_0,
