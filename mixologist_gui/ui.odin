@@ -148,10 +148,12 @@ UI_tick :: proc(
 	)
 	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
 
-	start := time.now()
-	renderCommands := ui_create_layout(ctx, userdata)
-	layout_time := time.diff(start, time.now())
 	when ODIN_DEBUG {
+		start := time.now()
+	}
+	renderCommands := ui_create_layout(ctx, userdata)
+	when ODIN_DEBUG {
+		layout_time := time.diff(start, time.now())
 		if clay.IsDebugModeEnabled() {
 			if time.diff(UI_DEBUG_PREV_TIME, time.now()) > DEBUG_LAYOUT_TIMER_INTERVAL {
 				fmt.println("Layout time:", layout_time)
