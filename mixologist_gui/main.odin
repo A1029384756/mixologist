@@ -2,6 +2,7 @@ package mixologist_gui
 
 import "../common"
 import "./clay"
+import rl "./raylib"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -15,6 +16,8 @@ EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 IPC_DELAY_MS :: 500
 
 Context_Status :: enum u8 {
+	ADDING_NEW,
+	ADDING,
 	RULES,
 	VOLUME,
 	CONNECTED,
@@ -50,6 +53,26 @@ main :: proc() {
 	when ODIN_DEBUG {
 		context.logger = log.create_console_logger(lowest = common.get_log_level())
 		defer log.destroy_console_logger(context.logger)
+
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
 	}
 
 	ctx: Context
@@ -143,6 +166,11 @@ main :: proc() {
 	}
 
 	if .CONNECTED in ctx.statuses do IPC_Client_deinit(&ctx.ipc)
+	UI_deinit(&ctx.ui_ctx)
+	for &rule in ctx.aux_rules {
+		delete(rule)
+	}
+	delete(ctx.aux_rules)
 }
 
 UI_create_layout :: proc(
@@ -170,6 +198,9 @@ mixd_set_volume :: proc(ctx: ^Context) {
 
 reload_config :: proc(ctx: ^Context) {
 	assert(len(ctx.config_file) > 0, "must load config before running")
+	for &rule in ctx.aux_rules {
+		delete(rule)
+	}
 	clear(&ctx.aux_rules)
 	file_bytes, config_file_err := os2.read_entire_file(ctx.config_file, context.allocator)
 	defer delete(file_bytes)
@@ -221,7 +252,7 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 				{
 					id = clay.ID("rules"),
 					layout = {
-						sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
 						padding = clay.PaddingAll(16),
 						childAlignment = {x = .Center},
 					},
@@ -235,198 +266,189 @@ create_layout :: proc(ctx: ^Context) -> clay.ClayArray(clay.RenderCommand) {
 							sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
 						},
 						backgroundColor = MANTLE,
-						cornerRadius = clay.CornerRadiusAll(5),
+						cornerRadius = clay.CornerRadiusAll(10),
 					},
 					) {
 						if clay.UI()(
 						{
 							layout = {
-								layoutDirection = .LeftToRight,
-								sizing = {clay.SizingPercent(1), clay.SizingFixed(64)},
+								sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+								layoutDirection = .TopToBottom,
 								padding = clay.PaddingAll(16),
-								childAlignment = {y = .Center},
+								childGap = 8,
 							},
 						},
 						) {
-							// new rule textbox
+							rules_label(ctx)
+
+							if clay.UI()(
 							{
-								placeholder_str := "New rule..."
-								tb_res, _ := UI_textbox(
-									&ctx.ui_ctx,
-									ctx.new_rule_buf[:],
-									&ctx.new_rule_len,
-									placeholder_str,
-									{
-										layout = {
-											sizing = {
-												clay.SizingPercent(0.5),
-												clay.SizingPercent(1),
-											},
-											padding = clay.PaddingAll(5),
-										},
-										backgroundColor = SURFACE_1,
-										cornerRadius = clay.CornerRadiusAll(5),
-									},
-									{color = MAUVE, width = {2, 2, 2, 2, 2}},
-									{textColor = TEXT, fontSize = 16},
-									true,
-								)
-
-								if .FOCUS in tb_res {
-									ctx.new_rule_len = 0
-								}
-
-								if .SUBMIT in tb_res {
-									if ctx.new_rule_len > 0 {
-										append(
-											&ctx.aux_rules,
-											strings.clone(
-												string(ctx.new_rule_buf[:ctx.new_rule_len]),
-											),
-										)
-										ctx.new_rule_len = 0
-										ctx.statuses += {.RULES}
-									}
-								}
-
-								UI_spacer()
-
-								button_res, _ := UI_text_button(
-									&ctx.ui_ctx,
-									"Add Rule",
-									{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-									clay.CornerRadiusAll(5),
-									SURFACE_2,
-									SURFACE_1,
-									SURFACE_0,
-									TEXT,
-									16,
-									5,
-								)
-
-								if .RELEASE in button_res {
-									if ctx.new_rule_len > 0 {
-										append(
-											&ctx.aux_rules,
-											strings.clone(
-												string(ctx.new_rule_buf[:ctx.new_rule_len]),
-											),
-										)
-										ctx.new_rule_len = 0
-										ctx.statuses += {.RULES}
-									}
-								}
+								layout = {
+									sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+									layoutDirection = .TopToBottom,
+								},
+								backgroundColor = CRUST,
+								cornerRadius = clay.CornerRadiusAll(10),
+							},
+							) {
+								for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1, len(ctx.aux_rules))
 							}
 						}
-						for &elem, i in ctx.aux_rules do rule_line(ctx, &elem, i + 1)
 					}
 				}
-
-				if clay.UI()(
-				{
-					layout = {
-						sizing = {clay.SizingFit({}), clay.SizingGrow({})},
-						padding = {right = 4},
-					},
-				},
-				) {
-					if clay.UI()(
-					{
-						layout = {
-							sizing = {clay.SizingFit({}), clay.SizingGrow({})},
-							childAlignment = {.Right, .Top},
-						},
-					},
-					) {
-						UI_scrollbar(
-							&ctx.ui_ctx,
-							clay.GetScrollContainerData(
-								clay.GetElementId(clay.MakeString("rules")),
-							),
-							&ctx.rule_scrollbar,
-							8,
-							SURFACE_1,
-							SURFACE_2,
-							OVERLAY_0,
-							OVERLAY_1,
-						)
-					}
-				}
+				scrollbar(ctx)
 			}
 
-			if clay.UI()(
-			{
-				layout = {
-					sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
-					padding = clay.PaddingAll(16),
-					childAlignment = {.Center, .Center},
-				},
-				backgroundColor = SURFACE_0,
-			},
-			) {
-				slider_res, _ := UI_slider(
-					&ctx.ui_ctx,
-					&ctx.volume,
-					0,
-					-1,
-					1,
-					OVERLAY_2,
-					OVERLAY_1,
-					OVERLAY_0,
-					SURFACE_2,
-					MAUVE,
-					{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
-					0.025,
-					0,
-				)
-
-				if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
-			}
-		}
-
-		if .CONNECTED not_in ctx.statuses {
-			if clay.UI()(
-			{
-				floating = {
-					attachment = {element = .CenterCenter, parent = .CenterCenter},
-					attachTo = .Parent,
-				},
-				layout = {
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-					childAlignment = {x = .Center, y = .Center},
-				},
-				backgroundColor = CRUST * {1, 1, 1, 0.75},
-			},
-			) {
-				if clay.UI()(
-				{
-					layout = {
-						sizing = {clay.SizingPercent(0.7), clay.SizingPercent(0.7)},
-						childAlignment = {x = .Center, y = .Center},
-						layoutDirection = .TopToBottom,
-						childGap = 16,
-					},
-					backgroundColor = BASE,
-					cornerRadius = clay.CornerRadiusAll(5),
-				},
-				) {
-					clay.Text(
-						"Could not connect to Mixd",
-						clay.TextConfig({textColor = TEXT, fontSize = 32}),
-					)
-					clay.Text(
-						"Is it running?",
-						clay.TextConfig({textColor = SUBTEXT_0, fontSize = 24}),
-					)
-				}
-			}
+			volume_slider(ctx)
 		}
 	}
+	disconnected_overlay(ctx)
+	rule_add_modal(ctx)
 
 	return clay.EndLayout()
 }
 
-rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
+disconnected_overlay :: proc(ctx: ^Context) {
+	if .CONNECTED not_in ctx.statuses {
+		if clay.UI()(
+		{
+			floating = {
+				attachment = {element = .CenterCenter, parent = .CenterCenter},
+				attachTo = .Parent,
+			},
+			layout = {
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				childAlignment = {x = .Center, y = .Center},
+			},
+			backgroundColor = CRUST * {1, 1, 1, 0.75},
+		},
+		) {
+			if clay.UI()(
+			{
+				layout = {
+					sizing = {clay.SizingPercent(0.7), clay.SizingPercent(0.7)},
+					childAlignment = {x = .Center, y = .Center},
+					layoutDirection = .TopToBottom,
+					childGap = 16,
+				},
+				backgroundColor = BASE,
+				cornerRadius = clay.CornerRadiusAll(5),
+			},
+			) {
+				clay.Text(
+					"Could not connect to Mixd",
+					clay.TextConfig({textColor = TEXT, fontSize = 32}),
+				)
+				clay.Text(
+					"Is it running?",
+					clay.TextConfig({textColor = SUBTEXT_0, fontSize = 24}),
+				)
+			}
+		}
+	}
+}
+
+volume_slider :: proc(ctx: ^Context) {
+	if clay.UI()(
+	{
+		layout = {
+			sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+			padding = clay.PaddingAll(16),
+			childAlignment = {.Center, .Center},
+		},
+		backgroundColor = SURFACE_0,
+	},
+	) {
+		slider_res, _ := UI_slider(
+			&ctx.ui_ctx,
+			&ctx.volume,
+			0,
+			-1,
+			1,
+			OVERLAY_2,
+			OVERLAY_1,
+			OVERLAY_0,
+			SURFACE_2,
+			MAUVE,
+			{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+			0.025,
+			0,
+		)
+
+		if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
+	}
+}
+
+scrollbar :: proc(ctx: ^Context) {
+	if clay.UI()(
+	{layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}, padding = {right = 4}}},
+	) {
+		if clay.UI()(
+		{
+			layout = {
+				sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+				childAlignment = {.Right, .Top},
+			},
+		},
+		) {
+			UI_scrollbar(
+				&ctx.ui_ctx,
+				clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
+				&ctx.rule_scrollbar,
+				8,
+				SURFACE_1,
+				SURFACE_2,
+				OVERLAY_0,
+				OVERLAY_1,
+			)
+		}
+	}
+}
+
+rules_label :: proc(ctx: ^Context) {
+	if clay.UI()(
+	{
+		layout = {
+			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			childGap = 8,
+			childAlignment = {y = .Center},
+		},
+	},
+	) {
+		if clay.UI()(
+		{
+			layout = {
+				sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+				childGap = 8,
+				layoutDirection = .TopToBottom,
+			},
+		},
+		) {
+			UI_textlabel("Rules", {textColor = TEXT, fontSize = 20})
+			UI_textlabel("Selected Programs", {textColor = TEXT * 0.8, fontSize = 16})
+		}
+		UI_spacer()
+
+		res, _ := UI_text_button(
+			&ctx.ui_ctx,
+			"Add Rule",
+			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+			clay.CornerRadiusAll(5),
+			SURFACE_2,
+			SURFACE_1,
+			SURFACE_0,
+			TEXT,
+			16,
+			5,
+		)
+
+		if .RELEASE in res {
+			ctx.statuses += {.ADDING, .ADDING_NEW}
+		}
+	}
+}
+
+rule_line :: proc(ctx: ^Context, entry: ^string, idx, rule_count: int) {
 	if clay.UI()(
 	{
 		layout = {
@@ -435,7 +457,6 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			padding = clay.PaddingAll(16),
 			childAlignment = {y = .Center},
 		},
-		backgroundColor = idx % 2 == 0 ? MANTLE : CRUST,
 	},
 	) {
 		row_selected := idx == ctx.active_line
@@ -565,4 +586,127 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx: int) {
 			}
 		}
 	}
+
+	if idx <= rule_count - 1 do list_separator()
+}
+
+list_separator :: proc() {
+	if clay.UI()(
+	{
+		layout = {
+			sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+			padding = {left = 6, right = 6},
+		},
+	},
+	) {
+		if clay.UI()(
+		{
+			layout = {sizing = {clay.SizingGrow({}), clay.SizingFixed(1)}},
+			backgroundColor = SURFACE_0,
+		},
+		) {
+		}
+	}
+}
+
+rule_add_modal :: proc(ctx: ^Context) {
+	if .ADDING in ctx.statuses {
+		res, _ := UI_modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, rule_add, ctx)
+		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
+	}
+}
+
+rule_add :: proc(ui_ctx: ^UI_Context, ctx: rawptr) -> (res: UI_WidgetResults, id: clay.ElementId) {
+	ctx := cast(^Context)ctx
+
+	if clay.UI()(
+	{
+		layout = {
+			sizing = {clay.SizingFit({}), clay.SizingFit({})},
+			childAlignment = {y = .Center},
+			layoutDirection = .TopToBottom,
+			padding = clay.PaddingAll(16),
+			childGap = 16,
+		},
+		backgroundColor = BASE,
+		cornerRadius = clay.CornerRadiusAll(10),
+	},
+	) {
+		if !clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.CANCEL}
+		UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
+
+		placeholder_str := "New rule..."
+		tb_res, tb_id := UI_textbox(
+			&ctx.ui_ctx,
+			ctx.new_rule_buf[:],
+			&ctx.new_rule_len,
+			placeholder_str,
+			{
+				layout = {
+					sizing = {clay.SizingFixed(240), clay.SizingFixed(32)},
+					padding = clay.PaddingAll(5),
+				},
+				backgroundColor = SURFACE_1,
+				cornerRadius = clay.CornerRadiusAll(5),
+			},
+			{color = MAUVE, width = {2, 2, 2, 2, 2}},
+			{textColor = TEXT, fontSize = 16},
+		)
+
+		if .ADDING_NEW in ctx.statuses {
+			UI_widget_focus(ui_ctx, tb_id)
+			tb_res += {.FOCUS}
+			ctx.statuses -= {.ADDING_NEW}
+		}
+
+		if .FOCUS in tb_res {
+			ctx.new_rule_len = 0
+		}
+
+		if .SUBMIT in tb_res {
+			if ctx.new_rule_len > 0 {
+				append(&ctx.aux_rules, strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])))
+				ctx.new_rule_len = 0
+				ctx.statuses += {.RULES}
+				res += {.SUBMIT}
+			}
+		}
+
+		if clay.UI()(
+		{
+			layout = {
+				childAlignment = {x = .Center},
+				sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+			},
+		},
+		) {
+			button_res, _ := UI_text_button(
+				&ctx.ui_ctx,
+				"Add Rule",
+				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+				clay.CornerRadiusAll(5),
+				SURFACE_2,
+				SURFACE_1,
+				SURFACE_0,
+				TEXT,
+				16,
+				5,
+				ctx.new_rule_len > 0,
+			)
+
+			if .RELEASE in button_res {
+				if ctx.new_rule_len > 0 {
+					append(
+						&ctx.aux_rules,
+						strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len])),
+					)
+					ctx.new_rule_len = 0
+					ctx.statuses += {.RULES}
+					res += {.SUBMIT}
+				}
+			}
+		}
+	}
+
+	return
 }

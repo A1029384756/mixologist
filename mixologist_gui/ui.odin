@@ -25,7 +25,7 @@ UI_Context :: struct {
 	click_debounce:  f64,
 	statuses:        UI_Context_Statuses,
 	// allocated
-	memory:          []u8,
+	clay_memory:     []u8,
 	font_allocator:  virtual.Arena,
 }
 
@@ -69,8 +69,8 @@ UI_init :: proc(ctx: ^UI_Context) {
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
 
 	min_mem := c.size_t(clay.MinMemorySize())
-	ctx.memory = make([]u8, min_mem)
-	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.memory))
+	ctx.clay_memory = make([]u8, min_mem)
+	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.clay_memory))
 	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenWidth()}
 	clay.Initialize(
 		arena,
@@ -87,7 +87,7 @@ UI_init :: proc(ctx: ^UI_Context) {
 
 UI_deinit :: proc(ctx: ^UI_Context) {
 	virtual.arena_destroy(&ctx.font_allocator)
-	delete(ctx.memory)
+	delete(ctx.clay_memory)
 	rl.CloseWindow()
 }
 
@@ -324,7 +324,7 @@ UI_textbox :: proc(
 	config: clay.ElementDeclaration,
 	border_config: clay.BorderElementConfig,
 	text_config: clay.TextElementConfig,
-	enabled: bool,
+	enabled := true,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -406,6 +406,7 @@ UI_text_button :: proc(
 	color, hover_color, press_color, text_color: clay.Color,
 	text_size: u16,
 	text_padding: u16,
+	enabled := true,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -415,18 +416,21 @@ UI_text_button :: proc(
 		text,
 		layout,
 		corner_radius,
-		color,
-		hover_color,
-		press_color,
+		enabled ? color : color * {0.65, 0.65, 0.65, 1},
+		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
+		enabled ? press_color : color * {0.65, 0.65, 0.65, 1},
 		text_color,
 		text_size,
 		text_padding,
 	)
 
-	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
-	else if .PRESS in res do UI_widget_focus(ctx, id)
-	else do UI_unfocus(ctx, id)
+	if enabled {
+		if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+		else do UI_unfocus(ctx, id)
 
+		if .PRESS in res do UI_widget_focus(ctx, id)
+		else if .RELEASE in res do UI_unfocus(ctx, id)
+	}
 	return
 }
 
@@ -931,7 +935,7 @@ UI__slider :: proc(
 			} else if clay.Hovered() && scroll != 0 {
 				pos^ -= scroll / 10
 				pos^ = clamp(pos^, min_val, max_val)
-        res += {.CHANGE}
+				res += {.CHANGE}
 			}
 
 			selected_color := color
@@ -1089,6 +1093,45 @@ UI_spacer :: proc() -> (res: UI_WidgetResults, id: clay.ElementId) {
 			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
 			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
 		}
+	}
+	return
+}
+
+UI_textlabel :: proc(text: string, config: clay.TextElementConfig) {
+	textlabel := clay.TextConfig(config)
+	clay.Text(text, textlabel)
+}
+
+UI_modal_escapable :: proc(
+	ctx: ^UI_Context,
+	bg_color: clay.Color,
+	widget: proc(
+		ctx: ^UI_Context,
+		user_data: rawptr,
+	) -> (
+		res: UI_WidgetResults,
+		id: clay.ElementId,
+	),
+	user_data: rawptr = nil,
+	attachment: clay.FloatingAttachToElement = .Root,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()(
+	{
+		floating = {
+			attachment = {element = .CenterCenter, parent = .CenterCenter},
+			attachTo = attachment,
+		},
+		layout = {
+			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			childAlignment = {x = .Center, y = .Center},
+		},
+		backgroundColor = bg_color,
+	},
+	) {
+		res, id = widget(ctx, user_data)
 	}
 	return
 }
