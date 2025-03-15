@@ -653,8 +653,8 @@ rule_add :: proc(ui_ctx: ^UI_Context, ctx: rawptr) -> (res: UI_WidgetResults, id
 			{textColor = TEXT, fontSize = 16},
 		)
 
+		UI_widget_focus(ui_ctx, tb_id)
 		if .ADDING_NEW in ctx.statuses {
-			UI_widget_focus(ui_ctx, tb_id)
 			tb_res += {.FOCUS}
 			ctx.statuses -= {.ADDING_NEW}
 		}
