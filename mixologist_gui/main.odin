@@ -690,7 +690,7 @@ rule_add :: proc(ui_ctx: ^UI_Context, ctx: rawptr) -> (res: UI_WidgetResults, id
 				SURFACE_0,
 				TEXT,
 				16,
-				5,
+				12,
 				ctx.new_rule_len > 0,
 			)
 
