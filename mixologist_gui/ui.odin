@@ -1,7 +1,6 @@
 package mixologist_gui
 
 import "./clay"
-import rl "./raylib"
 import "base:intrinsics"
 import "core:c"
 import sa "core:container/small_array"
@@ -12,21 +11,41 @@ import "core:slice"
 import "core:strings"
 import "core:text/edit"
 import "core:time"
+import ttf "sdl3_ttf"
+import sdl "vendor:sdl3"
 
 UI_Context :: struct {
 	textbox_input:   strings.Builder,
 	textbox_state:   edit.State,
 	textbox_offset:  int,
 	active_widgets:  sa.Small_Array(16, clay.ElementId),
+	statuses:        UI_Context_Statuses,
 	// input handling
 	_text_store:     [1024]u8, // global text input per frame
 	click_count:     int,
-	prev_click_time: f64,
-	click_debounce:  f64,
-	statuses:        UI_Context_Statuses,
+	// mouse
+	prev_click_time: time.Time,
+	click_debounce:  time.Time,
+	mouse_pressed:   UI_Mouse_Buttons,
+	mouse_down:      UI_Mouse_Buttons,
+	mouse_released:  UI_Mouse_Buttons,
+	mouse_pos:       [2]c.float,
+	mouse_prev_pos:  [2]c.float,
+	mouse_delta:     [2]c.float,
+	scroll_delta:    [2]c.float,
+	// keyboard
+	keys_pressed:    UI_Control_Keys,
+	keys_down:       UI_Control_Keys,
 	// allocated
 	clay_memory:     []u8,
 	font_allocator:  virtual.Arena,
+	fonts:           sa.Small_Array(16, UI_Font),
+	// sdl3
+	window:          ^sdl.Window,
+	renderer:        ^sdl.Renderer,
+	start_time:      time.Time,
+	prev_frame_time: time.Time,
+	text_engine:     ^ttf.TextEngine,
 }
 
 UI_Scrollbar_Data :: struct {
@@ -34,7 +53,36 @@ UI_Scrollbar_Data :: struct {
 	pos_origin:   clay.Vector2,
 }
 
-UI_DOUBLE_CLICK_INTERVAL_MS :: 300
+UI_Mouse_Button :: enum {
+	LEFT,
+	MIDDLE,
+	RIGHT,
+	SIDE_1,
+	SIDE_2,
+}
+UI_Mouse_Buttons :: bit_set[UI_Mouse_Button]
+
+UI_Control_Key :: enum {
+	SHIFT,
+	CTRL,
+	ALT,
+	BACKSPACE,
+	DELETE,
+	RETURN,
+	ESCAPE,
+	LEFT,
+	RIGHT,
+	HOME,
+	END,
+	A,
+	X,
+	C,
+	V,
+	D,
+}
+UI_Control_Keys :: bit_set[UI_Control_Key]
+
+UI_DOUBLE_CLICK_INTERVAL_MS :: 300 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 UI_DEBUG_PREV_TIME: time.Time
 
@@ -44,6 +92,7 @@ UI_Context_Status :: enum {
 	BUTTON_HOVERING,
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
+	EXIT,
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
 
@@ -60,6 +109,25 @@ UI_WidgetResult :: enum {
 }
 UI_WidgetResults :: bit_set[UI_WidgetResult]
 
+UI_Font :: struct {
+	font: map[u16]^ttf.Font,
+	data: []u8,
+}
+
+UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
+	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
+	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
+	if just_inserted {
+		font_stream := sdl.IOFromMem(raw_data(sdl_font.data), len(sdl_font.data))
+		font^ = ttf.OpenFontIO(font_stream, true, c.float(size))
+	}
+	return font^
+}
+
+TEXT_CURSOR := sdl.CreateSystemCursor(.TEXT)
+HAND_CURSOR := sdl.CreateSystemCursor(.POINTER)
+DEFAULT_CURSOR := sdl.GetDefaultCursor()
+
 UI_init :: proc(ctx: ^UI_Context) {
 	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if arena_init_err != nil do panic("font allocator initialization failed")
@@ -71,28 +139,33 @@ UI_init :: proc(ctx: ^UI_Context) {
 	min_mem := c.size_t(clay.MinMemorySize())
 	ctx.clay_memory = make([]u8, min_mem)
 	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.clay_memory))
-	window_size := [2]c.int{rl.GetScreenWidth(), rl.GetScreenWidth()}
+
+	_ = sdl.Init({.VIDEO})
+	_ = ttf.Init()
+	ctx.text_engine = ttf.CreateRendererTextEngine(ctx.renderer)
+	ctx.window = sdl.CreateWindow("Mixologist", 800, 600, {.RESIZABLE, .HIGH_PIXEL_DENSITY})
+	ctx.renderer = sdl.CreateRenderer(ctx.window, nil)
+	sdl.SetRenderVSync(ctx.renderer, sdl.RENDERER_VSYNC_ADAPTIVE)
+
+	_ = sdl.StartTextInput(ctx.window)
+
+	window_size: [2]c.int
+	sdl.GetWindowSizeInPixels(ctx.window, &window_size.x, &window_size.y)
 	clay.Initialize(
 		arena,
 		{c.float(window_size.x), c.float(window_size.y)},
 		{handler = UI__clay_error_handler},
 	)
 
-	clay.SetMeasureTextFunction(measureText, nil)
-
-	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .MSAA_4X_HINT})
-	rl.InitWindow(800, 600, "Mixologist")
-	rl.SetExitKey(.KEY_NULL)
+	clay.SetMeasureTextFunction(measure_text, ctx)
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
-	rl.CloseWindow()
-}
-
-UI_get_time :: proc() -> f64 {
-	return rl.GetTime()
+	ttf.DestroyRendererTextEngine(ctx.text_engine)
+	sdl.DestroyRenderer(ctx.renderer)
+	sdl.DestroyWindow(ctx.window)
 }
 
 UI_tick :: proc(
@@ -103,50 +176,115 @@ UI_tick :: proc(
 	) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
-	// mouse multi-click
+	// input reset
 	{
-		current_time := rl.GetTime()
-		if rl.IsMouseButtonPressed(.LEFT) {
-			if (current_time - ctx.prev_click_time) <= UI_DOUBLE_CLICK_INTERVAL_MS / 1000. {
-				ctx.click_count += 1
-			} else {
-				ctx.click_count = 1
-			}
+		strings.builder_reset(&ctx.textbox_input)
+		ctx.mouse_pressed = {}
+		ctx.mouse_released = {}
+		ctx.keys_pressed = {}
+		ctx.mouse_prev_pos = ctx.mouse_pos
+	}
 
-			ctx.prev_click_time = current_time
-
-			if ctx.click_count == 2 {
-				ctx.statuses += {.DOUBLE_CLICKED}
-			} else if ctx.click_count == 3 {
-				ctx.statuses -= {.DOUBLE_CLICKED}
-				ctx.statuses += {.TRIPLE_CLICKED}
+	event: sdl.Event
+	for sdl.PollEvent(&event) {
+		#partial switch event.type {
+		case .QUIT:
+			ctx.statuses += {.EXIT}
+			return
+		case .MOUSE_MOTION:
+			ctx.mouse_pos =
+				{event.motion.x, event.motion.y} * sdl.GetWindowDisplayScale(ctx.window)
+		case .MOUSE_WHEEL:
+			ctx.scroll_delta += {event.wheel.x, event.wheel.y}
+		case .TEXT_INPUT:
+			strings.write_string(&ctx.textbox_input, string(event.text.text))
+		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
+			fn := event.type == .MOUSE_BUTTON_UP ? UI__input_mouse_up : UI__input_mouse_down
+			switch event.button.button {
+			case 1:
+				fn(ctx, .LEFT)
+			case 2:
+				fn(ctx, .MIDDLE)
+			case 3:
+				fn(ctx, .RIGHT)
+			case 4:
+				fn(ctx, .SIDE_1)
+			case 5:
+				fn(ctx, .SIDE_2)
+			case:
+				panic("invalid mouse button")
 			}
-		} else if current_time - ctx.prev_click_time >= UI_DOUBLE_CLICK_INTERVAL_MS / 1000. {
-			ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
+		case .KEY_UP, .KEY_DOWN:
+			fn := event.type == .KEY_UP ? UI__input_key_up : UI__input_key_down
+			#partial switch event.key.scancode {
+			case .LSHIFT, .RSHIFT:
+				fn(ctx, .SHIFT)
+			case .LCTRL, .RCTRL:
+				fn(ctx, .CTRL)
+			case .LALT, .RALT:
+				fn(ctx, .ALT)
+			case .RETURN, .KP_ENTER:
+				fn(ctx, .RETURN)
+			case .ESCAPE:
+				fn(ctx, .ESCAPE)
+			case .BACKSPACE:
+				fn(ctx, .BACKSPACE)
+			case .LEFT:
+				fn(ctx, .LEFT)
+			case .RIGHT:
+				fn(ctx, .RIGHT)
+			case .HOME:
+				fn(ctx, .HOME)
+			case .END:
+				fn(ctx, .END)
+			case .A:
+				fn(ctx, .A)
+			case .X:
+				fn(ctx, .X)
+			case .C:
+				fn(ctx, .C)
+			case .V:
+				fn(ctx, .V)
+			case .D:
+				fn(ctx, .D)
+			}
 		}
 	}
 
-	// get global text input
-	{
-		strings.builder_reset(&ctx.textbox_input)
-		for char := rl.GetCharPressed(); char != 0; char = rl.GetCharPressed() {
-			strings.write_rune(&ctx.textbox_input, char)
+	if .LEFT in ctx.mouse_pressed {
+		if time.diff(ctx.prev_click_time, time.now()) <= UI_DOUBLE_CLICK_INTERVAL_MS {
+			ctx.click_count += 1
+		} else {
+			ctx.click_count = 1
 		}
+
+		ctx.prev_click_time = time.now()
+
+		if ctx.click_count == 2 {
+			ctx.statuses += {.DOUBLE_CLICKED}
+		} else if ctx.click_count == 3 {
+			ctx.statuses -= {.DOUBLE_CLICKED}
+			ctx.statuses += {.TRIPLE_CLICKED}
+		}
+	} else if time.diff(ctx.prev_click_time, time.now()) >= UI_DOUBLE_CLICK_INTERVAL_MS {
+		ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 	}
 
 	when ODIN_DEBUG {
-		if rl.IsKeyPressed(.D) && rl.IsKeyDown(.LEFT_CONTROL) {
+		if .D in ctx.keys_pressed && .CTRL in ctx.keys_down {
 			clay.SetDebugModeEnabled(!clay.IsDebugModeEnabled())
 		}
 	}
 
-	clay.SetPointerState(transmute(clay.Vector2)rl.GetMousePosition(), rl.IsMouseButtonDown(.LEFT))
+	clay.SetPointerState(ctx.mouse_pos, .LEFT in ctx.mouse_down)
 	clay.UpdateScrollContainers(
 		false,
-		transmute(clay.Vector2)rl.GetMouseWheelMoveV() * 5,
-		rl.GetFrameTime(),
+		{c.float(ctx.scroll_delta.x), c.float(ctx.scroll_delta.y)},
+		c.float(time.since(ctx.prev_frame_time) / time.Second),
 	)
-	clay.SetLayoutDimensions({cast(f32)rl.GetScreenWidth(), cast(f32)rl.GetScreenHeight()})
+	window_size: [2]c.int
+	sdl.GetWindowSizeInPixels(ctx.window, &window_size.x, &window_size.y)
+	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
 	when ODIN_DEBUG {
 		start := time.now()
@@ -157,24 +295,47 @@ UI_tick :: proc(
 		if clay.IsDebugModeEnabled() {
 			if time.diff(UI_DEBUG_PREV_TIME, time.now()) > DEBUG_LAYOUT_TIMER_INTERVAL {
 				fmt.println("Layout time:", layout_time)
+				fmt.println("Mouse pos:", ctx.mouse_pos)
+				fmt.println("Mouse down:", ctx.mouse_down)
 				UI_DEBUG_PREV_TIME = time.now()
 			}
 		}
 	}
 
-	rl.BeginDrawing()
-	clayRaylibRender(&renderCommands)
-	rl.EndDrawing()
+	sdl.SetRenderDrawColor(ctx.renderer, 0, 0, 0, 255)
+	sdl.RenderClear(ctx.renderer)
+	clay_sdl_renderer(ctx, &renderCommands)
+	sdl.RenderPresent(ctx.renderer)
 
 	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
-		rl.SetMouseCursor(.IBEAM)
+		_ = sdl.SetCursor(TEXT_CURSOR)
 	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
-		rl.SetMouseCursor(.POINTING_HAND)
+		_ = sdl.SetCursor(HAND_CURSOR)
 	} else {
-		rl.SetMouseCursor(.ARROW)
+		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
+	ctx.prev_frame_time = time.now()
+}
+
+UI__input_key_down :: proc(ctx: ^UI_Context, key: UI_Control_Key) {
+	ctx.keys_down += {key}
+	ctx.keys_pressed += {key}
+}
+
+UI__input_key_up :: proc(ctx: ^UI_Context, key: UI_Control_Key) {
+	ctx.keys_down -= {key}
+}
+
+UI__input_mouse_down :: proc(ctx: ^UI_Context, button: UI_Mouse_Button) {
+	ctx.mouse_down += {button}
+	ctx.mouse_pressed += {button}
+}
+
+UI__input_mouse_up :: proc(ctx: ^UI_Context, button: UI_Mouse_Button) {
+	ctx.mouse_down -= {button}
+	ctx.mouse_released += {button}
 }
 
 UI_widget_active :: proc(ctx: ^UI_Context, id: clay.ElementId) -> bool {
@@ -203,30 +364,23 @@ UI_unfocus_all :: proc(ctx: ^UI_Context) {
 }
 
 UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
-	return rl.WindowShouldClose()
+	return .EXIT in ctx.statuses
 }
 
-UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8, extension: cstring) -> u16 {
-	font := rl.LoadFontFromMemory(
-		extension,
-		raw_data(data),
-		c.int(len(data)),
-		c.int(fontsize * 2),
-		nil,
-		0,
-	)
-	rl.SetTextureFilter(font.texture, .TRILINEAR)
+UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
+	font_stream := sdl.IOFromMem(raw_data(data), len(data))
+	font := ttf.OpenFontIO(font_stream, true, c.float(fontsize))
+	assert(font != nil)
 
-	font_map := make(map[u16]rl.Font, 16, virtual.arena_allocator(&ctx.font_allocator))
+	font_map := make(map[u16]^ttf.Font, 16, virtual.arena_allocator(&ctx.font_allocator))
 	font_map[fontsize] = font
-	raylib_font := RaylibFont {
-		font      = font_map,
-		bytes     = data,
-		extension = extension,
+	ui_font := UI_Font {
+		font = font_map,
+		data = data,
 	}
 
-	sa.append(&raylibFonts, raylib_font)
-	return u16(sa.len(raylibFonts) - 1)
+	sa.append(&ctx.fonts, ui_font)
+	return u16(sa.len(ctx.fonts) - 1)
 }
 
 UI_load_font :: proc(ctx: ^UI_Context, fontsize: u16, path: cstring) -> u16 {
@@ -235,13 +389,13 @@ UI_load_font :: proc(ctx: ^UI_Context, fontsize: u16, path: cstring) -> u16 {
 
 UI__set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
 	text_cstr := strings.clone_to_cstring(text)
-	rl.SetClipboardText(text_cstr)
+	sdl.SetClipboardText(text_cstr)
 	delete(text_cstr)
 	return true
 }
 
 UI__get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
-	text_cstr := rl.GetClipboardText()
+	text_cstr := cstring(sdl.GetClipboardText())
 	if text_cstr != nil {
 		text = string(text_cstr)
 		ok = true
@@ -281,7 +435,7 @@ UI_scrollbar :: proc(
 		UI_widget_focus(ctx, id)
 		if !active do res += {.FOCUS}
 	}
-	if active && rl.IsMouseButtonDown(.LEFT) {
+	if active && .LEFT in ctx.mouse_down {
 		res += {.CHANGE}
 		target_height := int(
 			(scroll_container_data.scrollContainerDimensions.height /
@@ -295,7 +449,7 @@ UI_scrollbar :: proc(
 			scroll_container_data.contentDimensions.height /
 			scroll_container_data.scrollContainerDimensions.height,
 		}
-		scroll_pos := (scrollbar_data.click_origin - rl.GetMousePosition()) * ratio
+		scroll_pos := (scrollbar_data.click_origin - ctx.mouse_pos) * ratio
 		scroll_pos.y += (c.float(target_height) * ratio.y) / 2
 
 		scroll_pos.x = clamp(
@@ -313,7 +467,7 @@ UI_scrollbar :: proc(
 
 		scroll_container_data.scrollPosition^ = scroll_pos
 	}
-	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
+	if .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
 
 	return
 }
@@ -350,7 +504,7 @@ UI_textbox :: proc(
 			if .SUBMIT in res && textlen^ > 0 do UI_unfocus(ctx, id)
 		}
 	}
-	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
+	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
 	return
 }
 
@@ -386,10 +540,10 @@ UI_slider :: proc(
 		UI_widget_focus(ctx, id)
 		if !active do res += {.FOCUS}
 	}
-	if active && rl.IsMouseButtonDown(.LEFT) do res += {.CHANGE}
+	if active && .LEFT in ctx.mouse_down do res += {.CHANGE}
 
-	if .HOVER not_in res && rl.IsMouseButtonPressed(.LEFT) do UI_unfocus(ctx, id)
-	if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, id)
+	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
+	if .LEFT in ctx.mouse_released do UI_unfocus(ctx, id)
 
 	for notch in notches {
 		if abs(pos^ - notch) < snap_threshhold {
@@ -473,7 +627,7 @@ UI__scrollbar :: proc(
 			UI_widget_focus(ctx, scroll_id)
 			if !scroll_active {
 				res += {.FOCUS}
-				scrollbar_data.click_origin = rl.GetMousePosition()
+				scrollbar_data.click_origin = ctx.mouse_pos
 				scrollbar_data.pos_origin = scroll_container_data.scrollPosition^
 			}
 		}
@@ -488,8 +642,7 @@ UI__scrollbar :: proc(
 			}
 
 			scroll_pos :=
-				scrollbar_data.pos_origin +
-				(scrollbar_data.click_origin - rl.GetMousePosition()) * ratio
+				scrollbar_data.pos_origin + (scrollbar_data.click_origin - ctx.mouse_pos) * ratio
 			scroll_pos.x = clamp(
 				scroll_pos.x,
 				-(scroll_container_data.contentDimensions.width -
@@ -505,11 +658,11 @@ UI__scrollbar :: proc(
 
 			scroll_container_data.scrollPosition^ = scroll_pos
 		}
-		if rl.IsMouseButtonReleased(.LEFT) do UI_unfocus(ctx, scroll_id)
+		if .LEFT in ctx.mouse_released do UI_unfocus(ctx, scroll_id)
 
 		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if .LEFT in ctx.mouse_released do res += {.RELEASE}
 	}
 	return
 }
@@ -561,8 +714,8 @@ UI__scroll_target :: proc(
 			else if clay.Hovered() do selected_color = hover_color
 
 			if clay.Hovered() do res += {.HOVER}
-			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+			if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+			if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
 			if clay.UI()(
 			{
@@ -605,8 +758,8 @@ UI__textbox :: proc(
 
 
 		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
 		if clay.UI()(config) {
 			if clay.UI()(
@@ -657,91 +810,90 @@ UI__textbox :: proc(
 						}
 					}
 
-					if rl.IsKeyPressed(.A) &&
-					   rl.IsKeyDown(.LEFT_CONTROL) &&
-					   !rl.IsKeyDown(.LEFT_ALT) {
+					if .A in ctx.keys_pressed &&
+					   .CTRL in ctx.keys_down &&
+					   .ALT not_in ctx.keys_down {
 						ctx.textbox_state.selection = {textlen^, 0}
 					}
 
-					if rl.IsKeyPressed(.X) &&
-					   rl.IsKeyDown(.LEFT_CONTROL) &&
-					   !rl.IsKeyDown(.LEFT_ALT) {
+					if .X in ctx.keys_pressed &&
+					   .CTRL in ctx.keys_down &&
+					   .ALT not_in ctx.keys_down {
 						if edit.cut(&ctx.textbox_state) {
 							textlen^ = strings.builder_len(builder)
 							res += {.CHANGE}
 						}
 					}
 
-					if rl.IsKeyPressed(.C) &&
-					   rl.IsKeyDown(.LEFT_CONTROL) &&
-					   !rl.IsKeyDown(.LEFT_ALT) {
+					if .C in ctx.keys_pressed &&
+					   .CTRL in ctx.keys_down &&
+					   .ALT not_in ctx.keys_down {
 						edit.copy(&ctx.textbox_state)
 					}
 
-					if rl.IsKeyPressed(.V) &&
-					   rl.IsKeyDown(.LEFT_CONTROL) &&
-					   !rl.IsKeyDown(.LEFT_ALT) {
+					if .V in ctx.keys_pressed &&
+					   .CTRL in ctx.keys_down &&
+					   !(.ALT in ctx.keys_down) {
 						if edit.paste(&ctx.textbox_state) {
 							textlen^ = strings.builder_len(builder)
 							res += {.CHANGE}
 						}
 					}
 
-					if (rl.IsKeyPressed(.LEFT) || rl.IsKeyPressedRepeat(.LEFT)) {
-						move: edit.Translation = rl.IsKeyDown(.LEFT_CONTROL) ? .Word_Left : .Left
-						if rl.IsKeyDown(.LEFT_SHIFT) {
+					// [TODO] make sure key repeat works
+					if .LEFT in ctx.keys_pressed {
+						move: edit.Translation = .CTRL in ctx.keys_down ? .Word_Left : .Left
+						if .SHIFT in ctx.keys_down {
 							edit.select_to(&ctx.textbox_state, move)
 						} else {
 							edit.move_to(&ctx.textbox_state, move)
 						}
 					}
 
-					if (rl.IsKeyPressed(.RIGHT) || rl.IsKeyPressedRepeat(.RIGHT)) {
-						move: edit.Translation = rl.IsKeyDown(.LEFT_CONTROL) ? .Word_Right : .Right
-						if rl.IsKeyDown(.LEFT_SHIFT) {
+					if .RIGHT in ctx.keys_pressed {
+						move: edit.Translation = .CTRL in ctx.keys_down ? .Word_Right : .Right
+						if .SHIFT in ctx.keys_down {
 							edit.select_to(&ctx.textbox_state, move)
 						} else {
 							edit.move_to(&ctx.textbox_state, move)
 						}
 					}
 
-					if rl.IsKeyPressed(.HOME) {
-						if rl.IsKeyDown(.LEFT_SHIFT) {
+					if .HOME in ctx.keys_pressed {
+						if .SHIFT in ctx.keys_down {
 							edit.select_to(&ctx.textbox_state, .Start)
 						} else {
 							edit.move_to(&ctx.textbox_state, .Start)
 						}
 					}
 
-					if rl.IsKeyPressed(.END) {
-						if rl.IsKeyDown(.LEFT_SHIFT) {
+					if .END in ctx.keys_pressed {
+						if .SHIFT in ctx.keys_down {
 							edit.select_to(&ctx.textbox_state, .End)
 						} else {
 							edit.move_to(&ctx.textbox_state, .End)
 						}
 					}
 
-					if (rl.IsKeyPressed(.BACKSPACE) || rl.IsKeyPressedRepeat(.BACKSPACE)) &&
-					   textlen^ > 0 {
-						move: edit.Translation = rl.IsKeyDown(.LEFT_CONTROL) ? .Word_Left : .Left
+					if .BACKSPACE in ctx.keys_pressed && textlen^ > 0 {
+						move: edit.Translation = .CTRL in ctx.keys_down ? .Word_Left : .Left
 						edit.delete_to(&ctx.textbox_state, move)
 						textlen^ = strings.builder_len(builder)
 						res += {.CHANGE}
 					}
 
-					if (rl.IsKeyPressed(.DELETE) || rl.IsKeyPressedRepeat(.DELETE)) &&
-					   textlen^ > 0 {
-						move: edit.Translation = rl.IsKeyDown(.LEFT_CONTROL) ? .Word_Right : .Right
+					if .DELETE in ctx.keys_pressed && textlen^ > 0 {
+						move: edit.Translation = .CTRL in ctx.keys_down ? .Word_Right : .Right
 						edit.delete_to(&ctx.textbox_state, move)
 						textlen^ = strings.builder_len(builder)
 						res += {.CHANGE}
 					}
 
-					if rl.IsKeyPressed(.ENTER) {
+					if .RETURN in ctx.keys_pressed {
 						res += {.SUBMIT}
 					}
 
-					if rl.IsKeyPressed(.ESCAPE) {
+					if .ESCAPE in ctx.keys_pressed {
 						res += {.CANCEL}
 					}
 
@@ -752,23 +904,23 @@ UI__textbox :: proc(
 							edit.select_to(&ctx.textbox_state, .Word_End)
 						} else if .TRIPLE_CLICKED in ctx.statuses {
 							ctx.textbox_state.selection = {textlen^, 0}
-						} else if rl.IsMouseButtonDown(.LEFT) {
+						} else if .LEFT in ctx.keys_down {
 							idx := textlen^
 							for i in 0 ..< textlen^ {
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
 
 								clay_str := clay.MakeString(string(buf[:i]))
-								text_size := measureText(
+								text_size := measure_text(
 									clay.StringSlice {
 										clay_str.length,
 										clay_str.chars,
 										clay_str.chars,
 									},
 									text_config,
-									nil,
+									ctx,
 								)
 
-								if c.float(rl.GetMouseX()) <
+								if ctx.mouse_pos.x <
 								   boundingbox.x + text_size.width + c.float(ctx.textbox_offset) {
 									idx = i
 									break
@@ -776,7 +928,7 @@ UI__textbox :: proc(
 							}
 
 							ctx.textbox_state.selection[0] = idx
-							if rl.IsMouseButtonPressed(.LEFT) && !rl.IsKeyDown(.LEFT_SHIFT) {
+							if .LEFT in ctx.mouse_pressed && .SHIFT not_in ctx.keys_down {
 								ctx.textbox_state.selection[1] = idx
 							}
 						}
@@ -784,35 +936,35 @@ UI__textbox :: proc(
 
 					text_str := string(buf[:textlen^])
 					text_clay_str := clay.MakeString(text_str)
-					text_size := measureText(
+					text_size := measure_text(
 						clay.StringSlice {
 							text_clay_str.length,
 							text_clay_str.chars,
 							text_clay_str.chars,
 						},
 						text_config,
-						nil,
+						ctx,
 					)
 
 					head_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[0]])
-					head_size := measureText(
+					head_size := measure_text(
 						clay.StringSlice {
 							head_clay_str.length,
 							head_clay_str.chars,
 							head_clay_str.chars,
 						},
 						text_config,
-						nil,
+						ctx,
 					)
 					tail_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[1]])
-					tail_size := measureText(
+					tail_size := measure_text(
 						clay.StringSlice {
 							tail_clay_str.length,
 							tail_clay_str.chars,
 							tail_clay_str.chars,
 						},
 						text_config,
-						nil,
+						ctx,
 					)
 
 					PADDING :: 20
@@ -842,12 +994,23 @@ UI__textbox :: proc(
 								},
 							},
 							backgroundColor = TEXT *
-							{1, 1, 1, abs(math.sin(c.float(rl.GetTime() * 2)))},
+							{
+									1,
+									1,
+									1,
+									abs(
+										math.sin(
+											c.float(
+												(time.since(ctx.start_time) / time.Second) * 2,
+											),
+										),
+									),
+								},
 						},
 						) {
 							if clay.Hovered() do res += {.HOVER}
-							if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-							if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+							if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+							if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 						}
 					}
 
@@ -875,8 +1038,8 @@ UI__textbox :: proc(
 						},
 						) {
 							if clay.Hovered() do res += {.HOVER}
-							if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-							if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+							if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+							if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 						}
 					}
 
@@ -912,8 +1075,8 @@ UI__slider :: proc(
 
 		active := UI_widget_active(ctx, local_id)
 		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
 		if clay.UI()(
 		{
@@ -928,9 +1091,9 @@ UI__slider :: proc(
 			minor_dimension := min(boundingbox.width, boundingbox.height)
 			major_dimension := max(boundingbox.width, boundingbox.height)
 
-			scroll := rl.GetMouseWheelMove()
-			if active && (!rl.IsMouseButtonPressed(.LEFT) && rl.IsMouseButtonDown(.LEFT)) {
-				relative_x := T(rl.GetMouseX()) - T(boundingbox.x)
+			scroll := ctx.mouse_delta.x
+			if active && (.LEFT not_in ctx.mouse_pressed && .LEFT in ctx.mouse_down) {
+				relative_x := T(ctx.mouse_pos.x) - T(boundingbox.x)
 				slope := T(max_val - min_val) / T(boundingbox.width)
 				pos^ = min_val + slope * (relative_x)
 				pos^ = clamp(pos^, min_val, max_val)
@@ -1066,8 +1229,8 @@ UI__text_button :: proc(
 		else if clay.Hovered() do selected_color = hover_color
 
 		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-		if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
 		if clay.UI()(
 		{
@@ -1086,14 +1249,14 @@ UI__text_button :: proc(
 	return
 }
 
-UI_spacer :: proc() -> (res: UI_WidgetResults, id: clay.ElementId) {
+UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementId) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 		if clay.UI()({id = local_id}) {
 			if clay.Hovered() do res += {.HOVER}
-			if clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.PRESS}
-			if clay.Hovered() && rl.IsMouseButtonReleased(.LEFT) do res += {.RELEASE}
+			if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+			if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 		}
 	}
 	return
