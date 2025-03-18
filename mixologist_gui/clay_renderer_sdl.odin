@@ -112,7 +112,7 @@ clay_sdl_renderer :: proc(
 
 			if config.cornerRadius.topLeft > 0 {
 				center := sdl.FPoint {
-					rect.x + clamped_radii.topLeft - 1,
+					rect.x + clamped_radii.topLeft + 1,
 					rect.y + clamped_radii.topLeft,
 				}
 				clay_sdl_renderarc(
@@ -142,7 +142,7 @@ clay_sdl_renderer :: proc(
 			}
 			if config.cornerRadius.bottomLeft > 0 {
 				center := sdl.FPoint {
-					rect.x + clamped_radii.bottomLeft - 1,
+					rect.x + clamped_radii.bottomLeft + 1,
 					rect.y + rect.h - clamped_radii.bottomLeft - 1,
 				}
 				clay_sdl_renderarc(
@@ -404,3 +404,4 @@ clay_sdl_renderarc :: proc(
 		sdl.RenderLines(ctx.renderer, raw_data(points), c.int(len(points)))
 	}
 }
+
