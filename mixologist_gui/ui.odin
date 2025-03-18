@@ -45,7 +45,7 @@ UI_Context :: struct {
 	renderer:        ^sdl.Renderer,
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
-	text_engine:     ^ttf.TextEngine,
+	scaling:         c.float,
 }
 
 UI_Scrollbar_Data :: struct {
@@ -143,15 +143,16 @@ UI_init :: proc(ctx: ^UI_Context) {
 
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
-	ctx.text_engine = ttf.CreateRendererTextEngine(ctx.renderer)
 	ctx.window = sdl.CreateWindow("Mixologist", 800, 600, {.RESIZABLE, .HIGH_PIXEL_DENSITY})
+	ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 	ctx.renderer = sdl.CreateRenderer(ctx.window, nil)
+	sdl.SetRenderScale(ctx.renderer, ctx.scaling, ctx.scaling)
 	sdl.SetRenderVSync(ctx.renderer, sdl.RENDERER_VSYNC_ADAPTIVE)
 
 	_ = sdl.StartTextInput(ctx.window)
 
 	window_size: [2]c.int
-	sdl.GetWindowSizeInPixels(ctx.window, &window_size.x, &window_size.y)
+	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.Initialize(
 		arena,
 		{c.float(window_size.x), c.float(window_size.y)},
@@ -165,7 +166,6 @@ UI_init :: proc(ctx: ^UI_Context) {
 UI_deinit :: proc(ctx: ^UI_Context) {
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
-	ttf.DestroyRendererTextEngine(ctx.text_engine)
 	sdl.DestroyRenderer(ctx.renderer)
 	sdl.DestroyWindow(ctx.window)
 }
@@ -194,12 +194,15 @@ UI_tick :: proc(
 		case .QUIT:
 			ctx.statuses += {.EXIT}
 			return
+		case .WINDOW_DISPLAY_SCALE_CHANGED:
+			ctx.statuses += {.DIRTY}
+			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
+			sdl.SetRenderScale(ctx.renderer, ctx.scaling, ctx.scaling)
 		case .WINDOW_RESIZED:
 			ctx.statuses += {.DIRTY}
 		case .MOUSE_MOTION:
 			ctx.statuses += {.DIRTY}
-			ctx.mouse_pos =
-				{event.motion.x, event.motion.y} * sdl.GetWindowDisplayScale(ctx.window)
+			ctx.mouse_pos = {event.motion.x, event.motion.y}
 		case .MOUSE_WHEEL:
 			ctx.statuses += {.DIRTY}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
@@ -293,7 +296,7 @@ UI_tick :: proc(
 		c.float(time.since(ctx.prev_frame_time) / time.Second),
 	)
 	window_size: [2]c.int
-	sdl.GetWindowSizeInPixels(ctx.window, &window_size.x, &window_size.y)
+	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
 	when ODIN_DEBUG {
@@ -321,6 +324,7 @@ UI_tick :: proc(
 				fmt.println("Mouse pos:", ctx.mouse_pos)
 				fmt.println("Mouse down:", ctx.mouse_down)
 				fmt.println("Mouse scroll:", ctx.scroll_delta)
+				fmt.println("Display scale:", ctx.scaling)
 				fmt.println("Statuses:", ctx.statuses)
 				UI_DEBUG_PREV_TIME = time.now()
 			}
