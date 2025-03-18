@@ -8,6 +8,7 @@ import "core:math"
 import "core:math/linalg"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
+import img "vendor:sdl3/image"
 
 clay_sdl_renderer :: proc(
 	ctx: ^UI_Context,
@@ -65,9 +66,127 @@ clay_sdl_renderer :: proc(
 				sdl.RenderFillRect(ctx.renderer, &rect)
 			}
 		case .Border:
+			config := cmd.renderData.border
+			min_radius := min(rect.w, rect.h) / 2
+
+			clamped_radii := clay.CornerRadius {
+				min(config.cornerRadius.topLeft, min_radius),
+				min(config.cornerRadius.topRight, min_radius),
+				min(config.cornerRadius.bottomLeft, min_radius),
+				min(config.cornerRadius.bottomRight, min_radius),
+			}
+			sdl.SetRenderDrawColor(
+				ctx.renderer,
+				u8(config.color.r),
+				u8(config.color.g),
+				u8(config.color.b),
+				u8(config.color.a),
+			)
+
+			if config.width.left > 0 {
+				starting_y := rect.y + clamped_radii.topLeft
+				length := rect.h - clamped_radii.topLeft - clamped_radii.bottomLeft
+				line := sdl.FRect{rect.x, starting_y, c.float(config.width.left), length}
+				sdl.RenderFillRect(ctx.renderer, &line)
+			}
+			if config.width.right > 0 {
+				starting_x := rect.x + rect.w - c.float(config.width.right)
+				starting_y := rect.y + clamped_radii.topRight
+				length := rect.h - clamped_radii.topRight - clamped_radii.bottomRight
+				line := sdl.FRect{starting_x, starting_y, c.float(config.width.right), length}
+				sdl.RenderFillRect(ctx.renderer, &line)
+			}
+			if config.width.top > 0 {
+				starting_x := rect.x + clamped_radii.topLeft
+				length := rect.w - clamped_radii.topLeft - clamped_radii.topRight
+				line := sdl.FRect{starting_x, rect.y, length, c.float(config.width.top)}
+				sdl.RenderFillRect(ctx.renderer, &line)
+			}
+			if config.width.bottom > 0 {
+				starting_x := rect.x + clamped_radii.bottomLeft
+				starting_y := rect.y + rect.h - c.float(config.width.bottom)
+				length := rect.w - clamped_radii.bottomLeft - clamped_radii.bottomRight
+				line := sdl.FRect{starting_x, starting_y, length, c.float(config.width.bottom)}
+				sdl.RenderFillRect(ctx.renderer, &line)
+			}
+
+			if config.cornerRadius.topLeft > 0 {
+				center := sdl.FPoint {
+					rect.x + clamped_radii.topLeft - 1,
+					rect.y + clamped_radii.topLeft,
+				}
+				clay_sdl_renderarc(
+					ctx,
+					center,
+					clamped_radii.topLeft,
+					180,
+					270,
+					c.float(config.width.top),
+					config.color,
+				)
+			}
+			if config.cornerRadius.topRight > 0 {
+				center := sdl.FPoint {
+					rect.x + rect.w - clamped_radii.topRight - 1,
+					rect.y + clamped_radii.topRight,
+				}
+				clay_sdl_renderarc(
+					ctx,
+					center,
+					clamped_radii.topRight,
+					270,
+					360,
+					c.float(config.width.top),
+					config.color,
+				)
+			}
+			if config.cornerRadius.bottomLeft > 0 {
+				center := sdl.FPoint {
+					rect.x + clamped_radii.bottomLeft - 1,
+					rect.y + rect.h - clamped_radii.bottomLeft - 1,
+				}
+				clay_sdl_renderarc(
+					ctx,
+					center,
+					clamped_radii.bottomLeft,
+					90,
+					180,
+					c.float(config.width.bottom),
+					config.color,
+				)
+			}
+			if config.cornerRadius.bottomRight > 0 {
+				center := sdl.FPoint {
+					rect.x + rect.w - clamped_radii.bottomRight - 1,
+					rect.y + rect.h - clamped_radii.bottomRight - 1,
+				}
+				clay_sdl_renderarc(
+					ctx,
+					center,
+					clamped_radii.bottomRight,
+					0,
+					90,
+					c.float(config.width.bottom),
+					config.color,
+				)
+			}
 		case .ScissorStart:
+			bounding_box := cmd.boundingBox
+			ctx.scissor_rect = {
+				c.int(bounding_box.x),
+				c.int(bounding_box.y),
+				c.int(bounding_box.width),
+				c.int(bounding_box.height),
+			}
+			sdl.SetRenderClipRect(ctx.renderer, &ctx.scissor_rect)
 		case .ScissorEnd:
+			sdl.SetRenderClipRect(ctx.renderer, nil)
 		case .Image:
+			image := cast(^sdl.Surface)cmd.renderData.image.imageData
+			texture := sdl.CreateTextureFromSurface(ctx.renderer, image)
+			dest := sdl.FRect{rect.x, rect.y, rect.w, rect.h}
+			sdl.RenderTexture(ctx.renderer, texture, nil, &dest)
+			sdl.DestroyTexture(texture)
 		case .Custom:
 		}
 	}
@@ -78,6 +197,8 @@ measure_text :: proc "c" (
 	config: ^clay.TextElementConfig,
 	userData: rawptr,
 ) -> clay.Dimensions {
+	if text.length == 0 do return {0, 0}
+
 	context = runtime.default_context()
 	ctx := cast(^UI_Context)userData
 	font := UI_retrieve_font(ctx, config.fontId, config.fontSize)
@@ -254,7 +375,7 @@ clay_sdl_renderfillfoundedrect :: proc(
 }
 
 clay_sdl_renderarc :: proc(
-	ctx: UI_Context,
+	ctx: ^UI_Context,
 	center: sdl.FPoint,
 	radius, start_angle, end_angle, thickness: c.float,
 	color: clay.Color,
@@ -263,7 +384,7 @@ clay_sdl_renderarc :: proc(
 	sdl.SetRenderDrawColor(ctx.renderer, u8(color.r), u8(color.g), u8(color.b), u8(color.a))
 
 	rad_start := math.to_radians(start_angle)
-	rad_end := math.to_radians(start_angle)
+	rad_end := math.to_radians(end_angle)
 
 	num_circle_segments := max(NUM_CIRCLE_SEGMENTS, int(radius * 1.5))
 
@@ -273,14 +394,13 @@ clay_sdl_renderarc :: proc(
 	points := make([]sdl.FPoint, num_circle_segments + 1, allocator)
 	for t: c.float = thickness_step; t < thickness - thickness_step; t += thickness_step {
 		clamped_radius := max(radius - t, 1)
-		for i in 0 ..< num_circle_segments {
+		for i in 0 ..= num_circle_segments {
 			angle := rad_start + c.float(i) * angle_step
 			points[i] = {
 				math.round(center.x + math.cos(angle) * clamped_radius),
 				math.round(center.y + math.sin(angle) * clamped_radius),
 			}
 		}
-
 		sdl.RenderLines(ctx.renderer, raw_data(points), c.int(len(points)))
 	}
 }

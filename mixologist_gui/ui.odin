@@ -43,6 +43,7 @@ UI_Context :: struct {
 	// sdl3
 	window:          ^sdl.Window,
 	renderer:        ^sdl.Renderer,
+	scissor_rect:    sdl.Rect,
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
 	text_engine:     ^ttf.TextEngine,
@@ -82,7 +83,7 @@ UI_Control_Key :: enum {
 }
 UI_Control_Keys :: bit_set[UI_Control_Key]
 
-UI_DOUBLE_CLICK_INTERVAL_MS :: 300 * time.Millisecond
+UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 UI_DEBUG_PREV_TIME: time.Time
 
@@ -181,6 +182,7 @@ UI_tick :: proc(
 		strings.builder_reset(&ctx.textbox_input)
 		ctx.mouse_pressed = {}
 		ctx.mouse_released = {}
+		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
 	}
@@ -195,7 +197,7 @@ UI_tick :: proc(
 			ctx.mouse_pos =
 				{event.motion.x, event.motion.y} * sdl.GetWindowDisplayScale(ctx.window)
 		case .MOUSE_WHEEL:
-			ctx.scroll_delta += {event.wheel.x, event.wheel.y}
+			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
@@ -252,7 +254,7 @@ UI_tick :: proc(
 	}
 
 	if .LEFT in ctx.mouse_pressed {
-		if time.diff(ctx.prev_click_time, time.now()) <= UI_DOUBLE_CLICK_INTERVAL_MS {
+		if time.diff(ctx.prev_click_time, time.now()) <= UI_DOUBLE_CLICK_INTERVAL {
 			ctx.click_count += 1
 		} else {
 			ctx.click_count = 1
@@ -266,7 +268,7 @@ UI_tick :: proc(
 			ctx.statuses -= {.DOUBLE_CLICKED}
 			ctx.statuses += {.TRIPLE_CLICKED}
 		}
-	} else if time.diff(ctx.prev_click_time, time.now()) >= UI_DOUBLE_CLICK_INTERVAL_MS {
+	} else if time.diff(ctx.prev_click_time, time.now()) >= UI_DOUBLE_CLICK_INTERVAL {
 		ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 	}
 
@@ -279,7 +281,7 @@ UI_tick :: proc(
 	clay.SetPointerState(ctx.mouse_pos, .LEFT in ctx.mouse_down)
 	clay.UpdateScrollContainers(
 		false,
-		{c.float(ctx.scroll_delta.x), c.float(ctx.scroll_delta.y)},
+		ctx.scroll_delta * 5,
 		c.float(time.since(ctx.prev_frame_time) / time.Second),
 	)
 	window_size: [2]c.int
@@ -297,6 +299,8 @@ UI_tick :: proc(
 				fmt.println("Layout time:", layout_time)
 				fmt.println("Mouse pos:", ctx.mouse_pos)
 				fmt.println("Mouse down:", ctx.mouse_down)
+				fmt.println("Mouse scroll:", ctx.scroll_delta)
+				fmt.println("Statuses:", ctx.statuses)
 				UI_DEBUG_PREV_TIME = time.now()
 			}
 		}
@@ -833,7 +837,7 @@ UI__textbox :: proc(
 
 					if .V in ctx.keys_pressed &&
 					   .CTRL in ctx.keys_down &&
-					   !(.ALT in ctx.keys_down) {
+					   .ALT not_in ctx.keys_down {
 						if edit.paste(&ctx.textbox_state) {
 							textlen^ = strings.builder_len(builder)
 							res += {.CHANGE}
@@ -904,7 +908,7 @@ UI__textbox :: proc(
 							edit.select_to(&ctx.textbox_state, .Word_End)
 						} else if .TRIPLE_CLICKED in ctx.statuses {
 							ctx.textbox_state.selection = {textlen^, 0}
-						} else if .LEFT in ctx.keys_down {
+						} else if .LEFT in ctx.mouse_down {
 							idx := textlen^
 							for i in 0 ..< textlen^ {
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
@@ -1008,9 +1012,6 @@ UI__textbox :: proc(
 								},
 						},
 						) {
-							if clay.Hovered() do res += {.HOVER}
-							if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
-							if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 						}
 					}
 
@@ -1037,9 +1038,6 @@ UI__textbox :: proc(
 							backgroundColor = TEXT * {1, 1, 1, 0.25},
 						},
 						) {
-							if clay.Hovered() do res += {.HOVER}
-							if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
-							if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 						}
 					}
 
