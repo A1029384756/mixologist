@@ -194,8 +194,8 @@ UI_tick :: proc(
 		case .QUIT:
 			ctx.statuses += {.EXIT}
 			return
-    case .WINDOW_RESIZED:
-      ctx.statuses += {.DIRTY}
+		case .WINDOW_RESIZED:
+			ctx.statuses += {.DIRTY}
 		case .MOUSE_MOTION:
 			ctx.statuses += {.DIRTY}
 			ctx.mouse_pos =
