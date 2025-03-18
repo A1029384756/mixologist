@@ -1090,7 +1090,6 @@ UI__slider :: proc(
 			major_dimension := max(boundingbox.width, boundingbox.height)
 
 			scroll := ctx.scroll_delta.y
-			fmt.println(scroll)
 			if active && (.LEFT not_in ctx.mouse_pressed && .LEFT in ctx.mouse_down) {
 				relative_x := T(ctx.mouse_pos.x) - T(boundingbox.x)
 				slope := T(max_val - min_val) / T(boundingbox.width)
