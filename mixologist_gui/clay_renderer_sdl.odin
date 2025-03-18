@@ -15,6 +15,10 @@ clay_sdl_renderer :: proc(
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 	allocator := context.temp_allocator,
 ) {
+	sdl.SetRenderDrawColor(ctx.renderer, 0, 0, 0, 255)
+	sdl.RenderClear(ctx.renderer)
+
+	scissor_rect: sdl.Rect
 	for i in 0 ..< render_commands.length {
 		cmd := clay.RenderCommandArray_Get(render_commands, c.int(i))
 		bounding_box := cmd.boundingBox
@@ -172,13 +176,13 @@ clay_sdl_renderer :: proc(
 			}
 		case .ScissorStart:
 			bounding_box := cmd.boundingBox
-			ctx.scissor_rect = {
+			scissor_rect = {
 				c.int(bounding_box.x),
 				c.int(bounding_box.y),
 				c.int(bounding_box.width),
 				c.int(bounding_box.height),
 			}
-			sdl.SetRenderClipRect(ctx.renderer, &ctx.scissor_rect)
+			sdl.SetRenderClipRect(ctx.renderer, &scissor_rect)
 		case .ScissorEnd:
 			sdl.SetRenderClipRect(ctx.renderer, nil)
 		case .Image:
@@ -190,9 +194,10 @@ clay_sdl_renderer :: proc(
 		case .Custom:
 		}
 	}
+	sdl.RenderPresent(ctx.renderer)
 }
 
-measure_text :: proc "c" (
+UI__measure_text :: proc "c" (
 	text: clay.StringSlice,
 	config: ^clay.TextElementConfig,
 	userData: rawptr,
@@ -404,4 +409,3 @@ clay_sdl_renderarc :: proc(
 		sdl.RenderLines(ctx.renderer, raw_data(points), c.int(len(points)))
 	}
 }
-

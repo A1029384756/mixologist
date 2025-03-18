@@ -43,7 +43,6 @@ UI_Context :: struct {
 	// sdl3
 	window:          ^sdl.Window,
 	renderer:        ^sdl.Renderer,
-	scissor_rect:    sdl.Rect,
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
 	text_engine:     ^ttf.TextEngine,
@@ -88,6 +87,7 @@ DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 UI_DEBUG_PREV_TIME: time.Time
 
 UI_Context_Status :: enum {
+	DIRTY,
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
@@ -158,7 +158,8 @@ UI_init :: proc(ctx: ^UI_Context) {
 		{handler = UI__clay_error_handler},
 	)
 
-	clay.SetMeasureTextFunction(measure_text, ctx)
+	clay.SetMeasureTextFunction(UI__measure_text, ctx)
+	ctx.statuses += {.DIRTY}
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
@@ -194,13 +195,17 @@ UI_tick :: proc(
 			ctx.statuses += {.EXIT}
 			return
 		case .MOUSE_MOTION:
+			ctx.statuses += {.DIRTY}
 			ctx.mouse_pos =
 				{event.motion.x, event.motion.y} * sdl.GetWindowDisplayScale(ctx.window)
 		case .MOUSE_WHEEL:
+			ctx.statuses += {.DIRTY}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
+			ctx.statuses += {.DIRTY}
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
+			ctx.statuses += {.DIRTY}
 			fn := event.type == .MOUSE_BUTTON_UP ? UI__input_mouse_up : UI__input_mouse_down
 			switch event.button.button {
 			case 1:
@@ -217,6 +222,7 @@ UI_tick :: proc(
 				panic("invalid mouse button")
 			}
 		case .KEY_UP, .KEY_DOWN:
+			ctx.statuses += {.DIRTY}
 			fn := event.type == .KEY_UP ? UI__input_key_up : UI__input_key_down
 			#partial switch event.key.scancode {
 			case .LSHIFT, .RSHIFT:
@@ -254,7 +260,7 @@ UI_tick :: proc(
 	}
 
 	if .LEFT in ctx.mouse_pressed {
-		if time.diff(ctx.prev_click_time, time.now()) <= UI_DOUBLE_CLICK_INTERVAL {
+		if time.since(ctx.prev_click_time) <= UI_DOUBLE_CLICK_INTERVAL {
 			ctx.click_count += 1
 		} else {
 			ctx.click_count = 1
@@ -268,7 +274,7 @@ UI_tick :: proc(
 			ctx.statuses -= {.DOUBLE_CLICKED}
 			ctx.statuses += {.TRIPLE_CLICKED}
 		}
-	} else if time.diff(ctx.prev_click_time, time.now()) >= UI_DOUBLE_CLICK_INTERVAL {
+	} else if time.since(ctx.prev_click_time) >= UI_DOUBLE_CLICK_INTERVAL {
 		ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 	}
 
@@ -289,14 +295,27 @@ UI_tick :: proc(
 	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
 	when ODIN_DEBUG {
-		start := time.now()
+		layout_start := time.now()
 	}
 	renderCommands := ui_create_layout(ctx, userdata)
 	when ODIN_DEBUG {
-		layout_time := time.diff(start, time.now())
+		layout_time := time.since(layout_start)
+		render_start := time.now()
+	}
+
+	if .DIRTY in ctx.statuses {
+		clay_sdl_renderer(ctx, &renderCommands)
+		ctx.statuses -= {.DIRTY}
+	} else {
+		time.sleep(3 * time.Millisecond)
+	}
+
+	when ODIN_DEBUG {
+		render_time := time.since(render_start)
 		if clay.IsDebugModeEnabled() {
-			if time.diff(UI_DEBUG_PREV_TIME, time.now()) > DEBUG_LAYOUT_TIMER_INTERVAL {
+			if time.since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
 				fmt.println("Layout time:", layout_time)
+				fmt.println("Render time:", render_time)
 				fmt.println("Mouse pos:", ctx.mouse_pos)
 				fmt.println("Mouse down:", ctx.mouse_down)
 				fmt.println("Mouse scroll:", ctx.scroll_delta)
@@ -305,11 +324,6 @@ UI_tick :: proc(
 			}
 		}
 	}
-
-	sdl.SetRenderDrawColor(ctx.renderer, 0, 0, 0, 255)
-	sdl.RenderClear(ctx.renderer)
-	clay_sdl_renderer(ctx, &renderCommands)
-	sdl.RenderPresent(ctx.renderer)
 
 	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
 		_ = sdl.SetCursor(TEXT_CURSOR)
@@ -914,7 +928,7 @@ UI__textbox :: proc(
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
 
 								clay_str := clay.MakeString(string(buf[:i]))
-								text_size := measure_text(
+								text_size := UI__measure_text(
 									clay.StringSlice {
 										clay_str.length,
 										clay_str.chars,
@@ -940,7 +954,7 @@ UI__textbox :: proc(
 
 					text_str := string(buf[:textlen^])
 					text_clay_str := clay.MakeString(text_str)
-					text_size := measure_text(
+					text_size := UI__measure_text(
 						clay.StringSlice {
 							text_clay_str.length,
 							text_clay_str.chars,
@@ -951,7 +965,7 @@ UI__textbox :: proc(
 					)
 
 					head_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[0]])
-					head_size := measure_text(
+					head_size := UI__measure_text(
 						clay.StringSlice {
 							head_clay_str.length,
 							head_clay_str.chars,
@@ -961,7 +975,7 @@ UI__textbox :: proc(
 						ctx,
 					)
 					tail_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[1]])
-					tail_size := measure_text(
+					tail_size := UI__measure_text(
 						clay.StringSlice {
 							tail_clay_str.length,
 							tail_clay_str.chars,
