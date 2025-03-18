@@ -125,9 +125,9 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	return font^
 }
 
-TEXT_CURSOR := sdl.CreateSystemCursor(.TEXT)
-HAND_CURSOR := sdl.CreateSystemCursor(.POINTER)
-DEFAULT_CURSOR := sdl.GetDefaultCursor()
+TEXT_CURSOR: ^sdl.Cursor
+HAND_CURSOR: ^sdl.Cursor
+DEFAULT_CURSOR: ^sdl.Cursor
 
 UI_init :: proc(ctx: ^UI_Context) {
 	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
@@ -148,6 +148,10 @@ UI_init :: proc(ctx: ^UI_Context) {
 	ctx.renderer = sdl.CreateRenderer(ctx.window, nil)
 	sdl.SetRenderScale(ctx.renderer, ctx.scaling, ctx.scaling)
 	sdl.SetRenderVSync(ctx.renderer, sdl.RENDERER_VSYNC_ADAPTIVE)
+
+	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
+	HAND_CURSOR = sdl.CreateSystemCursor(.POINTER)
+	DEFAULT_CURSOR = sdl.GetDefaultCursor()
 
 	_ = sdl.StartTextInput(ctx.window)
 
@@ -223,8 +227,6 @@ UI_tick :: proc(
 				fn(ctx, .SIDE_1)
 			case 5:
 				fn(ctx, .SIDE_2)
-			case:
-				panic("invalid mouse button")
 			}
 		case .KEY_UP, .KEY_DOWN:
 			ctx.statuses += {.DIRTY}
@@ -299,6 +301,7 @@ UI_tick :: proc(
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
+	// if .DIRTY in ctx.statuses {
 	when ODIN_DEBUG {
 		layout_start := time.now()
 	}
@@ -308,12 +311,19 @@ UI_tick :: proc(
 		render_start := time.now()
 	}
 
-	if .DIRTY in ctx.statuses {
-		clay_sdl_renderer(ctx, &renderCommands)
-		ctx.statuses -= {.DIRTY}
+	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
+		_ = sdl.SetCursor(TEXT_CURSOR)
+	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
+		_ = sdl.SetCursor(HAND_CURSOR)
 	} else {
-		time.sleep(3 * time.Millisecond)
+		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
+
+	clay_sdl_renderer(ctx, &renderCommands)
+	ctx.statuses -= {.DIRTY}
+	// } else {
+	// 	time.sleep(3 * time.Millisecond)
+	// }
 
 	when ODIN_DEBUG {
 		render_time := time.since(render_start)
@@ -329,14 +339,6 @@ UI_tick :: proc(
 				UI_DEBUG_PREV_TIME = time.now()
 			}
 		}
-	}
-
-	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
-		_ = sdl.SetCursor(TEXT_CURSOR)
-	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
-		_ = sdl.SetCursor(HAND_CURSOR)
-	} else {
-		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
