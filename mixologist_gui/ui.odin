@@ -1066,7 +1066,7 @@ UI__textbox :: proc(
 									1,
 									((math.sin(
 												c.float(time.since(ctx.start_time)) /
-												c.float(250*time.Millisecond),
+												c.float(250 * time.Millisecond),
 											)) +
 										1) /
 									2,
