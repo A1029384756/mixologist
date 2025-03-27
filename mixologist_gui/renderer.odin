@@ -1,11 +1,9 @@
 package mixologist_gui
 
-import "base:runtime"
 import "clay"
 import "core:c"
 import "core:log"
 import "core:mem"
-import "core:mem/virtual"
 import "core:strings"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
@@ -473,7 +471,7 @@ Renderer_submit :: proc(
 		indices := make([dynamic]c.int, 0, BUFFER_INIT_SIZE, allocator)
 		instances := make([dynamic][2]f32, 0, BUFFER_INIT_SIZE, allocator)
 
-		for &text, index in _tmp_text {
+		for &text in _tmp_text {
 			append(&instances, text.pos)
 			data := ttf.GetGPUTextDrawData(text.ref)
 
@@ -582,7 +580,7 @@ Renderer_draw :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer) {
 
 			quad_offset := layer.quad_instance_start
 
-			for &scissor, index in layer.scissors {
+			for &scissor in layer.scissors {
 				if scissor.quad_len == 0 {
 					continue
 				}
@@ -638,7 +636,7 @@ Renderer_draw :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer) {
 			vertex_offset: i32 = i32(layer.text_vertex_start)
 			instance_offset: u32 = layer.text_instance_start
 
-			for &scissor, index in layer.scissors {
+			for &scissor in layer.scissors {
 				if scissor.text_len == 0 {
 					continue
 				}

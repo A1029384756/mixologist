@@ -2,7 +2,6 @@ package mixologist_gui
 
 import "../common"
 import "./clay"
-import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
