@@ -686,4 +686,8 @@ Renderer_draw :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer) {
 			sdl.EndGPURenderPass(render_pass)
 		}
 	}
+
+	for text in _tmp_text {
+		ttf.DestroyText(text.ref)
+	}
 }
