@@ -15,9 +15,6 @@ EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 IPC_DELAY_MS :: 500
 
-MUSIC_ICON :: #load("resources/music-note-symbolic.png")
-GAME_ICON :: #load("resources/gamepad2-symbolic.png")
-
 Context_Status :: enum u8 {
 	ADDING_NEW,
 	ADDING,
@@ -120,11 +117,7 @@ main :: proc() {
 	if connection == nil do ctx.statuses += {.CONNECTED}
 
 	UI_init(&ctx.ui_ctx)
-	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"))
-	// game_icon_img := rl.LoadImageFromMemory(".png", raw_data(GAME_ICON), c.int(len(GAME_ICON)))
-	// music_icon_img := rl.LoadImageFromMemory(".png", raw_data(MUSIC_ICON), c.int(len(MUSIC_ICON)))
-	// game_icon = rl.LoadTextureFromImage(game_icon_img)
-	// music_icon = rl.LoadTextureFromImage(music_icon_img)
+	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading
@@ -368,12 +361,6 @@ volume_slider :: proc(ctx: ^Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		if clay.UI()(
-		{
-			layout = {sizing = {width = clay.SizingFixed(24)}},
-			// image = {imageData = &music_icon, sourceDimensions = {128, 128}},
-		},
-		) {}
 		slider_res, _ := UI_slider(
 			&ctx.ui_ctx,
 			&ctx.volume,
@@ -391,13 +378,6 @@ volume_slider :: proc(ctx: ^Context) {
 		)
 
 		if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
-
-		if clay.UI()(
-		{
-			layout = {sizing = {width = clay.SizingFixed(24)}},
-			// image = {imageData = &game_icon, sourceDimensions = {128, 128}},
-		},
-		) {}
 	}
 }
 

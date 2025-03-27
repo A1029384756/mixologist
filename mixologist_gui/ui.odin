@@ -2,9 +2,11 @@ package mixologist_gui
 
 import "./clay"
 import "base:intrinsics"
+import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:mem/virtual"
 import "core:slice"
@@ -13,6 +15,8 @@ import "core:text/edit"
 import "core:time"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
+
+odin_context: runtime.Context
 
 UI_Context :: struct {
 	textbox_input:   strings.Builder,
@@ -42,10 +46,11 @@ UI_Context :: struct {
 	fonts:           sa.Small_Array(16, UI_Font),
 	// sdl3
 	window:          ^sdl.Window,
-	renderer:        ^sdl.Renderer,
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
 	scaling:         c.float,
+	// renderer
+	device:          ^sdl.GPUDevice,
 }
 
 UI_Scrollbar_Data :: struct {
@@ -119,8 +124,9 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
 	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
 	if just_inserted {
-		font_stream := sdl.IOFromMem(raw_data(sdl_font.data), len(sdl_font.data))
+		font_stream := sdl.IOFromConstMem(raw_data(sdl_font.data), len(sdl_font.data))
 		font^ = ttf.OpenFontIO(font_stream, true, c.float(size))
+		ttf.SetFontSizeDPI(font^, f32(size), 72 * c.int(ctx.scaling), 72 * c.int(ctx.scaling))
 	}
 	return font^
 }
@@ -130,6 +136,7 @@ HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
 UI_init :: proc(ctx: ^UI_Context) {
+	odin_context = context
 	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if arena_init_err != nil do panic("font allocator initialization failed")
 
@@ -141,13 +148,26 @@ UI_init :: proc(ctx: ^UI_Context) {
 	ctx.clay_memory = make([]u8, min_mem)
 	arena := clay.CreateArenaWithCapacityAndMemory(min_mem, raw_data(ctx.clay_memory))
 
+	sdl.SetLogPriorities(.VERBOSE)
+	sdl.SetLogOutputFunction(
+		proc "c" (
+			userdata: rawptr,
+			category: sdl.LogCategory,
+			priority: sdl.LogPriority,
+			message: cstring,
+		) {
+			context = odin_context
+			log.debugf("SDL {} [{}]: {}", category, priority, message)
+		},
+		nil,
+	)
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
 	ctx.window = sdl.CreateWindow("Mixologist", 800, 600, {.RESIZABLE, .HIGH_PIXEL_DENSITY})
 	ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
-	ctx.renderer = sdl.CreateRenderer(ctx.window, nil)
-	sdl.SetRenderScale(ctx.renderer, ctx.scaling, ctx.scaling)
-	sdl.SetRenderVSync(ctx.renderer, sdl.RENDERER_VSYNC_ADAPTIVE)
+	ctx.device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
+	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
+	Renderer_init(ctx)
 
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
 	HAND_CURSOR = sdl.CreateSystemCursor(.POINTER)
@@ -170,7 +190,7 @@ UI_init :: proc(ctx: ^UI_Context) {
 UI_deinit :: proc(ctx: ^UI_Context) {
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
-	sdl.DestroyRenderer(ctx.renderer)
+	Renderer_destroy(ctx)
 	sdl.DestroyWindow(ctx.window)
 }
 
@@ -201,7 +221,6 @@ UI_tick :: proc(
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.statuses += {.DIRTY}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
-			sdl.SetRenderScale(ctx.renderer, ctx.scaling, ctx.scaling)
 		case .WINDOW_RESIZED:
 			ctx.statuses += {.DIRTY}
 		case .MOUSE_MOTION:
@@ -319,7 +338,11 @@ UI_tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
-	clay_sdl_renderer(ctx, &renderCommands)
+	cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
+	Renderer_submit(ctx, cmd_buffer, &renderCommands)
+	Renderer_draw(ctx, cmd_buffer)
+	_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
+
 	ctx.statuses -= {.DIRTY}
 	// } else {
 	// 	time.sleep(3 * time.Millisecond)
@@ -343,6 +366,23 @@ UI_tick :: proc(
 
 	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
 	ctx.prev_frame_time = time.now()
+}
+
+
+UI__measure_text :: proc "c" (
+	text: clay.StringSlice,
+	config: ^clay.TextElementConfig,
+	userData: rawptr,
+) -> clay.Dimensions {
+	if text.length == 0 do return {0, 0}
+
+	context = odin_context
+	ctx := cast(^UI_Context)userData
+	font := UI_retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
+
+	size: [2]c.int
+	ttf.GetStringSize(font, cstring(text.chars), c.size_t(text.length), &size.x, &size.y)
+	return {c.float(size.x) / ctx.scaling, c.float(size.y) / ctx.scaling}
 }
 
 UI__input_key_down :: proc(ctx: ^UI_Context, key: UI_Control_Key) {
@@ -394,7 +434,7 @@ UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
 }
 
 UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
-	font_stream := sdl.IOFromMem(raw_data(data), len(data))
+	font_stream := sdl.IOFromConstMem(raw_data(data), len(data))
 	font := ttf.OpenFontIO(font_stream, true, c.float(fontsize))
 	assert(font != nil)
 
@@ -459,6 +499,7 @@ UI_scrollbar :: proc(
 	active := UI_widget_active(ctx, id)
 	if .PRESS in res {
 		UI_widget_focus(ctx, id)
+		active = true
 		if !active do res += {.FOCUS}
 	}
 	if active && .LEFT in ctx.mouse_down {
@@ -492,8 +533,7 @@ UI_scrollbar :: proc(
 		)
 
 		scroll_container_data.scrollPosition^ = scroll_pos
-	}
-	if .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
+	} else if .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
 
 	return
 }
@@ -866,7 +906,6 @@ UI__textbox :: proc(
 						}
 					}
 
-					// [TODO] make sure key repeat works
 					if .LEFT in ctx.keys_pressed {
 						move: edit.Translation = .CTRL in ctx.keys_down ? .Word_Left : .Left
 						if .SHIFT in ctx.keys_down {
