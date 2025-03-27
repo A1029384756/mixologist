@@ -143,6 +143,7 @@ UI_init :: proc(ctx: ^UI_Context) {
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
+	ctx.start_time = time.now()
 
 	min_mem := c.size_t(clay.MinMemorySize())
 	ctx.clay_memory = make([]u8, min_mem)
@@ -1063,13 +1064,12 @@ UI__textbox :: proc(
 									1,
 									1,
 									1,
-									abs(
-										math.sin(
-											c.float(
-												(time.since(ctx.start_time) / time.Second) * 2,
-											),
-										),
-									),
+									((math.sin(
+												c.float(time.since(ctx.start_time)) /
+												c.float(250*time.Millisecond),
+											)) +
+										1) /
+									2,
 								},
 						},
 						) {
