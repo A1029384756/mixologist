@@ -1044,7 +1044,7 @@ UI__textbox :: proc(
 					ctx.textbox_offset = clamp(ctx.textbox_offset, min(int), 0)
 
 					// cursor
-					{
+					if head_size.width -tail_size.width == 0 {
 						if clay.UI()(
 						{
 							floating = {
