@@ -972,7 +972,7 @@ UI__textbox :: proc(
 							ctx.textbox_state.selection = {textlen^, 0}
 						} else if .LEFT in ctx.mouse_down {
 							idx := textlen^
-							for i in 0 ..< textlen^ {
+							for i in 0 ..= textlen^ {
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
 
 								clay_str := clay.MakeString(string(buf[:i]))
@@ -988,7 +988,7 @@ UI__textbox :: proc(
 
 								if ctx.mouse_pos.x <
 								   boundingbox.x + text_size.width + c.float(ctx.textbox_offset) {
-									idx = i
+									idx = max(i - 1, 0)
 									break
 								}
 							}
