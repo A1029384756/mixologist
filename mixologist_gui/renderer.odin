@@ -366,7 +366,7 @@ Renderer_submit :: proc(
 	_tmp_text = make([dynamic]Text, 0, 20, allocator)
 
 	layer := Layer {
-		scissors = make([dynamic]Scissor, 0, 10, context.temp_allocator),
+		scissors = make([dynamic]Scissor, 0, 10, allocator),
 	}
 	scissor := Scissor{}
 
