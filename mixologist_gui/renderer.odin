@@ -552,11 +552,7 @@ Renderer_draw :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer) {
 	for &layer, index in _layers {
 		op: sdl.GPULoadOp = index == 0 ? .CLEAR : .LOAD
 		// draw quads
-		draw_quads: {
-			if layer.quad_len == 0 {
-				break draw_quads
-			}
-
+		if layer.quad_len > 0 {
 			render_pass := sdl.BeginGPURenderPass(
 				cmd_buffer,
 				&sdl.GPUColorTargetInfo {
@@ -597,11 +593,7 @@ Renderer_draw :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer) {
 			sdl.EndGPURenderPass(render_pass)
 		}
 		// draw text
-		draw_text: {
-			if layer.text_instance_len == 0 {
-				break draw_text
-			}
-
+		if layer.text_instance_len > 0 {
 			render_pass := sdl.BeginGPURenderPass(
 				cmd_buffer,
 				&sdl.GPUColorTargetInfo {
