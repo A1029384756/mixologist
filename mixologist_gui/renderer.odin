@@ -312,7 +312,7 @@ Renderer_draw :: proc(
 		)
 		defer sdl.EndGPURenderPass(render_pass)
 
-		// bind buffers
+		// binding
 		{
 			sdl.BindGPUGraphicsPipeline(render_pass, pipeline.pipeline)
 			vertex_buffer_bindings := []sdl.GPUBufferBinding {
@@ -326,6 +326,16 @@ Renderer_draw :: proc(
 				u32(len(vertex_buffer_bindings)),
 			)
 			sdl.BindGPUIndexBuffer(render_pass, {buffer = pipeline.text_index_buffer.gpu}, ._32BIT)
+
+			sdl.BindGPUFragmentSamplers(
+				render_pass,
+				0,
+				&sdl.GPUTextureSamplerBinding {
+					texture = pipeline.dummy_texture,
+					sampler = pipeline.text_sampler,
+				},
+				1,
+			)
 		}
 
 		push_globals(ctx, cmd_buffer, f32(w), f32(h))
@@ -369,16 +379,6 @@ Renderer_draw :: proc(
 				}
 				instance_offset += 1
 			case Quad:
-				sdl.BindGPUFragmentSamplers(
-					render_pass,
-					0,
-					&sdl.GPUTextureSamplerBinding {
-						texture = pipeline.dummy_texture,
-						sampler = pipeline.text_sampler,
-					},
-					1,
-				)
-				atlas = pipeline.dummy_texture
 				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
 				instance_offset += 1
 			}
