@@ -381,7 +381,7 @@ Renderer_draw :: proc(
 					},
 					1,
 				)
-        atlas = pipeline.dummy_texture
+				atlas = pipeline.dummy_texture
 				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
 				instance_offset += 1
 			}
