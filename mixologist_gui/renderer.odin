@@ -4,7 +4,6 @@ import "clay"
 import "core:c"
 import "core:log"
 import "core:mem"
-import "core:slice"
 import "core:strings"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
@@ -183,8 +182,6 @@ Renderer_draw :: proc(
 			text := string(config.stringContents.chars[:config.stringContents.length])
 			c_text := strings.clone_to_cstring(text, allocator)
 			sdl_text := ttf.CreateText(pipeline.text_engine, font, c_text, 0)
-			data := ttf.GetGPUTextDrawData(sdl_text)
-
 			append(&commands, Text{sdl_text, {bounds.x, bounds.y}, f32_color(config.textColor)})
 		case .ScissorStart:
 			append(
@@ -334,7 +331,7 @@ Renderer_draw :: proc(
 		push_globals(ctx, cmd_buffer, f32(w), f32(h))
 
 		atlas: ^sdl.GPUTexture
-		instance_offset, text_index_offset, type_offset: u32
+		instance_offset, text_index_offset: u32
 		text_vertex_offset: i32
 
 		for command in commands {
