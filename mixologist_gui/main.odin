@@ -2,8 +2,6 @@ package mixologist_gui
 
 import "../common"
 import "./clay"
-import rl "./raylib"
-import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -15,10 +13,6 @@ import "core:sys/linux"
 EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 IPC_DELAY_MS :: 500
-
-MUSIC_ICON :: #load("resources/music-note-symbolic.png")
-GAME_ICON :: #load("resources/gamepad2-symbolic.png")
-music_icon, game_icon: rl.Texture2D
 
 Context_Status :: enum u8 {
 	ADDING_NEW,
@@ -122,11 +116,7 @@ main :: proc() {
 	if connection == nil do ctx.statuses += {.CONNECTED}
 
 	UI_init(&ctx.ui_ctx)
-	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/Roboto-Regular.ttf"), ".ttf")
-	game_icon_img := rl.LoadImageFromMemory(".png", raw_data(GAME_ICON), c.int(len(GAME_ICON)))
-	music_icon_img := rl.LoadImageFromMemory(".png", raw_data(MUSIC_ICON), c.int(len(MUSIC_ICON)))
-	game_icon = rl.LoadTextureFromImage(game_icon_img)
-	music_icon = rl.LoadTextureFromImage(music_icon_img)
+	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading
@@ -370,12 +360,6 @@ volume_slider :: proc(ctx: ^Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		if clay.UI()(
-		{
-			layout = {sizing = {width = clay.SizingFixed(24)}},
-			image = {imageData = &music_icon, sourceDimensions = {128, 128}},
-		},
-		) {}
 		slider_res, _ := UI_slider(
 			&ctx.ui_ctx,
 			&ctx.volume,
@@ -393,13 +377,6 @@ volume_slider :: proc(ctx: ^Context) {
 		)
 
 		if .CHANGE in slider_res do ctx.statuses += {.VOLUME}
-
-		if clay.UI()(
-		{
-			layout = {sizing = {width = clay.SizingFixed(24)}},
-			image = {imageData = &game_icon, sourceDimensions = {128, 128}},
-		},
-		) {}
 	}
 }
 
@@ -451,7 +428,7 @@ rules_label :: proc(ctx: ^Context) {
 			UI_textlabel("Rules", {textColor = TEXT, fontSize = 20})
 			UI_textlabel("Selected Programs", {textColor = TEXT * 0.8, fontSize = 16})
 		}
-		UI_spacer()
+		UI_spacer(&ctx.ui_ctx)
 
 		res, _ := UI_text_button(
 			&ctx.ui_ctx,
@@ -516,7 +493,7 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx, rule_count: int) {
 			row_selected = false
 		}
 
-		UI_spacer()
+		UI_spacer(&ctx.ui_ctx)
 
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
@@ -656,7 +633,7 @@ rule_add :: proc(ui_ctx: ^UI_Context, ctx: rawptr) -> (res: UI_WidgetResults, id
 		cornerRadius = clay.CornerRadiusAll(10),
 	},
 	) {
-		if !clay.Hovered() && rl.IsMouseButtonPressed(.LEFT) do res += {.CANCEL}
+		if !clay.Hovered() && .LEFT in ctx.ui_ctx.mouse_pressed do res += {.CANCEL}
 		UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
 
 		placeholder_str := "New rule..."

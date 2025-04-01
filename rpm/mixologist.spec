@@ -1,16 +1,16 @@
 Name:           mixologist
-Version:        0.0.1
+Version:        0.0.2
 Release:        %autorelease
 Summary:        Tool to allow mixing audio between different programs
 
 License:        MIT
 URL:            https://cstring.dev
 Source0:        https://cstring.dev/mixologist-0.0.1.tar.gz
-Source1:        https://github.com/odin-lang/Odin/releases/download/dev-2024-12/odin-linux-amd64-dev-2024-12.tar.gz
+Source1:        https://github.com/odin-lang/Odin/releases/download/dev-2024-12/odin-linux-amd64-dev-2025-03.tar.gz
 
-BuildRequires: tar, make, systemd-rpm-macros
-BuildRequires: clang
-Requires: pipewire       
+BuildRequires: make, systemd-rpm-macros, tar
+BuildRequires: clang, pipewire, SDL2
+Requires: pipewire, SDL2
 
 %global debug_package %{nil}
 %description
