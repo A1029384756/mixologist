@@ -289,17 +289,11 @@ Renderer_draw :: proc(
 	}
 
 	// render
-	{
-		swapchain_texture: ^sdl.GPUTexture
-		w, h: u32
-		_ = sdl.WaitAndAcquireGPUSwapchainTexture(
-			cmd_buffer,
-			ctx.window,
-			&swapchain_texture,
-			&w,
-			&h,
-		)
+	swapchain_texture: ^sdl.GPUTexture
+	w, h: u32
+	_ = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, ctx.window, &swapchain_texture, &w, &h)
 
+	if swapchain_texture != nil {
 		render_pass := sdl.BeginGPURenderPass(
 			cmd_buffer,
 			&sdl.GPUColorTargetInfo {
