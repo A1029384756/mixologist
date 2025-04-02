@@ -49,6 +49,8 @@ UI_Context :: struct {
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
 	scaling:         c.float,
+	tray:            ^sdl.Tray,
+	tray_menu:       ^sdl.TrayMenu,
 	// renderer
 	device:          ^sdl.GPUDevice,
 }
@@ -98,7 +100,8 @@ UI_Context_Status :: enum {
 	BUTTON_HOVERING,
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
-	EXIT,
+	WINDOW_CLOSED,
+	APP_EXIT,
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
 
@@ -170,6 +173,16 @@ UI_init :: proc(ctx: ^UI_Context) {
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
 	Renderer_init(ctx)
 
+	{
+		ctx.tray = sdl.CreateTray(nil, "Mixologist")
+		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
+
+		open_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Open", {.BUTTON})
+		sdl.SetTrayEntryCallback(open_entry, UI__open_window, ctx)
+		quit_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit", {.BUTTON})
+		sdl.SetTrayEntryCallback(quit_entry, UI__quit_application, ctx)
+	}
+
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
 	HAND_CURSOR = sdl.CreateSystemCursor(.POINTER)
 	DEFAULT_CURSOR = sdl.GetDefaultCursor()
@@ -191,6 +204,9 @@ UI_init :: proc(ctx: ^UI_Context) {
 UI_deinit :: proc(ctx: ^UI_Context) {
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
+
+	sdl.DestroyTray(ctx.tray)
+
 	Renderer_destroy(ctx)
 	sdl.DestroyWindow(ctx.window)
 }
@@ -217,8 +233,10 @@ UI_tick :: proc(
 	for sdl.PollEvent(&event) {
 		#partial switch event.type {
 		case .QUIT:
-			ctx.statuses += {.EXIT}
-			return
+			ctx.statuses += {.APP_EXIT}
+		case .WINDOW_CLOSE_REQUESTED:
+			ctx.statuses += {.WINDOW_CLOSED}
+			sdl.HideWindow(ctx.window)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.statuses += {.DIRTY}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
@@ -284,6 +302,13 @@ UI_tick :: proc(
 				fn(ctx, .D)
 			}
 		}
+	}
+
+	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
+	// we do not return early
+	if .WINDOW_CLOSED in ctx.statuses {
+		time.sleep(100 * time.Millisecond)
+		return
 	}
 
 	if .LEFT in ctx.mouse_pressed {
@@ -368,6 +393,17 @@ UI_tick :: proc(
 	ctx.prev_frame_time = time.now()
 }
 
+UI__open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+	ctx := cast(^UI_Context)userdata
+	ctx.statuses -= {.WINDOW_CLOSED}
+	sdl.ShowWindow(ctx.window)
+	sdl.RaiseWindow(ctx.window)
+}
+
+UI__quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+	ctx := cast(^UI_Context)userdata
+	ctx.statuses += {.APP_EXIT}
+}
 
 UI__measure_text :: proc "c" (
 	text: clay.StringSlice,
@@ -429,8 +465,12 @@ UI_unfocus_all :: proc(ctx: ^UI_Context) {
 	sa.clear(&ctx.active_widgets)
 }
 
+UI_window_closed :: proc(ctx: ^UI_Context) -> bool {
+	return .WINDOW_CLOSED in ctx.statuses
+}
+
 UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
-	return .EXIT in ctx.statuses
+	return .APP_EXIT in ctx.statuses
 }
 
 UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {

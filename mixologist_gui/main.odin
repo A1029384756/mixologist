@@ -120,7 +120,7 @@ main :: proc() {
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading
-		{
+		if !UI_window_closed(&ctx.ui_ctx) {
 			inotify_buf: [EVENT_BUF_LEN]u8
 			length, read_err := linux.read(ctx.inotify_fd, inotify_buf[:])
 			assert(read_err == nil || read_err == .EAGAIN)
@@ -143,23 +143,27 @@ main :: proc() {
 		}
 
 		// ipc
-		if .CONNECTED in ctx.statuses {
-			if .VOLUME in ctx.statuses {
-				ctx.statuses -= {.VOLUME}
-				mixd_set_volume(&ctx)
+		if !UI_window_closed(&ctx.ui_ctx) {
+			if .CONNECTED in ctx.statuses {
+				if .VOLUME in ctx.statuses {
+					ctx.statuses -= {.VOLUME}
+					mixd_set_volume(&ctx)
+				}
+				IPC_Client_recv(&ctx.ipc, &ctx)
+			} else {
+				if mixgui_connect(&ctx) == .NONE do ctx.statuses += {.CONNECTED}
 			}
-			IPC_Client_recv(&ctx.ipc, &ctx)
-		} else {
-			if mixgui_connect(&ctx) == .NONE do ctx.statuses += {.CONNECTED}
 		}
 
 		UI_tick(&ctx.ui_ctx, UI_create_layout, &ctx)
 
-		if .RULES in ctx.statuses {
-			save_rules(&ctx)
-			ctx.statuses -= {.RULES}
-			ctx.active_line = 0
-			UI_unfocus_all(&ctx.ui_ctx)
+		if !UI_window_closed(&ctx.ui_ctx) {
+			if .RULES in ctx.statuses {
+				save_rules(&ctx)
+				ctx.statuses -= {.RULES}
+				ctx.active_line = 0
+				UI_unfocus_all(&ctx.ui_ctx)
+			}
 		}
 		free_all(context.temp_allocator)
 	}
