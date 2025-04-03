@@ -15,6 +15,7 @@ import "core:text/edit"
 import "core:time"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
+import img "vendor:sdl3/image"
 
 odin_context: runtime.Context
 
@@ -51,6 +52,7 @@ UI_Context :: struct {
 	scaling:         c.float,
 	tray:            ^sdl.Tray,
 	tray_menu:       ^sdl.TrayMenu,
+	tray_icon:       ^sdl.Surface,
 	// renderer
 	device:          ^sdl.GPUDevice,
 }
@@ -174,12 +176,16 @@ UI_init :: proc(ctx: ^UI_Context) {
 	Renderer_init(ctx)
 
 	{
-		ctx.tray = sdl.CreateTray(nil, "Mixologist")
+		ICON :: #load("../data/mixologist.svg")
+		icon_io := sdl.IOFromConstMem(raw_data(ICON), len(ICON))
+		ctx.tray_icon = img.Load_IO(icon_io, true)
+		ctx.tray = sdl.CreateTray(ctx.tray_icon, "Mixologist")
 		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
 
 		open_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Open", {.BUTTON})
-		sdl.SetTrayEntryCallback(open_entry, UI__open_window, ctx)
-		quit_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit", {.BUTTON})
+		sdl.SetTrayEntryCallback(open_entry, UI_open_window, ctx)
+
+		quit_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
 		sdl.SetTrayEntryCallback(quit_entry, UI__quit_application, ctx)
 	}
 
@@ -393,9 +399,10 @@ UI_tick :: proc(
 	ctx.prev_frame_time = time.now()
 }
 
-UI__open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 	ctx := cast(^UI_Context)userdata
 	ctx.statuses -= {.WINDOW_CLOSED}
+	ctx.statuses += {.DIRTY}
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
@@ -515,6 +522,7 @@ UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
 	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
+// [TODO] fix scroll behavior
 UI_scrollbar :: proc(
 	ctx: ^UI_Context,
 	scroll_container_data: clay.ScrollContainerData,
@@ -539,11 +547,19 @@ UI_scrollbar :: proc(
 	active := UI_widget_active(ctx, id)
 	if .PRESS in res {
 		UI_widget_focus(ctx, id)
+		if !active {
+			res += {.FOCUS}
+			scrollbar_data.click_origin = ctx.mouse_pos
+			scrollbar_data.pos_origin = scroll_container_data.scrollPosition^
+		}
 		active = true
-		if !active do res += {.FOCUS}
 	}
 	if active && .LEFT in ctx.mouse_down {
 		res += {.CHANGE}
+
+		data := clay.GetElementData(id)
+		element_pos := [2]c.float{data.boundingBox.x, data.boundingBox.y}
+
 		target_height := int(
 			(scroll_container_data.scrollContainerDimensions.height /
 				scroll_container_data.contentDimensions.height) *
@@ -556,7 +572,7 @@ UI_scrollbar :: proc(
 			scroll_container_data.contentDimensions.height /
 			scroll_container_data.scrollContainerDimensions.height,
 		}
-		scroll_pos := (scrollbar_data.click_origin - ctx.mouse_pos) * ratio
+		scroll_pos := (element_pos - ctx.mouse_pos) * ratio
 		scroll_pos.y += (c.float(target_height) * ratio.y) / 2
 
 		scroll_pos.x = clamp(
@@ -573,7 +589,7 @@ UI_scrollbar :: proc(
 		)
 
 		scroll_container_data.scrollPosition^ = scroll_pos
-	} else if .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
+	} else if .LEFT not_in ctx.mouse_down do UI_unfocus(ctx, id)
 
 	return
 }
@@ -706,19 +722,19 @@ UI__scrollbar :: proc(
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
+	local_id := clay.ID_LOCAL(#procedure)
+	id = local_id
+
 	bar_width := bar_width
 	if scroll_container_data.contentDimensions.height <= scroll_container_data.scrollContainerDimensions.height do bar_width = 0
-
 	if clay.UI()(
 	{
 		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow({})}},
 		floating = {attachment = {element = .RightTop, parent = .RightTop}, attachTo = .Parent},
 		backgroundColor = bar_color,
+		id = local_id,
 	},
 	) {
-		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id
-
 		scroll_res, scroll_id := UI__scroll_target(
 			ctx,
 			scroll_container_data,
@@ -736,6 +752,7 @@ UI__scrollbar :: proc(
 				scrollbar_data.click_origin = ctx.mouse_pos
 				scrollbar_data.pos_origin = scroll_container_data.scrollPosition^
 			}
+			scroll_active = true
 		}
 		if scroll_active {
 			scroll_res += {.CHANGE}

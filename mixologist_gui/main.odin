@@ -116,7 +116,7 @@ main :: proc() {
 	if connection == nil do ctx.statuses += {.CONNECTED}
 
 	UI_init(&ctx.ui_ctx)
-	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
+	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/AdwaitaSans-Regular.ttf"))
 
 	mainloop: for !UI_should_exit(&ctx.ui_ctx) {
 		// rule reloading

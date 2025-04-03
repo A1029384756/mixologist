@@ -1,4 +1,4 @@
-all: mixd mixcli
+all: mixd mixcli mixgui
 
 install:
 	install -d $(DESTDIR)/usr/bin
@@ -11,9 +11,15 @@ install:
 	install -d $(DESTDIR)/usr/lib/systemd/user-preset
 	install -m 0644	data/50-mixd.preset $(DESTDIR)/usr/lib/systemd/user-preset/50-mixd.preset
 
+	install -d $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
+	install -m 0644 data/mixologist.svg $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
+	install -d $(DESTDIR)/usr/share/applications
+	install -m 0644 data/mixologist.desktop $(desktop)/usr/share/applications
+
 clean:
 	rm builds/mixd
 	rm builds/mixcli
+	rm builds/mixgui
 
 mixd:
 	mkdir -p builds/
