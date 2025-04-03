@@ -97,6 +97,7 @@ UI_DEBUG_PREV_TIME: time.Time
 
 UI_Context_Status :: enum {
 	DIRTY,
+	DIRTY_FRAME_2,
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
@@ -233,6 +234,9 @@ UI_tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
+		if .DIRTY_FRAME_2 in ctx.statuses do ctx.statuses -= {.DIRTY_FRAME_2}
+		if .DIRTY in ctx.statuses do ctx.statuses += {.DIRTY_FRAME_2}
+		ctx.statuses -= {.DIRTY}
 	}
 
 	event: sdl.Event
@@ -352,7 +356,6 @@ UI_tick :: proc(
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
 
-	// if .DIRTY in ctx.statuses {
 	when ODIN_DEBUG {
 		layout_start := time.now()
 	}
@@ -374,10 +377,9 @@ UI_tick :: proc(
 	Renderer_draw(ctx, cmd_buffer, &renderCommands)
 	_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
 
-	ctx.statuses -= {.DIRTY}
-	// } else {
-	// 	time.sleep(3 * time.Millisecond)
-	// }
+	if .DIRTY not_in ctx.statuses && .DIRTY_FRAME_2 not_in ctx.statuses {
+		time.sleep(60 * time.Millisecond)
+	}
 
 	when ODIN_DEBUG {
 		render_time := time.since(render_start)

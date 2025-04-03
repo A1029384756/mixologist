@@ -44,3 +44,13 @@ mixgui:
 mixgui-dbg:
 	mkdir -p builds/
 	odin build ./mixologist_gui -out:builds/mixgui -debug -show-timings  -internal-cached
+
+shaders:
+	mkdir -p mixologist_gui/resources/shaders/compiled
+	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
+
+shaders-dbg:
+	mkdir -p mixologist_gui/resources/shaders/compiled
+	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
