@@ -20,42 +20,44 @@ import img "vendor:sdl3/image"
 odin_context: runtime.Context
 
 UI_Context :: struct {
-	textbox_input:   strings.Builder,
-	textbox_state:   edit.State,
-	textbox_offset:  int,
-	active_widgets:  sa.Small_Array(16, clay.ElementId),
-	statuses:        UI_Context_Statuses,
+	textbox_input:       strings.Builder,
+	textbox_state:       edit.State,
+	textbox_offset:      int,
+	active_widgets:      sa.Small_Array(16, clay.ElementId),
+	hovered_widget:      clay.ElementId,
+	prev_hovered_widget: clay.ElementId,
+	statuses:            UI_Context_Statuses,
 	// input handling
-	_text_store:     [1024]u8, // global text input per frame
-	click_count:     int,
+	_text_store:         [1024]u8, // global text input per frame
+	click_count:         int,
 	// mouse
-	prev_click_time: time.Time,
-	click_debounce:  time.Time,
-	mouse_pressed:   UI_Mouse_Buttons,
-	mouse_down:      UI_Mouse_Buttons,
-	mouse_released:  UI_Mouse_Buttons,
-	mouse_pos:       [2]c.float,
-	mouse_prev_pos:  [2]c.float,
-	mouse_delta:     [2]c.float,
-	scroll_delta:    [2]c.float,
+	prev_click_time:     time.Time,
+	click_debounce:      time.Time,
+	mouse_pressed:       UI_Mouse_Buttons,
+	mouse_down:          UI_Mouse_Buttons,
+	mouse_released:      UI_Mouse_Buttons,
+	mouse_pos:           [2]c.float,
+	mouse_prev_pos:      [2]c.float,
+	mouse_delta:         [2]c.float,
+	scroll_delta:        [2]c.float,
 	// keyboard
-	keys_pressed:    UI_Control_Keys,
-	keys_down:       UI_Control_Keys,
+	keys_pressed:        UI_Control_Keys,
+	keys_down:           UI_Control_Keys,
 	// allocated
-	clay_memory:     []u8,
-	font_allocator:  virtual.Arena,
-	fonts:           sa.Small_Array(16, UI_Font),
+	clay_memory:         []u8,
+	font_allocator:      virtual.Arena,
+	fonts:               sa.Small_Array(16, UI_Font),
 	// sdl3
-	window:          ^sdl.Window,
-	start_time:      time.Time,
-	prev_frame_time: time.Time,
-	prev_event_time: time.Time,
-	scaling:         c.float,
-	tray:            ^sdl.Tray,
-	tray_menu:       ^sdl.TrayMenu,
-	tray_icon:       ^sdl.Surface,
+	window:              ^sdl.Window,
+	start_time:          time.Time,
+	prev_frame_time:     time.Time,
+	prev_event_time:     time.Time,
+	scaling:             c.float,
+	tray:                ^sdl.Tray,
+	tray_menu:           ^sdl.TrayMenu,
+	tray_icon:           ^sdl.Surface,
 	// renderer
-	device:          ^sdl.GPUDevice,
+	device:              ^sdl.GPUDevice,
 }
 
 UI_Scrollbar_Data :: struct {
@@ -93,7 +95,6 @@ UI_Control_Key :: enum {
 UI_Control_Keys :: bit_set[UI_Control_Key]
 
 UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
-UI_EVENT_TIMEOUT :: 250 * time.Millisecond
 UI_EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 UI_DEBUG_PREV_TIME: time.Time
@@ -207,7 +208,6 @@ UI_init :: proc(ctx: ^UI_Context) {
 	)
 
 	clay.SetMeasureTextFunction(UI__measure_text, ctx)
-	ctx.statuses += {.EVENT}
 	ctx.prev_event_time = time.now()
 	ctx.prev_frame_time = time.now()
 }
@@ -238,6 +238,7 @@ UI_tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
+		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
 		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING}
 	}
 
@@ -255,10 +256,8 @@ UI_tick :: proc(
 		case .WINDOW_RESIZED:
 			ctx.statuses += {.EVENT}
 		case .MOUSE_MOTION:
-			ctx.statuses += {.EVENT}
 			ctx.mouse_pos = {event.motion.x, event.motion.y}
 		case .MOUSE_WHEEL:
-			ctx.statuses += {.EVENT}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
 			ctx.statuses += {.EVENT}
@@ -315,7 +314,6 @@ UI_tick :: proc(
 			}
 		}
 	}
-	if .EVENT in ctx.statuses do ctx.prev_event_time = time.now()
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
@@ -362,11 +360,24 @@ UI_tick :: proc(
 	when ODIN_DEBUG {
 		layout_start := time.now()
 	}
+
 	renderCommands := ui_create_layout(ctx, userdata)
+	{
+		strings.builder_reset(&ctx.textbox_input)
+		ctx.mouse_pressed = {}
+		ctx.mouse_released = {}
+		ctx.scroll_delta = {}
+		ctx.keys_pressed = {}
+		ctx.mouse_prev_pos = ctx.mouse_pos
+	}
+	renderCommands = ui_create_layout(ctx, userdata)
+
 	when ODIN_DEBUG {
 		layout_time := time.since(layout_start)
 		render_start := time.now()
 	}
+
+	if ctx.hovered_widget != ctx.prev_hovered_widget do ctx.statuses += {.EVENT}
 
 	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
 		_ = sdl.SetCursor(TEXT_CURSOR)
@@ -376,14 +387,16 @@ UI_tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
-	if time.since(ctx.prev_event_time) > UI_EVENT_TIMEOUT {
+	if .EVENT in ctx.statuses {
+		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
+		Renderer_draw(ctx, cmd_buffer, &renderCommands)
+		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
+		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
+		sdl.ReleaseGPUFence(ctx.device, fence)
+		ctx.prev_event_time = time.now()
+	} else {
 		time.sleep(UI_EVENT_DELAY)
 	}
-	cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
-	Renderer_draw(ctx, cmd_buffer, &renderCommands)
-	fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
-	_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
-	sdl.ReleaseGPUFence(ctx.device, fence)
 
 	when ODIN_DEBUG {
 		render_time := time.since(render_start)
@@ -682,6 +695,8 @@ UI_slider :: proc(
 			break
 		}
 	}
+
+	if .CHANGE in res do ctx.statuses += {.EVENT}
 	return
 }
 
@@ -792,6 +807,7 @@ UI__scrollbar :: proc(
 		}
 		if .LEFT in ctx.mouse_released do UI_unfocus(ctx, scroll_id)
 
+		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if .LEFT in ctx.mouse_released do res += {.RELEASE}
@@ -845,6 +861,7 @@ UI__scroll_target :: proc(
 			if active do selected_color = press_color
 			else if clay.Hovered() do selected_color = hover_color
 
+			if clay.Hovered() do ctx.hovered_widget = id
 			if clay.Hovered() do res += {.HOVER}
 			if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 			if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
@@ -889,6 +906,7 @@ UI__textbox :: proc(
 		config.layout.sizing = {clay.SizingGrow({}), clay.SizingGrow({})}
 
 
+		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
@@ -1138,6 +1156,7 @@ UI__textbox :: proc(
 								},
 						},
 						) {
+							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
 
@@ -1198,6 +1217,7 @@ UI__slider :: proc(
 		id = local_id
 
 		active := UI_widget_active(ctx, local_id)
+		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
@@ -1352,6 +1372,7 @@ UI__text_button :: proc(
 		if active do selected_color = press_color
 		else if clay.Hovered() do selected_color = hover_color
 
+		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
@@ -1378,6 +1399,7 @@ UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementI
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 		if clay.UI()({id = local_id}) {
+			if clay.Hovered() do ctx.hovered_widget = id
 			if clay.Hovered() do res += {.HOVER}
 			if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 			if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
