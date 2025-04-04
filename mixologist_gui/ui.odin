@@ -1158,10 +1158,7 @@ UI__textbox :: proc(
 						) {
 							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
-					}
-
-					// selection box
-					{
+					} else { // selection box
 						if clay.UI()(
 						{
 							floating = {
@@ -1183,6 +1180,7 @@ UI__textbox :: proc(
 							backgroundColor = TEXT * {1, 1, 1, 0.25},
 						},
 						) {
+							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
 
