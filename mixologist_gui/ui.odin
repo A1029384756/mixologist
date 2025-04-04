@@ -696,7 +696,7 @@ UI_slider :: proc(
 		}
 	}
 
-	if .CHANGE in res do ctx.statuses += {.EVENT}
+	if .CHANGE in res && time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 	return
 }
 
