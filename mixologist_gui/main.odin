@@ -501,63 +501,72 @@ rule_line :: proc(ctx: ^Context, entry: ^string, idx, rule_count: int) {
 
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
-				delete_res, _ := UI_text_button(
-					&ctx.ui_ctx,
-					"Delete",
-					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-					clay.CornerRadiusAll(5),
-					RED,
-					RED * {0.9, 0.9, 0.9, 1},
-					RED * {0.8, 0.8, 0.8, 1},
-					CRUST,
-					16,
-					5,
-				)
-
-				cancel_res, _ := UI_text_button(
-					&ctx.ui_ctx,
-					"Cancel",
-					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-					clay.CornerRadiusAll(5),
-					SURFACE_2,
-					SURFACE_1,
-					SURFACE_0,
-					TEXT,
-					16,
-					5,
-				)
-
-				apply_res, _ := UI_text_button(
-					&ctx.ui_ctx,
-					"Apply",
-					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-					clay.CornerRadiusAll(5),
-					MAUVE,
-					MAUVE * {0.9, 0.9, 0.9, 1},
-					MAUVE * {0.8, 0.8, 0.8, 1},
-					CRUST,
-					16,
-					5,
-				)
-
-				if .RELEASE in delete_res {
-					delete(entry^)
-					ordered_remove(&ctx.aux_rules, idx - 1)
-					ctx.statuses += {.RULES}
-				}
-				if .RELEASE in cancel_res {
-					ctx.active_line = 0
-					UI_unfocus(&ctx.ui_ctx, tb_id)
-				}
-				if .RELEASE in apply_res {
-					delete(entry^)
-					if ctx.active_line_len == 0 {
+				if clay.UI()({}) {
+					delete_res, _ := UI_text_button(
+						&ctx.ui_ctx,
+						"Delete",
+						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						clay.CornerRadiusAll(5),
+						RED,
+						RED * {0.9, 0.9, 0.9, 1},
+						RED * {0.8, 0.8, 0.8, 1},
+						CRUST,
+						16,
+						5,
+					)
+					if .RELEASE in delete_res {
+						delete(entry^)
 						ordered_remove(&ctx.aux_rules, idx - 1)
-					} else {
-						entry^ = strings.clone(string(ctx.active_line_buf[:ctx.active_line_len]))
+						ctx.statuses += {.RULES}
 					}
-					ctx.statuses += {.RULES}
-					ctx.active_line = 0
+				}
+
+				if clay.UI()({}) {
+					cancel_res, _ := UI_text_button(
+						&ctx.ui_ctx,
+						"Cancel",
+						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						clay.CornerRadiusAll(5),
+						SURFACE_2,
+						SURFACE_1,
+						SURFACE_0,
+						TEXT,
+						16,
+						5,
+					)
+
+					if .RELEASE in cancel_res {
+						ctx.active_line = 0
+						UI_unfocus(&ctx.ui_ctx, tb_id)
+					}
+				}
+
+				if clay.UI()({}) {
+					apply_res, _ := UI_text_button(
+						&ctx.ui_ctx,
+						"Apply",
+						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						clay.CornerRadiusAll(5),
+						MAUVE,
+						MAUVE * {0.9, 0.9, 0.9, 1},
+						MAUVE * {0.8, 0.8, 0.8, 1},
+						CRUST,
+						16,
+						5,
+					)
+
+					if .RELEASE in apply_res {
+						delete(entry^)
+						if ctx.active_line_len == 0 {
+							ordered_remove(&ctx.aux_rules, idx - 1)
+						} else {
+							entry^ = strings.clone(
+								string(ctx.active_line_buf[:ctx.active_line_len]),
+							)
+						}
+						ctx.statuses += {.RULES}
+						ctx.active_line = 0
+					}
 				}
 			}
 		} else {

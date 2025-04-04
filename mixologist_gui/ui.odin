@@ -49,6 +49,7 @@ UI_Context :: struct {
 	window:          ^sdl.Window,
 	start_time:      time.Time,
 	prev_frame_time: time.Time,
+	prev_event_time: time.Time,
 	scaling:         c.float,
 	tray:            ^sdl.Tray,
 	tray_menu:       ^sdl.TrayMenu,
@@ -92,12 +93,13 @@ UI_Control_Key :: enum {
 UI_Control_Keys :: bit_set[UI_Control_Key]
 
 UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
+UI_EVENT_TIMEOUT :: 250 * time.Millisecond
+UI_EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 UI_DEBUG_PREV_TIME: time.Time
 
 UI_Context_Status :: enum {
-	DIRTY,
-	DIRTY_FRAME_2,
+	EVENT,
 	TEXTBOX_SELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
@@ -205,7 +207,9 @@ UI_init :: proc(ctx: ^UI_Context) {
 	)
 
 	clay.SetMeasureTextFunction(UI__measure_text, ctx)
-	ctx.statuses += {.DIRTY}
+	ctx.statuses += {.EVENT}
+	ctx.prev_event_time = time.now()
+	ctx.prev_frame_time = time.now()
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
@@ -234,9 +238,7 @@ UI_tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
-		if .DIRTY_FRAME_2 in ctx.statuses do ctx.statuses -= {.DIRTY_FRAME_2}
-		if .DIRTY in ctx.statuses do ctx.statuses += {.DIRTY_FRAME_2}
-		ctx.statuses -= {.DIRTY}
+		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING}
 	}
 
 	event: sdl.Event
@@ -248,21 +250,21 @@ UI_tick :: proc(
 			ctx.statuses += {.WINDOW_CLOSED}
 			sdl.HideWindow(ctx.window)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 		case .WINDOW_RESIZED:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 		case .MOUSE_MOTION:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			ctx.mouse_pos = {event.motion.x, event.motion.y}
 		case .MOUSE_WHEEL:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			fn := event.type == .MOUSE_BUTTON_UP ? UI__input_mouse_up : UI__input_mouse_down
 			switch event.button.button {
 			case 1:
@@ -277,7 +279,7 @@ UI_tick :: proc(
 				fn(ctx, .SIDE_2)
 			}
 		case .KEY_UP, .KEY_DOWN:
-			ctx.statuses += {.DIRTY}
+			ctx.statuses += {.EVENT}
 			fn := event.type == .KEY_UP ? UI__input_key_up : UI__input_key_down
 			#partial switch event.key.scancode {
 			case .LSHIFT, .RSHIFT:
@@ -313,6 +315,7 @@ UI_tick :: proc(
 			}
 		}
 	}
+	if .EVENT in ctx.statuses do ctx.prev_event_time = time.now()
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
@@ -373,18 +376,23 @@ UI_tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
+	if time.since(ctx.prev_event_time) > UI_EVENT_TIMEOUT {
+		time.sleep(UI_EVENT_DELAY)
+	}
 	cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
 	Renderer_draw(ctx, cmd_buffer, &renderCommands)
-	_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
-
-	if .DIRTY not_in ctx.statuses && .DIRTY_FRAME_2 not_in ctx.statuses {
-		time.sleep(60 * time.Millisecond)
-	}
+	fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
+	_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
+	sdl.ReleaseGPUFence(ctx.device, fence)
 
 	when ODIN_DEBUG {
 		render_time := time.since(render_start)
 		if clay.IsDebugModeEnabled() {
 			if time.since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
+				fmt.printfln(
+					"FPS: %.2f",
+					1 / time.duration_seconds(time.since(ctx.prev_frame_time)),
+				)
 				fmt.println("Layout time:", layout_time)
 				fmt.println("Render time:", render_time)
 				fmt.println("Mouse pos:", ctx.mouse_pos)
@@ -397,14 +405,13 @@ UI_tick :: proc(
 		}
 	}
 
-	ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING}
 	ctx.prev_frame_time = time.now()
 }
 
 UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 	ctx := cast(^UI_Context)userdata
 	ctx.statuses -= {.WINDOW_CLOSED}
-	ctx.statuses += {.DIRTY}
+	ctx.statuses += {.EVENT}
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
