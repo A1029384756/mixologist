@@ -1,4 +1,6 @@
 # Mixologist
+![GUI](assets/mixologist-gui.png)
+
 A utility for mixing your audio between programs.
 Experience changing audio levels without having
 to dig through a volume mixer wtih quick and easy
@@ -26,8 +28,8 @@ Mixologist can be installed via the latest
 Dependencies:
 - [Odin](https://odin-lang.org)
 - `libpipewire`
-- `sdl2` (for mixgui)
-- `systemd` (if using systemd unit)
+- `sdl3`
+- `sdl3_ttf`
 
 ```
 $ make
@@ -35,10 +37,9 @@ $ sudo make install
 ```
 
 ## Usage
-If using `systemd`, the Mixologist daemon
-(`mixd`) should start at launch.
+Mixologist can either be launched in GUI mode (default)
+or daemon mode (`-daemon`). Once Mixologist is open,
 `mixcli` can then be used as shown:
-
 ```
 Flags:
 	-add-program:<string>, multiple     | name of program to add to aux
@@ -46,6 +47,9 @@ Flags:
 	-set-volume:<f32>                   | volume to assign nodes
 	-shift-volume:<f32>                 | volume to increment nodes
 ```
+
+Mixologist exits to the tray and is "always running" unless
+otherwise explicitly exited.
 
 If you wish to have hardware volume control,
 set keybinds in your desktop environment to the
@@ -63,15 +67,25 @@ Volume is a single value that can range from -1 to 1 where:
 - -1 is only every other program
 
 ### Configuration
-The config file resides at `~/.config/mixologist/mixologist.conf`
-and is a list of programs (one per line). This represents
-the set of programs you wish to isolate. The config file
-is hot-reloaded and can be modified by `mixcli` or just
-editing it with your favorite text editor.
+The config file resides at `~/.config/mixologist/mixologist.json`.
+This is currently a JSON file of the following structure:
+```json
+{
+	"rules": [
+		"Chromium.*"
+	]
+}
+```
+This represent the set of programs you wish to isolate.
+The config file is hot-reloaded and can be modified by
+`mixcli`, the GUI or just editing it with your favorite
+text editor.
 
 ## Planned Features
-- [ ] GUI
+- [x] GUI
 - [ ] Flatpak distribution (GUI-only)
 - [ ] Improved Packaging for:
     - Debian
     - NixOS
+
+## TODO
