@@ -179,13 +179,25 @@ main :: proc() {
 				}
 				mixologist_config_write(&mixologist)
 			case Rule_Update:
-				daemon_remove_program(&mixologist.daemon, event.prev)
-				daemon_add_program(&mixologist.daemon, event.cur)
-				for &rule in mixologist.config.rules {
-					if rule == event.prev {
-						delete(event.prev)
-						rule = event.cur
-						break
+				if len(event.cur) == 0 {
+					daemon_remove_program(&mixologist.daemon, event.prev)
+					for rule, idx in mixologist.config.rules {
+						if rule == event.prev {
+							delete(event.prev)
+							delete(event.cur)
+							ordered_remove(&mixologist.config.rules, idx)
+							break
+						}
+					}
+				} else {
+					daemon_remove_program(&mixologist.daemon, event.prev)
+					daemon_add_program(&mixologist.daemon, event.cur)
+					for &rule in mixologist.config.rules {
+						if rule == event.prev {
+							delete(event.prev)
+							rule = event.cur
+							break
+						}
 					}
 				}
 				mixologist_config_write(&mixologist)
@@ -293,8 +305,13 @@ mixologist_config_load :: proc(mixologist: ^Mixologist) {
 		return
 	}
 
-	for rule in mixologist.config.rules {
-		daemon_add_program(&mixologist.daemon, rule)
+	for rule, idx in mixologist.config.rules {
+		if len(rule) == 0 {
+			delete(rule)
+			ordered_remove(&mixologist.config.rules, idx)
+		} else {
+			daemon_add_program(&mixologist.daemon, rule)
+		}
 	}
 }
 

@@ -31,11 +31,11 @@ mix-dbg:
 	odin build ./mixologist -out:builds/mixologist -debug -show-timings  -internal-cached
 
 shaders:
-	mkdir -p mixologist_gui/resources/shaders/compiled
-	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
+	mkdir -p mixologist/resources/shaders/compiled
+	glslangValidator -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
 
 shaders-dbg:
-	mkdir -p mixologist_gui/resources/shaders/compiled
-	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
+	mkdir -p mixologist/resources/shaders/compiled
+	glslangValidator -g -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -g -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
