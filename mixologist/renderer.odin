@@ -8,7 +8,7 @@ import "core:strings"
 import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
 
-BUFFER_INIT_SIZE :: 256
+BUFFER_INIT_SIZE :: 128
 pipeline: Pipeline
 commands: [dynamic]Command
 
@@ -40,17 +40,23 @@ Renderer_init :: proc(ctx: ^UI_Context) {
 		frag_shader := sdl.CreateGPUShader(ctx.device, frag_info)
 		defer sdl.ReleaseGPUShader(ctx.device, frag_shader)
 
+
+		
+	
+	  // odinfmt:disable
 		vert_attrs := []sdl.GPUVertexAttribute {
 			{buffer_slot = 0, location = 0, format = .FLOAT4, offset = 0 * size_of([4]f32)}, // i_pos_scale
 			{buffer_slot = 0, location = 1, format = .FLOAT4, offset = 1 * size_of([4]f32)}, // i_corners
 			{buffer_slot = 0, location = 2, format = .FLOAT4, offset = 2 * size_of([4]f32)}, // i_color
 			{buffer_slot = 0, location = 3, format = .FLOAT4, offset = 3 * size_of([4]f32)}, // i_border_color
 			{buffer_slot = 0, location = 4, format = .FLOAT, offset = 4 * size_of([4]f32)}, // i_border_width
-			{buffer_slot = 0, location = 5, format = .FLOAT2, offset = 5 * size_of([4]f32)}, // i_text_pos
-			{buffer_slot = 0, location = 6, format = .FLOAT, offset = 6 * size_of([4]f32)}, // i_type
+			{buffer_slot = 0, location = 5, format = .FLOAT2, offset = size_of(f32) + 4 * size_of([4]f32)}, // i_text_pos
+			{buffer_slot = 0, location = 6, format = .FLOAT, offset = 3 * size_of(f32) + 4 * size_of([4]f32)}, // i_type
 			{buffer_slot = 1, location = 7, format = .FLOAT4, offset = 0 * size_of([4]f32)}, // i_text_pos_uv
 			{buffer_slot = 1, location = 8, format = .FLOAT4, offset = 1 * size_of([4]f32)}, // i_text_color
 		}
+    // odinfmt:enable
+
 		vertex_buffers := []sdl.GPUVertexBufferDescription {
 			{slot = 0, input_rate = .INSTANCE, pitch = size_of(Instance)},
 			{slot = 1, input_rate = .VERTEX, pitch = size_of(Text_Vert)},
@@ -418,15 +424,12 @@ Quad :: struct #packed {
 	color:        [4]f32,
 	border_color: [4]f32,
 	border_width: f32,
-	_:            [3]f32,
 }
 
 Instance :: struct #packed {
 	quad:     Quad,
 	text_pos: [2]f32,
-	_:        [2]f32,
 	type:     f32,
-	_:        [3]f32,
 }
 
 Pipeline :: struct {

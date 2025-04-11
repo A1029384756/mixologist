@@ -1198,9 +1198,9 @@ UI__textbox :: proc(
 					if scroll_data.found do scroll_data.scrollPosition^ = {c.float(ctx.textbox_offset), 0}
 					else do fmt.eprintln("Could not get scroll data for:", local_id)
 
-					clay.TextDynamic(text_str, text_config)
+					clay.Text(text_str, text_config)
 				} else {
-					clay.TextDynamic(placeholder_text, text_config)
+					clay.Text(placeholder_text, text_config)
 				}
 			}
 		}
@@ -1395,7 +1395,7 @@ UI__text_button :: proc(
 			cornerRadius = corner_radius,
 		},
 		) {
-			clay.TextDynamic(text, text_config)
+			clay.Text(text, text_config)
 		}
 	}
 	return
@@ -1417,7 +1417,7 @@ UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementI
 
 UI_textlabel :: proc(text: string, config: clay.TextElementConfig) {
 	textlabel := clay.TextConfig(config)
-	clay.TextDynamic(text, textlabel)
+	clay.Text(text, textlabel)
 }
 
 UI_modal_escapable :: proc(
