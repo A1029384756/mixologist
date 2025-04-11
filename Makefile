@@ -1,15 +1,9 @@
-all: mixd mixcli mixgui
+all: mixcli mix
 
 install:
 	install -d $(DESTDIR)/usr/bin
-	install -m 0755 builds/mixd $(DESTDIR)/usr/bin/mixd
 	install -m 0755 builds/mixcli $(DESTDIR)/usr/bin/mixcli
-	install -m 0755 builds/mixgui $(DESTDIR)/usr/bin/mixgui
-
-	install -d $(DESTDIR)/usr/lib/systemd/user
-	install -m 0644	data/mixd.service $(DESTDIR)/usr/lib/systemd/user/mixd.service
-	install -d $(DESTDIR)/usr/lib/systemd/user-preset
-	install -m 0644	data/50-mixd.preset $(DESTDIR)/usr/lib/systemd/user-preset/50-mixd.preset
+	install -m 0755 builds/mixologist $(DESTDIR)/usr/bin/mixologist
 
 	install -d $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
 	install -m 0644 data/mixologist.svg $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
@@ -17,17 +11,8 @@ install:
 	install -m 0644 data/mixologist.desktop $(desktop)/usr/share/applications
 
 clean:
-	rm builds/mixd
 	rm builds/mixcli
-	rm builds/mixgui
-
-mixd:
-	mkdir -p builds/
-	odin build ./mixologist_daemon -out:builds/mixd -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
-
-mixd-dbg:
-	mkdir -p builds/
-	odin build ./mixologist_daemon -out:builds/mixd -debug -show-timings -vet-unused -internal-cached
+	rm builds/mixologist
 
 mixcli:
 	mkdir -p builds/
@@ -37,20 +22,20 @@ mixcli-dbg:
 	mkdir -p builds/
 	odin build ./mixologist_cli -out:builds/mixcli -debug -show-timings -vet-unused -internal-cached
 
-mixgui:
+mix:
 	mkdir -p builds/
-	odin build ./mixologist_gui -out:builds/mixgui -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
+	odin build ./mixologist -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
 
-mixgui-dbg:
+mix-dbg:
 	mkdir -p builds/
-	odin build ./mixologist_gui -out:builds/mixgui -debug -show-timings  -internal-cached
+	odin build ./mixologist -out:builds/mixologist -debug -show-timings  -internal-cached
 
 shaders:
-	mkdir -p mixologist_gui/resources/shaders/compiled
-	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
+	mkdir -p mixologist/resources/shaders/compiled
+	glslangValidator -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
 
 shaders-dbg:
-	mkdir -p mixologist_gui/resources/shaders/compiled
-	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.vert -o mixologist_gui/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -g -V mixologist_gui/resources/shaders/raw/ui.frag -o mixologist_gui/resources/shaders/compiled/ui.frag.spv
+	mkdir -p mixologist/resources/shaders/compiled
+	glslangValidator -g -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -g -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv

@@ -3,6 +3,7 @@ package common
 Message :: union {
 	Volume,
 	Program,
+	Wake,
 }
 
 Volume :: struct {
@@ -22,4 +23,7 @@ Program :: struct {
 		Subscribe,
 	},
 	val: string,
+}
+
+Wake :: struct {
 }
