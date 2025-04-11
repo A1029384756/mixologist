@@ -2,7 +2,7 @@
 Type=Application
 Name=Mixologist
 Icon=mixologist
-Exec=mixgui
+Exec=mixologist
 StartupWMClass=mixgui
 Terminal=false
 Comment=GUI for audio mixing
