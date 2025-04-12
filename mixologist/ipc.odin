@@ -71,6 +71,10 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 				log.debugf("client disconnected: socket %v", client.fd)
 				sa.unordered_remove(&ctx._clients, idx + 1)
 				sa.append(&ctx._removed_clients, client.fd)
+			} else if bytes_read == 1024 {
+				log.debugf("client error UNKNOWN disconnecting: socket %v", client.fd)
+				sa.unordered_remove(&ctx._clients, idx + 1)
+				sa.append(&ctx._removed_clients, client.fd)
 			} else {
 				log.debugf("read %v bytes: socket %v", bytes_read, client.fd)
 				msg_bytes := ctx._buf[n_bytes:n_bytes + bytes_read]

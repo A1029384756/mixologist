@@ -85,10 +85,8 @@ main :: proc() {
 		msg: common.Message = common.Wake{}
 		message, encoding_err := cbor.marshal(msg)
 		assert(encoding_err == nil)
-		defer delete(message)
 
 		client_fd, socket_err := linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
-		defer linux.close(client_fd)
 		if socket_err != nil do log.panicf("could not create socket with error %v", socket_err)
 
 		client_addr: linux.Sock_Addr_Un
@@ -99,8 +97,10 @@ main :: proc() {
 		if connect_err != nil do log.panicf("could not connect to socket with error %v", connect_err)
 
 		_, send_err := linux.send(client_fd, message, {})
-		if send_err != nil do os2.exit(1)
-		else do os2.exit(1)
+		if send_err != nil {
+			log.infof("could not send wake command: %v", send_err)
+		}
+		os2.exit(1)
 	}
 
 	if len(os2.args) == 2 && os2.args[1] == "-daemon" {

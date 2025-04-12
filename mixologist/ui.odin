@@ -319,7 +319,6 @@ UI_tick :: proc(
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
 	if .WINDOW_CLOSED in ctx.statuses {
-		time.sleep(100 * time.Millisecond)
 		return
 	}
 
@@ -399,8 +398,6 @@ UI_tick :: proc(
 		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
 		sdl.ReleaseGPUFence(ctx.device, fence)
 		ctx.prev_event_time = time.now()
-	} else {
-		time.sleep(UI_EVENT_DELAY)
 	}
 
 	when ODIN_DEBUG {
