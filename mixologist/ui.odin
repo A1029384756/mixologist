@@ -431,6 +431,11 @@ UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 	sdl.RaiseWindow(ctx.window)
 }
 
+UI_close_window :: proc(ctx: ^UI_Context) {
+	ctx.statuses += {.WINDOW_CLOSED}
+	sdl.HideWindow(ctx.window)
+}
+
 UI__quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 	ctx := cast(^UI_Context)userdata
 	ctx.statuses += {.APP_EXIT}

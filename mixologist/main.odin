@@ -29,7 +29,8 @@ Mixologist :: struct {
 }
 
 Config :: struct {
-	rules: [dynamic]string,
+	rules:           [dynamic]string,
+	start_minimized: bool,
 }
 
 CONFIG_FILENAME :: "mixologist.json"
@@ -119,6 +120,9 @@ main :: proc() {
 
 	if .Gui in mixologist.statuses {
 		gui_init(&mixologist.gui)
+    if mixologist.config.start_minimized {
+      UI_close_window(&mixologist.gui.ui_ctx)
+    }
 	}
 
 	for (.Exit not_in mixologist.statuses) {
