@@ -142,6 +142,7 @@ main :: proc() {
 
 			if config_modified {
 				mixologist_config_reload(&mixologist)
+				mixologist.gui.ui_ctx.statuses += {.DIRTY}
 			}
 		}
 
