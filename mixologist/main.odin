@@ -322,7 +322,7 @@ mixologist_config_clear :: proc(mixologist: ^Mixologist) {
 		delete(rule)
 	}
 	delete(mixologist.config.rules)
-  mixologist.config.rules = [dynamic]string{}
+	mixologist.config.rules = [dynamic]string{}
 }
 
 mixologist_config_write :: proc(mixologist: ^Mixologist) {
