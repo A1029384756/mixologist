@@ -1338,7 +1338,7 @@ UI__slider :: proc(
 				) {}
 			}
 
-			NOTCH_WIDTH :: 2
+			NOTCH_WIDTH :: 4
 			for notch in notches {
 				if clay.UI()(
 				{
