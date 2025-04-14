@@ -75,7 +75,7 @@ main :: proc() {
 		mixologist.wd, in_err = linux.inotify_add_watch(
 			mixologist.fd,
 			strings.clone_to_cstring(mixologist.config_dir),
-			{.CREATE, .DELETE, .CLOSE_WRITE} + linux.IN_MOVE,
+			{.CREATE, .DELETE, .MODIFY} + linux.IN_MOVE,
 		)
 		assert(in_err == nil)
 	}
@@ -322,6 +322,7 @@ mixologist_config_clear :: proc(mixologist: ^Mixologist) {
 		delete(rule)
 	}
 	delete(mixologist.config.rules)
+  mixologist.config.rules = [dynamic]string{}
 }
 
 mixologist_config_write :: proc(mixologist: ^Mixologist) {
