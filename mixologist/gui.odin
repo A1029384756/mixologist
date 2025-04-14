@@ -430,6 +430,7 @@ rule_add_line :: proc(
 	},
 	) {
 		if !clay.Hovered() && .LEFT in ctx.ui_ctx.mouse_pressed do res += {.CANCEL}
+		if .ESCAPE in ctx.ui_ctx.keys_pressed do res += {.CANCEL}
 		UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
 
 		placeholder_str := "New rule..."
