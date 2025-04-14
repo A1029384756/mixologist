@@ -2,7 +2,7 @@
 Type=Application
 Name=Mixologist
 Icon=mixologist
-Exec=SDL_VIDEODRIVER=wayland mixologist
+Exec=env SDL_VIDEODRIVER=wayland mixologist
 StartupWMClass=mixgui
 Terminal=false
 Comment=GUI for audio mixing
