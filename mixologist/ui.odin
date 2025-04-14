@@ -195,8 +195,13 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 		ctx.tray = sdl.CreateTray(ctx.tray_icon, "Mixologist")
 		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
 
-		open_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Open", {.BUTTON})
-		sdl.SetTrayEntryCallback(open_entry, UI_open_window, ctx)
+		toggle_entry := sdl.InsertTrayEntryAt(
+			ctx.tray_menu,
+			-1,
+			(minimized ? "Open" : "Close"),
+			{.BUTTON},
+		)
+		sdl.SetTrayEntryCallback(toggle_entry, UI_toggle_window, ctx)
 
 		quit_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
 		sdl.SetTrayEntryCallback(quit_entry, UI__quit_application, ctx)
@@ -431,8 +436,7 @@ UI_tick :: proc(
 	ctx.prev_frame_time = time.now()
 }
 
-UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
-	ctx := cast(^UI_Context)userdata
+UI_open_window :: proc(ctx: ^UI_Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
 	ctx.statuses += {.DIRTY}
 	sdl.ShowWindow(ctx.window)
@@ -442,6 +446,18 @@ UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 UI_close_window :: proc(ctx: ^UI_Context) {
 	ctx.statuses += {.WINDOW_CLOSED}
 	sdl.HideWindow(ctx.window)
+}
+
+UI_toggle_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+	ctx := cast(^UI_Context)userdata
+	context = odin_context
+	if .WINDOW_CLOSED in ctx.statuses {
+		sdl.SetTrayEntryLabel(entry, "Close")
+		UI_open_window(ctx)
+	} else {
+		sdl.SetTrayEntryLabel(entry, "Open")
+		UI_close_window(ctx)
+	}
 }
 
 UI__quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {

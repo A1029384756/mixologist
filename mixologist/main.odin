@@ -283,8 +283,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			}
 		case common.Wake:
 			if .Gui in mixologist.statuses {
-        log.debug("wake event received")
-				UI_open_window(&mixologist.gui.ui_ctx, nil)
+				UI_open_window(&mixologist.gui.ui_ctx)
 			}
 		}
 	}
