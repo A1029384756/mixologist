@@ -417,7 +417,7 @@ UI_tick :: proc(
 	}
 
 	when ODIN_DEBUG {
-    ctx.statuses += {.DIRTY}
+		ctx.statuses += {.DIRTY}
 		render_time := time.since(render_start)
 		if clay.IsDebugModeEnabled() {
 			if time.since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
