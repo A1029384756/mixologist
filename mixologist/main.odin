@@ -306,7 +306,7 @@ mixologist_config_load :: proc(mixologist: ^Mixologist) {
 		return
 	}
 
-	for rule, idx in mixologist.config.rules {
+	#reverse for rule, idx in mixologist.config.rules {
 		if len(rule) == 0 {
 			delete(rule)
 			ordered_remove(&mixologist.config.rules, idx)
