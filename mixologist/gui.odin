@@ -25,8 +25,8 @@ GUI_Context :: struct {
 	statuses:        GUI_Context_Statuses,
 }
 
-gui_init :: proc(ctx: ^GUI_Context) {
-	UI_init(&ctx.ui_ctx)
+gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
+	UI_init(&ctx.ui_ctx, minimized)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
 }
 

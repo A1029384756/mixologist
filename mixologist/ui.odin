@@ -145,7 +145,7 @@ TEXT_CURSOR: ^sdl.Cursor
 HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
-UI_init :: proc(ctx: ^UI_Context) {
+UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	odin_context = context
 	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if arena_init_err != nil do panic("font allocator initialization failed")
@@ -174,7 +174,15 @@ UI_init :: proc(ctx: ^UI_Context) {
 	)
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
-	ctx.window = sdl.CreateWindow("Mixologist", 800, 600, {.RESIZABLE, .HIGH_PIXEL_DENSITY})
+	ctx.window = sdl.CreateWindow(
+		"Mixologist",
+		800,
+		600,
+		{.RESIZABLE, .HIGH_PIXEL_DENSITY} + (minimized ? {.HIDDEN} : {}),
+	)
+	if minimized {
+		ctx.statuses += {.WINDOW_CLOSED}
+	}
 	ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 	ctx.device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
@@ -426,7 +434,7 @@ UI_tick :: proc(
 UI_open_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
 	ctx := cast(^UI_Context)userdata
 	ctx.statuses -= {.WINDOW_CLOSED}
-	ctx.statuses += {.EVENT}
+	ctx.statuses += {.DIRTY}
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
