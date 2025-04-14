@@ -56,6 +56,8 @@ UI_Context :: struct {
 	tray:                ^sdl.Tray,
 	tray_menu:           ^sdl.TrayMenu,
 	tray_icon:           ^sdl.Surface,
+	toggle_entry:        ^sdl.TrayEntry,
+	exit_entry:          ^sdl.TrayEntry,
 	// renderer
 	device:              ^sdl.GPUDevice,
 }
@@ -195,16 +197,16 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 		ctx.tray = sdl.CreateTray(ctx.tray_icon, "Mixologist")
 		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
 
-		toggle_entry := sdl.InsertTrayEntryAt(
+		ctx.toggle_entry = sdl.InsertTrayEntryAt(
 			ctx.tray_menu,
 			-1,
 			(minimized ? "Open" : "Close"),
 			{.BUTTON},
 		)
-		sdl.SetTrayEntryCallback(toggle_entry, UI_toggle_window, ctx)
+		sdl.SetTrayEntryCallback(ctx.toggle_entry, UI_toggle_window, ctx)
 
-		quit_entry := sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
-		sdl.SetTrayEntryCallback(quit_entry, UI__quit_application, ctx)
+		ctx.exit_entry = sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
+		sdl.SetTrayEntryCallback(ctx.exit_entry, UI__quit_application, ctx)
 	}
 
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
@@ -263,6 +265,7 @@ UI_tick :: proc(
 			ctx.statuses += {.APP_EXIT}
 		case .WINDOW_CLOSE_REQUESTED:
 			ctx.statuses += {.WINDOW_CLOSED}
+			sdl.SetTrayEntryLabel(ctx.toggle_entry, "Open")
 			sdl.HideWindow(ctx.window)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.statuses += {.EVENT}
@@ -439,6 +442,7 @@ UI_tick :: proc(
 UI_open_window :: proc(ctx: ^UI_Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
 	ctx.statuses += {.DIRTY}
+	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
