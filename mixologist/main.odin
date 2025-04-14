@@ -173,8 +173,8 @@ main :: proc() {
 				daemon_remove_program(&mixologist.daemon, string(event))
 				#reverse for rule, idx in mixologist.config.rules {
 					if rule == string(event) {
-						delete(string(event))
-						unordered_remove(&mixologist.config.rules, idx)
+						delete(rule)
+						ordered_remove(&mixologist.config.rules, idx)
 						break
 					}
 				}
