@@ -17,6 +17,7 @@ when ODIN_OS == .Windows {
 }
 
 String :: struct {
+	isStaticallyAllocated: c.bool,
 	length: c.int32_t,
 	chars:  [^]c.char,
 }
@@ -110,7 +111,6 @@ TextElementConfig :: struct {
 	lineHeight:         u16,
 	wrapMode:           TextWrapMode,
 	textAlignment:      TextAlignment,
-	hashStringContents: bool,
 }
 
 ImageElementConfig :: struct {
@@ -419,7 +419,13 @@ UI :: proc() -> proc (config: ElementDeclaration) -> bool {
 	return ConfigureOpenElement
 }
 
-Text :: proc(text: string, config: ^TextElementConfig) {
+Text :: proc($text: string, config: ^TextElementConfig) {
+	wrapped := MakeString(text)
+	wrapped.isStaticallyAllocated = true
+	_OpenTextElement(wrapped, config)
+}
+
+TextDynamic :: proc(text: string, config: ^TextElementConfig) {
 	_OpenTextElement(MakeString(text), config)
 }
 
