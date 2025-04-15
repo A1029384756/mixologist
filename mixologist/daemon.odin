@@ -7,7 +7,6 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
-import "core:sys/linux"
 import "core:sys/posix"
 import "core:text/match"
 
@@ -86,9 +85,7 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 
 
 daemon_tick :: proc(ctx: ^Daemon_Context) {
-	time: linux.Time_Spec
-	pw.thread_loop_get_time(ctx.main_loop, &time, 1e7)
-	pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
+	// this is a no-op but here for the future
 }
 
 daemon_deinit :: proc(ctx: ^Daemon_Context) {

@@ -8,6 +8,7 @@ import "core:log"
 import "core:os/os2"
 import "core:strings"
 import "core:sys/linux"
+import "core:time"
 
 Mixologist :: struct {
 	// state
@@ -162,6 +163,8 @@ main :: proc() {
 			if UI_should_exit(&mixologist.gui.ui_ctx) {
 				mixologist.statuses += {.Exit}
 			}
+		} else {
+			time.sleep(time.Millisecond / 2)
 		}
 
 		for event in mixologist.events {
