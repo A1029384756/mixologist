@@ -113,8 +113,6 @@ main :: proc() {
 		mixologist.statuses += {.Daemon, .Gui}
 	}
 
-	mixologist_config_load(&mixologist)
-
 	if .Daemon in mixologist.statuses {
 		daemon_init(&mixologist.daemon)
 	}
@@ -123,6 +121,7 @@ main :: proc() {
 		gui_init(&mixologist.gui, mixologist.config.start_minimized)
 	}
 
+	mixologist_config_load(&mixologist)
 	for (.Exit not_in mixologist.statuses) {
 		// hot-reload
 		{
