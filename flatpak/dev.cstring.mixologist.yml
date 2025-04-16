@@ -81,15 +81,14 @@ modules:
       - tar -xzf dist.tar.gz -C /run/build/mixologist/odin --strip-components=1
       - rm dist.tar.gz
 
-      - ls /run/build/mixologist
       # create build directory
       - mkdir -p builds
       # compile shaders
-      - mkdir -p mixologist/resources/shaders/compiled
-      - glslangValidator -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
-      - glslangValidator -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
+      - mkdir -p src/resources/shaders/compiled
+      - glslangValidator -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
+      - glslangValidator -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
       # build mixologist
-      - /run/build/mixologist/odin/odin build mixologist -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
+      - /run/build/mixologist/odin/odin build src -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
       # install binaries
       - install -Dm0755 builds/mixologist /app/bin/mixologist
       # install icons and desktop file

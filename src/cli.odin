@@ -1,29 +1,27 @@
-package mixologist_cli
+package mixologist
 
 import "../common"
 import "core:encoding/cbor"
-import "core:flags"
 import "core:fmt"
-import "core:io"
 import "core:log"
-import "core:os/os2"
 import "core:sys/linux"
 
-SERVER_SOCKET :: "\x00mixologist"
 
-Options :: struct {
-	set_volume:     f32 `args:"name=set-volume" usage:"volume to assign nodes"`,
-	shift_volume:   f32 `args:"name=shift-volume" usage:"volume to increment nodes"`,
-	add_program:    [dynamic]string `args:"name=add-program" usage:"name of program to add to aux"`,
-	remove_program: [dynamic]string `args:"name=remove-program" usage:"name of program to remove from aux"`,
-	get_volume:     bool `args:"name=get-volume" usage:"the current mixologist volume"`,
+CLI_Args :: struct {
+	set_volume:     f32 `usage:"volume to assign nodes"`,
+	shift_volume:   f32 `usage:"volume to increment nodes"`,
+	add_program:    [dynamic]string `usage:"name of program to add to aux"`,
+	remove_program: [dynamic]string `usage:"name of program to remove from aux"`,
+	get_volume:     bool `usage:"the current mixologist volume"`,
+	daemon:         bool `usage:"start mixologist in daemon mode (no window)"`,
 }
 
-State :: struct {
+CLI_State :: struct {
 	option_sel:   bool,
+	get_volume:   bool,
 	set_volume:   bool,
 	shift_volume: bool,
-	opts:         Options,
+	opts:         CLI_Args,
 }
 
 flag_checker :: proc(
@@ -34,16 +32,25 @@ flag_checker :: proc(
 ) -> (
 	error: string,
 ) {
-	state.option_sel = true
-	if name == "set_volume" || name == "shift_volume" {
-		if state.set_volume || state.shift_volume {
-			error = "cannot set volume and shift volume in same command"
+	if name == "daemon" {
+		if cli.option_sel {
+			error = "\"-daemon\" cannot be used with other flags"
+			return
+		}
+	} else if name == "set_volume" || name == "shift_volume" || name == "get_volume" {
+		if cli.set_volume || cli.shift_volume || cli.get_volume {
+			error = "cannot perform multiple volume operations at once"
+			return
 		}
 
 		if name == "set_volume" {
-			state.set_volume = true
+			cli.set_volume = true
 		} else if name == "shift_volume" {
-			state.shift_volume = true
+			cli.shift_volume = true
+		} else if name == "get_volume" {
+			cli.get_volume = true
+			cli.option_sel = true
+			return
 		}
 
 		v := value.(f32)
@@ -51,29 +58,19 @@ flag_checker :: proc(
 			error = fmt.tprintf("incorrect volume %v. Must be between `-1` and `1`", v)
 		}
 	}
+	cli.option_sel = true
 
 	return
 }
 
-state: State
-main :: proc() {
-	context.logger = log.create_console_logger(lowest = common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
-
-	flags.register_flag_checker(flag_checker)
-	flags.parse_or_exit(&state.opts, os2.args, .Odin)
-	if !state.option_sel {
-		flags.write_usage(io.to_writer(os2.stdout.stream), Options)
-		os2.exit(1)
+cli_messages :: proc(cli: CLI_State) {
+	if cli.set_volume {
+		send_message(common.Volume{.Set, cli.opts.set_volume})
+	} else if cli.shift_volume {
+		send_message(common.Volume{.Shift, cli.opts.shift_volume})
 	}
 
-	if state.set_volume {
-		send_message(common.Volume{.Set, state.opts.set_volume})
-	} else if state.shift_volume {
-		send_message(common.Volume{.Shift, state.opts.shift_volume})
-	}
-
-	for program in state.opts.add_program {
+	for program in cli.opts.add_program {
 		msg := common.Program {
 			act = .Add,
 			val = program,
@@ -81,7 +78,7 @@ main :: proc() {
 		send_message(msg)
 	}
 
-	for program in state.opts.remove_program {
+	for program in cli.opts.remove_program {
 		msg := common.Program {
 			act = .Remove,
 			val = program,
@@ -89,7 +86,7 @@ main :: proc() {
 		send_message(msg)
 	}
 
-	if state.opts.get_volume {
+	if cli.opts.get_volume {
 		msg := common.Volume {
 			act = .Get,
 			val = 0,
