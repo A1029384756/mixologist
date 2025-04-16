@@ -39,3 +39,6 @@ shaders-dbg:
 	mkdir -p mixologist/resources/shaders/compiled
 	glslangValidator -g -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
 	glslangValidator -g -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
+
+flat:
+	flatpak build-bundle repo builds/mixologist.flatpak dev.cstring.Mixologist --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
