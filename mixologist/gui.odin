@@ -117,7 +117,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 								cornerRadius = clay.CornerRadiusAll(10),
 							},
 							) {
-								for elem, i in mixologist.config.rules do rule_line(ctx, elem, i + 1, len(mixologist.config.rules))
+								for rule, i in mixologist.config.rules do rule_line(ctx, rule, i + 1, len(mixologist.config.rules))
 							}
 						}
 					}
@@ -239,7 +239,7 @@ rules_label :: proc(ctx: ^GUI_Context) {
 	}
 }
 
-rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
+rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 	if clay.UI()(
 	{
 		layout = {
@@ -256,7 +256,7 @@ rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
 			&ctx.ui_ctx,
 			ctx.active_line_buf[:],
 			&ctx.active_line_len,
-			row_selected ? string(ctx.active_line_buf[:ctx.active_line_len]) : entry,
+			row_selected ? string(ctx.active_line_buf[:ctx.active_line_len]) : rule,
 			{
 				layout = {
 					sizing = {clay.SizingPercent(0.5), clay.SizingPercent(1)},
@@ -274,7 +274,7 @@ rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
 			append(
 				&mixologist.events,
 				Rule_Update {
-					entry,
+					rule,
 					strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
 				},
 			)
@@ -301,7 +301,7 @@ rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
 						5,
 					)
 					if .RELEASE in delete_res {
-						append(&mixologist.events, Rule_Remove(entry))
+						append(&mixologist.events, Rule_Remove(rule))
 						ctx.statuses += {.RULES}
 					}
 				}
@@ -344,7 +344,7 @@ rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
 						append(
 							&mixologist.events,
 							Rule_Update {
-								entry,
+								rule,
 								strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
 							},
 						)
@@ -370,9 +370,9 @@ rule_line :: proc(ctx: ^GUI_Context, entry: string, idx, rule_count: int) {
 			if .RELEASE in button_res {
 				UI_widget_focus(&ctx.ui_ctx, tb_id)
 				UI_status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
-				UI_textbox_reset(&ctx.ui_ctx, len(entry))
-				copy(ctx.active_line_buf[:], entry)
-				ctx.active_line_len = len(entry)
+				UI_textbox_reset(&ctx.ui_ctx, len(rule))
+				copy(ctx.active_line_buf[:], rule)
+				ctx.active_line_len = len(rule)
 				ctx.active_line = idx
 			}
 		}

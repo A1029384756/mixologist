@@ -63,7 +63,7 @@ EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 mixologist: Mixologist
 
 main :: proc() {
-	context.logger = log.create_console_logger()
+	context.logger = log.create_console_logger(common.get_log_level())
 
 	// set up inotify
 	{
@@ -113,6 +113,8 @@ main :: proc() {
 		mixologist.statuses += {.Daemon, .Gui}
 	}
 
+	mixologist_config_load(&mixologist)
+
 	if .Daemon in mixologist.statuses {
 		daemon_init(&mixologist.daemon)
 	}
@@ -121,7 +123,6 @@ main :: proc() {
 		gui_init(&mixologist.gui, mixologist.config.start_minimized)
 	}
 
-	mixologist_config_load(&mixologist)
 	for (.Exit not_in mixologist.statuses) {
 		// hot-reload
 		{
@@ -169,10 +170,12 @@ main :: proc() {
 		for event in mixologist.events {
 			switch event in event {
 			case Rule_Add:
+				log.debugf("adding rule: %v", event)
 				daemon_add_program(&mixologist.daemon, string(event))
 				append(&mixologist.config.rules, string(event))
 				mixologist_config_write(&mixologist)
 			case Rule_Remove:
+				log.debugf("removing rule: %v", event)
 				daemon_remove_program(&mixologist.daemon, string(event))
 				#reverse for rule, idx in mixologist.config.rules {
 					if rule == string(event) {
@@ -184,21 +187,23 @@ main :: proc() {
 				mixologist_config_write(&mixologist)
 			case Rule_Update:
 				if len(event.cur) == 0 {
+					log.debugf("updating to zero-length rule: %v", event.prev)
 					daemon_remove_program(&mixologist.daemon, event.prev)
 					for rule, idx in mixologist.config.rules {
 						if rule == event.prev {
-							delete(event.prev)
+							delete(rule)
 							delete(event.cur)
 							ordered_remove(&mixologist.config.rules, idx)
 							break
 						}
 					}
 				} else {
+					log.debugf("updating rule: %v -> %v", event.prev, event.cur)
 					daemon_remove_program(&mixologist.daemon, event.prev)
 					daemon_add_program(&mixologist.daemon, event.cur)
 					for &rule in mixologist.config.rules {
 						if rule == event.prev {
-							delete(event.prev)
+							delete(rule)
 							rule = event.cur
 							break
 						}
@@ -206,6 +211,7 @@ main :: proc() {
 				}
 				mixologist_config_write(&mixologist)
 			case Volume:
+				log.debugf("setting volume: %v", event)
 				mixologist.volume = event
 				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 				sink_set_volume(&mixologist.daemon.default_sink, def_vol)

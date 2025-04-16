@@ -1,6 +1,8 @@
 package pipewire
 
+KEY_MEDIA_CATEGORY :: "media.category"
 KEY_NODE_GROUP :: "node.group"
+
 VERSION_CORE :: 4
 VERSION_REGISTRY :: 3
 VERSION_LINK :: 3

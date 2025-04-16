@@ -9,7 +9,7 @@ foreign import pipewire "system:pipewire-0.3"
 
 @(default_calling_convention = "c", link_prefix = "pw_")
 foreign pipewire {
-	init :: proc(argc: ^int, argv: [^]cstring) ---
+	init :: proc(argc: ^int, argv: ^[^]cstring) ---
 	deinit :: proc() ---
 	get_library_version :: proc() -> cstring ---
 	get_client_name :: proc() -> cstring ---

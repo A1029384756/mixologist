@@ -2,5 +2,4 @@ tmp/
 builds/
 .idea/
 .flatpak-builder/
-flatpak/
 repo/

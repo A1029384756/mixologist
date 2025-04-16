@@ -8,19 +8,19 @@ command: mixologist
 finish-args:
   - --share=network
   - --share=ipc
-  - --talk-name=org.freedesktop.DBus
   - --socket=wayland
-  - --socket=fallback-x11
   - --device=dri
   - --filesystem=xdg-data
   - --filesystem=xdg-config/mixologist
-  - --filesystem=xdg-run/pipewire-0:rw
+  - --filesystem=xdg-run/pipewire-0
+  # tray icons
+  - --filesystem=/tmp
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --talk-name=com.canonical.AppMenu.Registrar
 build-options:
   append-path: /usr/lib/sdk/llvm20/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
 modules:
+  - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
   - name: SDL3
     buildsystem: cmake-ninja
     builddir: true
@@ -89,7 +89,7 @@ modules:
       - glslangValidator -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
       - glslangValidator -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
       # build mixologist
-      - /run/build/mixologist/odin/odin build mixologist -out:builds/mixologist -debug -show-timings -vet-unused -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
+      - /run/build/mixologist/odin/odin build mixologist -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
       # install binaries
       - install -Dm0755 builds/mixologist /app/bin/mixologist
       # install icons and desktop file
