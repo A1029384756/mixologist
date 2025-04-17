@@ -83,6 +83,7 @@ main :: proc() {
 	{
 		base_dir, _ := os2.user_config_dir(context.allocator)
 		mixologist.config_dir, _ = os2.join_path({base_dir, "mixologist"}, context.allocator)
+		if !os2.exists(mixologist.config_dir) do os2.make_directory(mixologist.config_dir)
 
 		in_err: linux.Errno
 		mixologist.fd, in_err = linux.inotify_init1({.NONBLOCK})
