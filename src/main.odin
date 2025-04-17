@@ -3,6 +3,7 @@ package mixologist
 import "../common"
 import "core:encoding/cbor"
 import "core:encoding/json"
+import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:os/os2"
@@ -61,9 +62,22 @@ EVENT_SIZE :: size_of(linux.Inotify_Event)
 EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 
 mixologist: Mixologist
+cli: CLI_State
 
 main :: proc() {
-	context.logger = log.create_console_logger()
+	context.logger = log.create_console_logger(common.get_log_level())
+	defer log.destroy_console_logger(context.logger)
+
+	flags.register_flag_checker(flag_checker)
+	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
+	if cli.opts.daemon {
+		mixologist.statuses += {.Daemon}
+	} else if !cli.option_sel {
+		mixologist.statuses += {.Daemon, .Gui}
+	} else {
+		cli_messages(cli)
+		return
+	}
 
 	// set up inotify
 	{
@@ -83,34 +97,9 @@ main :: proc() {
 	ipc_start_err := IPC_Server_init(&mixologist.ipc)
 	if ipc_start_err != nil {
 		fmt.println("detected active mixologist instance, sending wake command")
-		// send wake command
 		msg: common.Message = common.Wake{}
-		message, encoding_err := cbor.marshal(msg)
-		assert(encoding_err == nil)
-
-		client_fd, socket_err := linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
-		if socket_err != nil do log.panicf("could not create socket with error %v", socket_err)
-
-		client_addr: linux.Sock_Addr_Un
-		client_addr.sun_family = .UNIX
-		copy(client_addr.sun_path[:], SERVER_SOCKET)
-
-		connect_err := linux.connect(client_fd, &client_addr)
-		if connect_err != nil do log.panicf("could not connect to socket with error %v", connect_err)
-
-		_, send_err := linux.send(client_fd, message, {})
-		if send_err != nil {
-			log.infof("could not send wake command: %v", send_err)
-		}
-		os2.exit(1)
-	}
-
-	if len(os2.args) == 2 && os2.args[1] == "-daemon" {
-		mixologist.statuses += {.Daemon}
-	} else if len(os2.args) > 1 {
-		fmt.println("the only flag supported is `-daemon`")
-	} else {
-		mixologist.statuses += {.Daemon, .Gui}
+		send_message(msg)
+		return
 	}
 
 	mixologist_config_load(&mixologist)
@@ -170,10 +159,12 @@ main :: proc() {
 		for event in mixologist.events {
 			switch event in event {
 			case Rule_Add:
+				log.debugf("adding rule: %v", event)
 				daemon_add_program(&mixologist.daemon, string(event))
 				append(&mixologist.config.rules, string(event))
 				mixologist_config_write(&mixologist)
 			case Rule_Remove:
+				log.debugf("removing rule: %v", event)
 				daemon_remove_program(&mixologist.daemon, string(event))
 				#reverse for rule, idx in mixologist.config.rules {
 					if rule == string(event) {
@@ -185,21 +176,23 @@ main :: proc() {
 				mixologist_config_write(&mixologist)
 			case Rule_Update:
 				if len(event.cur) == 0 {
+					log.debugf("updating to zero-length rule: %v", event.prev)
 					daemon_remove_program(&mixologist.daemon, event.prev)
 					for rule, idx in mixologist.config.rules {
 						if rule == event.prev {
-							delete(event.prev)
+							delete(rule)
 							delete(event.cur)
 							ordered_remove(&mixologist.config.rules, idx)
 							break
 						}
 					}
 				} else {
+					log.debugf("updating rule: %v -> %v", event.prev, event.cur)
 					daemon_remove_program(&mixologist.daemon, event.prev)
 					daemon_add_program(&mixologist.daemon, event.cur)
 					for &rule in mixologist.config.rules {
 						if rule == event.prev {
-							delete(event.prev)
+							delete(rule)
 							rule = event.cur
 							break
 						}
@@ -207,6 +200,7 @@ main :: proc() {
 				}
 				mixologist_config_write(&mixologist)
 			case Volume:
+				log.debugf("setting volume: %v", event)
 				mixologist.volume = event
 				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 				sink_set_volume(&mixologist.daemon.default_sink, def_vol)

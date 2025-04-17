@@ -1,3 +1,5 @@
 tmp/
 builds/
 .idea/
+.flatpak-builder/
+repo/

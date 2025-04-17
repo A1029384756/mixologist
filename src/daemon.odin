@@ -7,6 +7,7 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
 import "core:text/match"
 
@@ -19,6 +20,7 @@ Daemon_Context :: struct {
 	loop:              ^pw.loop,
 	core:              ^pw.core,
 	pw_context:        ^pw.pw_context,
+	pw_context_props:  ^pw.properties,
 	registry:          ^pw.registry,
 	registry_listener: pw.spa_hook,
 	pw_odin_ctx:       runtime.Context,
@@ -61,8 +63,12 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 
 		pw.thread_loop_lock(ctx.main_loop)
 		ctx.loop = pw.thread_loop_get_loop(ctx.main_loop)
-		ctx.pw_context = pw.context_new(ctx.loop, nil, 0)
 
+		// required for flatpak volume control
+		ctx.pw_context_props = pw.properties_new(nil, nil)
+		pw.properties_set(ctx.pw_context_props, pw.KEY_MEDIA_CATEGORY, "Manager")
+
+		ctx.pw_context = pw.context_new(ctx.loop, ctx.pw_context_props, 0)
 		ctx.core = pw.context_connect(ctx.pw_context, nil, 0)
 
 		ctx.registry = pw.core_get_registry(ctx.core, pw.VERSION_REGISTRY, 0)
@@ -86,6 +92,9 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 
 daemon_tick :: proc(ctx: ^Daemon_Context) {
 	// this is a no-op but here for the future
+	time: linux.Time_Spec
+	pw.thread_loop_get_time(ctx.main_loop, &time, 1e4)
+	pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
 }
 
 daemon_deinit :: proc(ctx: ^Daemon_Context) {

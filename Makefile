@@ -1,8 +1,7 @@
-all: mixcli mix
+all: mixologist
 
 install:
 	install -d $(DESTDIR)/usr/bin
-	install -m 0755 builds/mixcli $(DESTDIR)/usr/bin/mixcli
 	install -m 0755 builds/mixologist $(DESTDIR)/usr/bin/mixologist
 
 	install -d $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
@@ -14,28 +13,23 @@ clean:
 	rm builds/mixcli
 	rm builds/mixologist
 
-mixcli:
+mixologist:
 	mkdir -p builds/
-	odin build ./mixologist_cli -out:builds/mixcli -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
+	odin build ./src -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
 
-mixcli-dbg:
+mixologist-dbg:
 	mkdir -p builds/
-	odin build ./mixologist_cli -out:builds/mixcli -debug -show-timings -vet-unused -internal-cached
-
-mix:
-	mkdir -p builds/
-	odin build ./mixologist -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -internal-cached
-
-mix-dbg:
-	mkdir -p builds/
-	odin build ./mixologist -out:builds/mixologist -debug -show-timings  -internal-cached
+	odin build ./src -out:builds/mixologist -debug -show-timings  -internal-cached
 
 shaders:
-	mkdir -p mixologist/resources/shaders/compiled
-	glslangValidator -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
+	mkdir -p src/resources/shaders/compiled
+	glslangValidator -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
 
 shaders-dbg:
-	mkdir -p mixologist/resources/shaders/compiled
-	glslangValidator -g -V mixologist/resources/shaders/raw/ui.vert -o mixologist/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -g -V mixologist/resources/shaders/raw/ui.frag -o mixologist/resources/shaders/compiled/ui.frag.spv
+	mkdir -p src/resources/shaders/compiled
+	glslangValidator -g -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -g -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
+
+flat:
+	flatpak build-bundle repo builds/mixologist.flatpak dev.cstring.Mixologist --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo

@@ -364,11 +364,6 @@ UI_tick :: proc(
 	}
 
 	clay.SetPointerState(ctx.mouse_pos, .LEFT in ctx.mouse_down)
-	clay.UpdateScrollContainers(
-		false,
-		ctx.scroll_delta * 5,
-		c.float(time.since(ctx.prev_frame_time) / time.Second),
-	)
 	window_size: [2]c.int
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.SetLayoutDimensions({c.float(window_size.x), c.float(window_size.y)})
@@ -377,6 +372,8 @@ UI_tick :: proc(
 		layout_start := time.now()
 	}
 
+	// run layout twice to avoid 1-frame
+	// delay of immediate mode
 	renderCommands := ui_create_layout(ctx, userdata)
 	{
 		strings.builder_reset(&ctx.textbox_input)
@@ -386,6 +383,14 @@ UI_tick :: proc(
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
 	}
+
+	// runs during second layout pass to prevent issues
+	// with scroll container data from deleted rules
+	clay.UpdateScrollContainers(
+		false,
+		ctx.scroll_delta * 5,
+		c.float(time.since(ctx.prev_frame_time) / time.Second),
+	)
 	renderCommands = ui_create_layout(ctx, userdata)
 
 	when ODIN_DEBUG {
@@ -584,7 +589,6 @@ UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
 	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
-// [TODO] fix scroll behavior
 UI_scrollbar :: proc(
 	ctx: ^UI_Context,
 	scroll_container_data: clay.ScrollContainerData,
@@ -1158,7 +1162,7 @@ UI__textbox :: proc(
 						ctx,
 					)
 
-					PADDING :: 20
+					PADDING :: 5
 					sizing := [2]c.float {
 						elem_loc_data.boundingBox.width,
 						elem_loc_data.boundingBox.height,

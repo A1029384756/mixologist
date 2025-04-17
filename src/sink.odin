@@ -45,7 +45,6 @@ Loopback :: struct {
 Sink :: struct {
 	associated_nodes: map[u32]Node,
 	links:            [dynamic]Link,
-	output_ports:     map[string]u32,
 	loopback_node:    Node,
 	device:           Loopback,
 	volume:           f32,
@@ -164,8 +163,7 @@ sink_destroy :: proc(sink: ^Sink) {
 
 sink_set_volume :: proc(sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	// [TODO] make dynamic for more than two channels
-	proxy_set_volume(sink.loopback_node.proxy, volume, 2)
+	proxy_set_volume(sink.loopback_node.proxy, volume, len(sink.loopback_node.ports))
 }
 
 module_destroy :: proc "c" (data: rawptr) {
