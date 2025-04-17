@@ -4,7 +4,7 @@ runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm20
-command: mixologist
+command: dev.cstring.Mixologist
 finish-args:
   - --share=network
   - --share=ipc
@@ -90,10 +90,11 @@ modules:
       # build mixologist
       - /run/build/mixologist/odin/odin build src -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
       # install binaries
-      - install -Dm0755 builds/mixologist /app/bin/mixologist
+      - install -Dm0755 builds/mixologist /app/bin/dev.cstring.Mixologist
       # install icons and desktop file
-      - install -Dm0644 data/mixologist.svg /app/share/icons/hicolor/scalable/apps/mixologist.svg
+      - install -Dm0644 data/mixologist.svg /app/share/icons/hicolor/scalable/apps/dev.cstring.Mixologist.svg
       - install -Dm0644 data/mixologist.desktop /app/share/applications/dev.cstring.Mixologist.desktop
+      - desktop-file-edit --set-key="Exec" --set-value="dev.cstring.Mixologist" --set-icon=$FLATPAK_ID /app/share/applications/dev.cstring.Mixologist.desktop
 
       # remove odin
       - rm -rf /run/build/mixologist/odin
