@@ -6,4 +6,4 @@ Exec=env SDL_VIDEODRIVER=wayland mixologist
 StartupWMClass=mixologist
 Terminal=false
 Comment=GUI for audio mixing
-Categories=Audio;Utility;Mixer
+Categories=AudioVideo;Utility;Mixer

@@ -30,6 +30,7 @@ Dependencies:
 - `libpipewire`
 - `sdl3`
 - `sdl3_ttf`
+- `sdl3_image`
 
 ```
 $ make
@@ -39,13 +40,15 @@ $ sudo make install
 ## Usage
 Mixologist can either be launched in GUI mode (default)
 or daemon mode (`-daemon`). Once Mixologist is open,
-`mixcli` can then be used as shown:
+`mixologist` can then be used as shown:
 ```
 Flags:
-	-add-program:<string>, multiple     | name of program to add to aux
-	-remove-program:<string>, multiple  | name of program to remove from aux
-	-set-volume:<f32>                   | volume to assign nodes
-	-shift-volume:<f32>                 | volume to increment nodes
+        -add-program:<string>, multiple     | name of program to add to aux
+        -daemon                             | start mixologist in daemon mode (no window)
+        -get-volume                         | the current mixologist volume
+        -remove-program:<string>, multiple  | name of program to remove from aux
+        -set-volume:<f32>                   | volume to assign nodes
+        -shift-volume:<f32>                 | volume to increment nodes
 ```
 
 Mixologist exits to the tray and is "always running" unless
@@ -53,13 +56,16 @@ otherwise explicitly exited.
 
 If you wish to have hardware volume control,
 set keybinds in your desktop environment to the
-corresponding `mixcli` command that you wish to
+corresponding command that you wish to
 invoke. For example:
 ```
-Shift + F10 -> mixcli -set-volume:0 #resets volume
-Shift + F11 -> mixcli -shift-volume:-0.1 #balance one way
-Shift + F12 -> mixcli -shift-volume:0.1 #balance the other way
+Shift + F10 -> mixologist -set-volume:0 #resets volume
+Shift + F11 -> mixologist -shift-volume:-0.1 #balance one way
+Shift + F12 -> mixologist -shift-volume:0.1 #balance the other way
 ```
+If you are instead running the Flatpak, you should use
+`flatpak run dev.cstring.Mixologist <flag>` to accomplish
+the same result.
 
 Volume is a single value that can range from -1 to 1 where:
 - 0 is both channels at full volume
@@ -78,14 +84,12 @@ This is currently a JSON file of the following structure:
 ```
 This represent the set of programs you wish to isolate.
 The config file is hot-reloaded and can be modified by
-`mixcli`, the GUI or just editing it with your favorite
+`mixologist`, the GUI or just editing it with your favorite
 text editor.
 
 ## Planned Features
 - [x] GUI
-- [ ] Flatpak distribution (GUI-only)
+- [x] Flatpak distribution (GUI-only)
 - [ ] Improved Packaging for:
     - Debian
     - NixOS
-
-## TODO
