@@ -1188,7 +1188,7 @@ UI__textbox :: proc(
 									clay.SizingFixed(boundingbox.height - 6),
 								},
 							},
-							backgroundColor = TEXT *
+							backgroundColor = text_config.textColor *
 							{
 									1,
 									1,
@@ -1223,7 +1223,7 @@ UI__textbox :: proc(
 									clay.SizingFixed(boundingbox.height - 6),
 								},
 							},
-							backgroundColor = TEXT * {1, 1, 1, 0.25},
+							backgroundColor = text_config.textColor * {1, 1, 1, 0.25},
 						},
 						) {
 							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
