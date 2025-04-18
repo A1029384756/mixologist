@@ -275,6 +275,7 @@ UI_tick :: proc(
 		case .MOUSE_MOTION:
 			ctx.mouse_pos = {event.motion.x, event.motion.y}
 		case .MOUSE_WHEEL:
+			ctx.statuses += {.EVENT}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
 			ctx.statuses += {.EVENT}
@@ -374,12 +375,11 @@ UI_tick :: proc(
 
 	// run layout twice to avoid 1-frame
 	// delay of immediate mode
-	renderCommands := ui_create_layout(ctx, userdata)
+	_ = ui_create_layout(ctx, userdata)
 	{
 		strings.builder_reset(&ctx.textbox_input)
 		ctx.mouse_pressed = {}
 		ctx.mouse_released = {}
-		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.mouse_prev_pos = ctx.mouse_pos
 	}
@@ -391,7 +391,7 @@ UI_tick :: proc(
 		ctx.scroll_delta * 5,
 		c.float(time.since(ctx.prev_frame_time) / time.Second),
 	)
-	renderCommands = ui_create_layout(ctx, userdata)
+	render_commands := ui_create_layout(ctx, userdata)
 
 	when ODIN_DEBUG {
 		layout_time := time.since(layout_start)
@@ -414,7 +414,7 @@ UI_tick :: proc(
 	}
 	if .EVENT in ctx.statuses {
 		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
-		Renderer_draw(ctx, cmd_buffer, &renderCommands)
+		Renderer_draw(ctx, cmd_buffer, &render_commands)
 		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
 		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
 		sdl.ReleaseGPUFence(ctx.device, fence)
