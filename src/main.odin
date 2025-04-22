@@ -75,6 +75,7 @@ CONFIG_FILENAME :: "mixologist.json"
 
 Statuses :: bit_set[Status]
 Status :: enum {
+	GlobalShortcuts,
 	Daemon,
 	Gui,
 	Exit,
@@ -140,7 +141,7 @@ main :: proc() {
 	}
 
 	// configure global shortcuts
-	GlobalShortcuts_Init(
+	gs_err := GlobalShortcuts_Init(
 		&mixologist.shortcuts,
 		"dev.cstring.Mixologist",
 		"mixologist",
@@ -149,32 +150,37 @@ main :: proc() {
 		nil,
 		nil,
 	)
-	defer GlobalShortcuts_Deinit(&mixologist.shortcuts)
-
-	GlobalShortcuts_CreateSession(&mixologist.shortcuts)
-	defer GlobalShortcuts_CloseSession(&mixologist.shortcuts)
-
-	listed_shortcuts, _ := GlobalShortcuts_ListShortcuts(&mixologist.shortcuts)
-	all_shortcuts_bound := true
-	for shortcut in Shortcut_Info {
-		found := false
-		for listed_shortcut in listed_shortcuts {
-			if listed_shortcut.id == shortcut.id do found = true
+	switch gs_err in gs_err {
+	case nil:
+		mixologist.statuses += {.GlobalShortcuts}
+		GlobalShortcuts_CreateSession(&mixologist.shortcuts)
+		listed_shortcuts, _ := GlobalShortcuts_ListShortcuts(&mixologist.shortcuts)
+		all_shortcuts_bound := true
+		for shortcut in Shortcut_Info {
+			found := false
+			for listed_shortcut in listed_shortcuts {
+				if listed_shortcut.id == shortcut.id do found = true
+			}
+			if !found {
+				fmt.println(shortcut)
+				all_shortcuts_bound = false
+				break
+			}
 		}
-		if !found {
-			fmt.println(shortcut)
-			all_shortcuts_bound = false
-			break
+		GlobalShortcuts_SliceDelete(listed_shortcuts)
+		if !all_shortcuts_bound {
+			shortcuts: [len(Shortcut_Info)]GlobalShortcut
+			for shortcut, idx in Shortcut_Info {
+				shortcuts[idx] = shortcut
+			}
+			bound_shortcuts, _ := GlobalShortcuts_BindShortcuts(
+				&mixologist.shortcuts,
+				shortcuts[:],
+			)
+			GlobalShortcuts_SliceDelete(bound_shortcuts)
 		}
-	}
-	GlobalShortcuts_SliceDelete(listed_shortcuts)
-	if !all_shortcuts_bound {
-		shortcuts: [len(Shortcut_Info)]GlobalShortcut
-		for shortcut, idx in Shortcut_Info {
-			shortcuts[idx] = shortcut
-		}
-		bound_shortcuts, _ := GlobalShortcuts_BindShortcuts(&mixologist.shortcuts, shortcuts[:])
-		GlobalShortcuts_SliceDelete(bound_shortcuts)
+	case cstring:
+		log.errorf("could not initialize global shortcuts: %s", gs_err)
 	}
 
 	// config loading
@@ -216,7 +222,10 @@ main :: proc() {
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
-		Portals_Tick(mixologist.shortcuts.conn)
+
+		if .GlobalShortcuts in mixologist.statuses {
+			Portals_Tick(mixologist.shortcuts.conn)
+		}
 
 		if .Daemon in mixologist.statuses {
 			daemon_tick(&mixologist.daemon)
@@ -297,6 +306,11 @@ main :: proc() {
 
 	if .Gui in mixologist.statuses {
 		gui_deinit(&mixologist.gui)
+	}
+
+	if .GlobalShortcuts in mixologist.statuses {
+		GlobalShortcuts_CloseSession(&mixologist.shortcuts)
+		GlobalShortcuts_Deinit(&mixologist.shortcuts)
 	}
 
 	// clean up inotify
