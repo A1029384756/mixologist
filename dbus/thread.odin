@@ -34,20 +34,24 @@ Mutex :: struct {}
 CondVar :: struct {}
 //odinfmt:enable
 
-MutexNewProc :: #type proc() -> ^Mutex
-MutexFreeProc :: #type proc(mutex: ^Mutex)
-MutexLockProc :: #type proc(mutex: ^Mutex) -> bool_t
-MutexUnlockProc :: #type proc(mutex: ^Mutex) -> bool_t
-RecursiveMutexNewProc :: #type proc() -> ^Mutex
-RecursiveMutexFreeProc :: #type proc(mutex: ^Mutex)
-RecursiveMutexLockProc :: #type proc(mutex: ^Mutex)
-RecursiveMutexUnlockProc :: #type proc(mutex: ^Mutex)
-CondVarNewProc :: #type proc() -> ^CondVar
-CondVarFreeProc :: #type proc(cond: ^CondVar)
-CondVarWaitProc :: #type proc(cond: ^CondVar, mutex: ^Mutex)
-CondVarWaitTimeoutProc :: #type proc(cond: ^CondVar, mutex: ^Mutex, timeout_ms: c.int) -> bool_t
-CondVarWakeOneProc :: #type proc(cond: ^CondVar)
-CondVarWakeAllProc :: #type proc(cond: ^CondVar)
+MutexNewProc :: #type proc "c" () -> ^Mutex
+MutexFreeProc :: #type proc "c" (mutex: ^Mutex)
+MutexLockProc :: #type proc "c" (mutex: ^Mutex) -> bool_t
+MutexUnlockProc :: #type proc "c" (mutex: ^Mutex) -> bool_t
+RecursiveMutexNewProc :: #type proc "c" () -> ^Mutex
+RecursiveMutexFreeProc :: #type proc "c" (mutex: ^Mutex)
+RecursiveMutexLockProc :: #type proc "c" (mutex: ^Mutex)
+RecursiveMutexUnlockProc :: #type proc "c" (mutex: ^Mutex)
+CondVarNewProc :: #type proc "c" () -> ^CondVar
+CondVarFreeProc :: #type proc "c" (cond: ^CondVar)
+CondVarWaitProc :: #type proc "c" (cond: ^CondVar, mutex: ^Mutex)
+CondVarWaitTimeoutProc :: #type proc "c" (
+	cond: ^CondVar,
+	mutex: ^Mutex,
+	timeout_ms: c.int,
+) -> bool_t
+CondVarWakeOneProc :: #type proc "c" (cond: ^CondVar)
+CondVarWakeAllProc :: #type proc "c" (cond: ^CondVar)
 
 ThreadFunctionBit :: enum c.uint {
 	MUTEX_NEW_MASK              = 0,

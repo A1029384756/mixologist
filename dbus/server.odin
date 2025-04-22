@@ -6,7 +6,7 @@ import "core:c"
 Server :: struct {}
 //odinfmt:enable
 
-NewConnectionProc :: #type proc(server: ^Server, new_connection: ^Connection, data: rawptr)
+NewConnectionProc :: #type proc "c" (server: ^Server, new_connection: ^Connection, data: rawptr)
 
 @(default_calling_convention = "c", link_prefix = "dbus_")
 foreign lib {

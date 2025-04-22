@@ -1,6 +1,8 @@
 package mixologist
 
 import "../common"
+import "../dbus"
+import "base:runtime"
 import "core:encoding/cbor"
 import "core:encoding/json"
 import "core:flags"
@@ -24,6 +26,7 @@ Mixologist :: struct {
 	// subapp states
 	daemon:     Daemon_Context,
 	gui:        GUI_Context,
+	shortcuts:  GlobalShortcuts_Session,
 	// config
 	config_dir: string,
 	config:     Config,
@@ -33,6 +36,39 @@ Mixologist :: struct {
 Config :: struct {
 	rules:           [dynamic]string,
 	start_minimized: bool,
+}
+
+Shortcut :: enum {
+	RAISE,
+	LOWER,
+	RESET,
+	MAX,
+	MIN,
+}
+
+Shortcut_Info := [Shortcut]GlobalShortcut {
+	.RAISE = {id = "raise", description = "favor selected", trigger_description = "SHIFT+F12"},
+	.LOWER = {id = "lower", description = "favor system", trigger_description = "SHIFT+F11"},
+	.RESET = {id = "reset", description = "reset", trigger_description = "SHIFT+F10"},
+	.MAX = {id = "max", description = "isolate selected", trigger_description = "ALT+SHIFT+F12"},
+	.MIN = {id = "min", description = "isolate system", trigger_description = "ALT+SHIFT+F11"},
+}
+
+shortcut_from_str :: proc(input: string) -> Shortcut {
+	switch input {
+	case "raise":
+		return .RAISE
+	case "lower":
+		return .LOWER
+	case "reset":
+		return .RESET
+	case "max":
+		return .MAX
+	case "min":
+		return .MIN
+	case:
+		log.panic("invalid shortcut id")
+	}
 }
 
 CONFIG_FILENAME :: "mixologist.json"
@@ -103,8 +139,48 @@ main :: proc() {
 		return
 	}
 
+	// configure global shortcuts
+	GlobalShortcuts_Init(
+		&mixologist.shortcuts,
+		"dev.cstring.Mixologist",
+		"mixologist",
+		{.ACTIVATED, .DEACTIVATED},
+		mixologist_globalshortcuts_handler,
+		nil,
+		nil,
+	)
+	defer GlobalShortcuts_Deinit(&mixologist.shortcuts)
+
+	GlobalShortcuts_CreateSession(&mixologist.shortcuts)
+	defer GlobalShortcuts_CloseSession(&mixologist.shortcuts)
+
+	listed_shortcuts, _ := GlobalShortcuts_ListShortcuts(&mixologist.shortcuts)
+	all_shortcuts_bound := true
+	for shortcut in Shortcut_Info {
+		found := false
+		for listed_shortcut in listed_shortcuts {
+			if listed_shortcut.id == shortcut.id do found = true
+		}
+		if !found {
+			fmt.println(shortcut)
+			all_shortcuts_bound = false
+			break
+		}
+	}
+	GlobalShortcuts_SliceDelete(listed_shortcuts)
+	if !all_shortcuts_bound {
+		shortcuts: [len(Shortcut_Info)]GlobalShortcut
+		for shortcut, idx in Shortcut_Info {
+			shortcuts[idx] = shortcut
+		}
+		bound_shortcuts, _ := GlobalShortcuts_BindShortcuts(&mixologist.shortcuts, shortcuts[:])
+		GlobalShortcuts_SliceDelete(bound_shortcuts)
+	}
+
+	// config loading
 	mixologist_config_load(&mixologist)
 
+	// init app state
 	if .Daemon in mixologist.statuses {
 		daemon_init(&mixologist.daemon)
 	}
@@ -140,6 +216,7 @@ main :: proc() {
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
+		Portals_Tick(mixologist.shortcuts.conn)
 
 		if .Daemon in mixologist.statuses {
 			daemon_tick(&mixologist.daemon)
@@ -348,4 +425,53 @@ mixologist_config_write :: proc(mixologist: ^Mixologist) {
 mixologist_config_reload :: proc(mixologist: ^Mixologist) {
 	mixologist_config_clear(mixologist)
 	mixologist_config_load(mixologist)
+}
+
+mixologist_globalshortcuts_handler :: proc "c" (
+	connection: ^dbus.Connection,
+	msg: ^dbus.Message,
+	user_data: rawptr,
+) -> dbus.HandlerResult {
+	context = runtime.default_context()
+	interface := cstring("org.freedesktop.portal.GlobalShortcuts")
+	if dbus.message_is_signal(msg, interface, "Activated") {
+		msg_iter: dbus.MessageIter
+		dbus.message_iter_init(msg, &msg_iter)
+
+		session_handle: cstring
+		dbus.message_iter_get_basic(&msg_iter, &session_handle)
+		dbus.message_iter_next(&msg_iter)
+
+		shortcut_id_cstr: cstring
+		dbus.message_iter_get_basic(&msg_iter, &shortcut_id_cstr)
+		dbus.message_iter_next(&msg_iter)
+		shortcut_id := shortcut_from_str(string(shortcut_id_cstr))
+		switch shortcut_id {
+		case .RAISE:
+			vol := mixologist.volume + 0.1
+			append(&mixologist.events, vol)
+		case .LOWER:
+			vol := mixologist.volume - 0.1
+			append(&mixologist.events, vol)
+		case .MAX:
+			append(&mixologist.events, 1)
+		case .MIN:
+			append(&mixologist.events, -1)
+		case .RESET:
+			append(&mixologist.events, 0)
+		}
+	} else if dbus.message_is_signal(msg, interface, "Deactivated") {
+		msg_iter: dbus.MessageIter
+		dbus.message_iter_init(msg, &msg_iter)
+
+		session_handle: cstring
+		dbus.message_iter_get_basic(&msg_iter, &session_handle)
+		dbus.message_iter_next(&msg_iter)
+
+		shortcut_id_cstr: cstring
+		dbus.message_iter_get_basic(&msg_iter, &shortcut_id_cstr)
+		dbus.message_iter_next(&msg_iter)
+		shortcut_id := shortcut_from_str(string(shortcut_id_cstr))
+	}
+	return .HANDLED
 }
