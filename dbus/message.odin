@@ -4,8 +4,23 @@ import "core:c"
 
 //odinfmt:disable
 Message :: struct {}
-MessageIter :: struct {}
 //odinfmt:enable
+MessageIter :: struct {
+	dummy1:  rawptr, /**< Don't use this */
+	dummy2:  rawptr, /**< Don't use this */
+	dummy3:  c.uint32_t, /**< Don't use this */
+	dummy4:  c.int, /**< Don't use this */
+	dummy5:  c.int, /**< Don't use this */
+	dummy6:  c.int, /**< Don't use this */
+	dummy7:  c.int, /**< Don't use this */
+	dummy8:  c.int, /**< Don't use this */
+	dummy9:  c.int, /**< Don't use this */
+	dummy10: c.int, /**< Don't use this */
+	dummy11: c.int, /**< Don't use this */
+	pad1:    c.int, /**< Don't use this */
+	pad2:    rawptr, /**< Don't use this */
+	pad3:    rawptr, /**< Don't use this */
+}
 
 MessageType :: enum c.int {
 	INVALID       = 0,
@@ -41,7 +56,7 @@ foreign lib {
 	message_iter_init :: proc(message: ^Message, iter: ^MessageIter) -> bool_t ---
 	message_iter_has_next :: proc(iter: ^MessageIter) -> bool_t ---
 	message_iter_next :: proc(iter: ^MessageIter) -> bool_t ---
-	message_iter_get_arg_type :: proc(iter: ^MessageIter) -> MessageType ---
+	message_iter_get_arg_type :: proc(iter: ^MessageIter) -> Type ---
 	message_iter_get_element_type :: proc(iter: ^MessageIter) -> Type ---
 	message_iter_recurse :: proc(iter, sub: ^MessageIter) ---
 	message_iter_get_signature :: proc(iter: ^MessageIter) -> cstring ---

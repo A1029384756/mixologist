@@ -19,32 +19,36 @@ ObjectPathVTable :: struct {
 	pad_4:               rawptr,
 }
 
-ObjectPathUnregisterProc :: #type proc(connection: ^Connection, user_data: rawptr)
-ObjectPathMessageProc :: #type proc(
+ObjectPathUnregisterProc :: #type proc "c" (connection: ^Connection, user_data: rawptr)
+ObjectPathMessageProc :: #type proc "c" (
 	connection: ^Connection,
 	message: ^Message,
 	user_data: rawptr,
 ) -> HandlerResult
 
-AddWatchProc :: #type proc(watch: ^Watch, data: rawptr) -> bool_t
-WatchToggledProc :: #type proc(watch: ^Watch, data: rawptr)
-RemoveWatchProc :: #type proc(watch: ^Watch, data: rawptr)
+AddWatchProc :: #type proc "c" (watch: ^Watch, data: rawptr) -> bool_t
+WatchToggledProc :: #type proc "c" (watch: ^Watch, data: rawptr)
+RemoveWatchProc :: #type proc "c" (watch: ^Watch, data: rawptr)
 
-AddTimeoutProc :: #type proc(timeout: ^Timeout, data: rawptr) -> bool_t
-TimeoutToggledProc :: #type proc(watch: ^Timeout, data: rawptr)
-RemoveTimeoutProc :: #type proc(watch: ^Timeout, data: rawptr)
+AddTimeoutProc :: #type proc "c" (timeout: ^Timeout, data: rawptr) -> bool_t
+TimeoutToggledProc :: #type proc "c" (watch: ^Timeout, data: rawptr)
+RemoveTimeoutProc :: #type proc "c" (watch: ^Timeout, data: rawptr)
 
-StatusDispatchProc :: #type proc(connection: ^Connection, new_status: DipatchStatus, data: rawptr)
-WakeupMainProc :: #type proc(data: rawptr)
-AllowUnixUserProc :: #type proc(connection: ^Connection, uid: c.ulong, data: rawptr) -> bool_t
-AllowWindowsUserProc :: #type proc(connection: ^Connection, user_sid: cstring, data: rawptr)
-PendingCallNotifyProc :: #type proc(pending: ^PendingCall, user_data: rawptr)
-HandleMessageProc :: #type proc(
+StatusDispatchProc :: #type proc "c" (
+	connection: ^Connection,
+	new_status: DipatchStatus,
+	data: rawptr,
+)
+WakeupMainProc :: #type proc "c" (data: rawptr)
+AllowUnixUserProc :: #type proc "c" (connection: ^Connection, uid: c.ulong, data: rawptr) -> bool_t
+AllowWindowsUserProc :: #type proc "c" (connection: ^Connection, user_sid: cstring, data: rawptr)
+PendingCallNotifyProc :: #type proc "c" (pending: ^PendingCall, user_data: rawptr)
+HandleMessageProc :: #type proc "c" (
 	connection: ^Connection,
 	message: ^Message,
 	user_data: rawptr,
 ) -> HandlerResult
-FreeProc :: #type proc(memory: rawptr)
+FreeProc :: #type proc "c" (memory: rawptr)
 
 DipatchStatus :: enum c.int {
 	DATA_REMAINS = 0, /**< There is more data to potentially convert to messages. */
@@ -76,14 +80,14 @@ foreign lib {
 	connection_send_preallocated :: proc(connection: ^Connection, preallocated: ^PreallocatedSend, message: ^Message, client_serial: ^c.uint32_t) ---
 	connection_send :: proc(connection: ^Connection, message: ^Message, serial: ^c.uint32_t) -> bool_t ---
 	connection_send_with_reply :: proc(connection: ^Connection, message: ^Message, pending_return: ^^PendingCall, timeout_ms: c.int) -> bool_t ---
-	connection_send_with_reply_and_block :: proc(connection: ^Connection, message: ^Message, pending_return: ^^PendingCall, timeout_ms: c.int, error: ^Error) -> ^Message ---
+	connection_send_with_reply_and_block :: proc(connection: ^Connection, message: ^Message, timeout_ms: c.int, error: ^Error) -> ^Message ---
 	connection_flush :: proc(connection: ^Connection) ---
 	connection_read_write_dispatch :: proc(connection: ^Connection, timeout_ms: c.int) -> bool_t ---
 	connection_read_write :: proc(connection: ^Connection, timeout_ms: c.int) -> bool_t ---
 	connection_borrow_message :: proc(connection: ^Connection) -> ^Message ---
 	connection_return_message :: proc(connection: ^Connection, message: ^Message) ---
 	connection_steal_borrowed_message :: proc(connection: ^Connection, message: ^Message) ---
-	connection_pop_message :: proc(connection: ^Connection) -> Message ---
+	connection_pop_message :: proc(connection: ^Connection) -> ^Message ---
 	connection_get_dispatch_status :: proc(connection: ^Connection) -> DipatchStatus ---
 	connection_dispatch :: proc(connection: ^Connection) -> DipatchStatus ---
 	connection_set_watch_functions :: proc(connection: ^Connection, add_function: AddWatchProc, remove_function: RemoveWatchProc, toggled_function: WatchToggledProc, data: rawptr, free_data_function: FreeProc) -> bool_t ---

@@ -10,3 +10,4 @@ INTERFACE_INTROSPECTABLE :: "org.freedesktop.DBus.Introspectable"
 INTERFACE_PROPERTIES :: "org.freedesktop.DBus.Properties"
 INTERFACE_PEER :: "org.freedesktop.DBus.Peer"
 INTERFACE_LOCAL :: "org.freedesktop.DBus.Local"
+TIMEOUT_USE_DEFAULT :: -1
