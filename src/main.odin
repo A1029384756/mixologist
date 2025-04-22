@@ -144,7 +144,7 @@ main :: proc() {
 		&mixologist.shortcuts,
 		"dev.cstring.Mixologist",
 		"mixologist",
-		{.ACTIVATED, .DEACTIVATED},
+		{.ACTIVATED},
 		mixologist_globalshortcuts_handler,
 		nil,
 		nil,
@@ -460,18 +460,6 @@ mixologist_globalshortcuts_handler :: proc "c" (
 		case .RESET:
 			append(&mixologist.events, 0)
 		}
-	} else if dbus.message_is_signal(msg, interface, "Deactivated") {
-		msg_iter: dbus.MessageIter
-		dbus.message_iter_init(msg, &msg_iter)
-
-		session_handle: cstring
-		dbus.message_iter_get_basic(&msg_iter, &session_handle)
-		dbus.message_iter_next(&msg_iter)
-
-		shortcut_id_cstr: cstring
-		dbus.message_iter_get_basic(&msg_iter, &shortcut_id_cstr)
-		dbus.message_iter_next(&msg_iter)
-		shortcut_id := shortcut_from_str(string(shortcut_id_cstr))
 	}
 	return .HANDLED
 }
