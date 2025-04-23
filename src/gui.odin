@@ -28,6 +28,8 @@ GUI_Context :: struct {
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	UI_init(&ctx.ui_ctx, minimized)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64})
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64})
 }
 
 gui_tick :: proc(ctx: ^GUI_Context) {
@@ -146,6 +148,8 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
+		UI_icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
+
 		vol := mixologist.volume
 		slider_res, _ := UI_slider(
 			&ctx.ui_ctx,
@@ -167,6 +171,8 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 			append(&mixologist.events, Volume(vol))
 			ctx.statuses += {.VOLUME}
 		}
+
+		UI_icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
 	}
 }
 

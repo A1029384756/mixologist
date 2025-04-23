@@ -47,6 +47,8 @@ UI_Context :: struct {
 	clay_memory:         []u8,
 	font_allocator:      virtual.Arena,
 	fonts:               sa.Small_Array(16, UI_Font),
+	image_allocator:     virtual.Arena,
+	images:              sa.Small_Array(16, UI_Image),
 	// sdl3
 	window:              ^sdl.Window,
 	start_time:          time.Time,
@@ -132,6 +134,17 @@ UI_Font :: struct {
 	data: []u8,
 }
 
+_UI_Image :: struct {
+	surface: ^sdl.Surface,
+	texture: ^sdl.GPUTexture,
+	size:    int,
+}
+
+UI_Image :: struct {
+	image: map[[2]int]_UI_Image,
+	data:  []u8,
+}
+
 UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
 	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
@@ -143,14 +156,41 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	return font^
 }
 
+UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image {
+	ui_img := sa.get_ptr(&ctx.images, id)
+	_, m_img, just_inserted, _ := map_entry(&ui_img.image, size)
+	if just_inserted {
+		img_stream := sdl.IOFromConstMem(raw_data(ui_img.data), len(ui_img.data))
+		defer sdl.CloseIO(img_stream)
+		img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
+		img_texture := sdl.CreateGPUTexture(
+			ctx.device,
+			{
+				format = .R8G8B8A8_UNORM,
+				usage = {.SAMPLER},
+				width = u32(img_surface.w),
+				height = u32(img_surface.h),
+				layer_count_or_depth = 1,
+				num_levels = 1,
+			},
+		)
+		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
+		m_img^ = _UI_Image{img_surface, img_texture, texture_size}
+		pipeline.status += {.TEXTURE_DIRTY}
+	}
+	return m_img
+}
+
 TEXT_CURSOR: ^sdl.Cursor
 HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
 UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	odin_context = context
-	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
-	if arena_init_err != nil do panic("font allocator initialization failed")
+	font_arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
+	if font_arena_init_err != nil do panic("font allocator initialization failed")
+	image_arena_init_err := virtual.arena_init_growing(&ctx.image_allocator)
+	if image_arena_init_err != nil do panic("image allocator initialization failed")
 
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
@@ -234,7 +274,16 @@ UI_deinit :: proc(ctx: ^UI_Context) {
 
 	sdl.DestroyTray(ctx.tray)
 
+	for image in sa.slice(&ctx.images) {
+		for _, img in image.image {
+			sdl.ReleaseGPUTexture(ctx.device, img.texture)
+			sdl.DestroySurface(img.surface)
+		}
+	}
+	virtual.arena_destroy(&ctx.image_allocator)
+
 	Renderer_destroy(ctx)
+
 	sdl.DestroyWindow(ctx.window)
 }
 
@@ -545,6 +594,32 @@ UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
 
 UI_exit :: proc(ctx: ^UI_Context) {
 	ctx.statuses += {.APP_EXIT}
+}
+
+UI_load_image_mem :: proc(ctx: ^UI_Context, data: []u8, size: [2]int) -> int {
+	img_stream := sdl.IOFromConstMem(raw_data(data), len(data))
+	defer sdl.CloseIO(img_stream)
+	img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
+	img_texture := sdl.CreateGPUTexture(
+		ctx.device,
+		{
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
+			width = u32(img_surface.w),
+			height = u32(img_surface.h),
+			layer_count_or_depth = 1,
+			num_levels = 1,
+		},
+	)
+	texture_size := 4 * int(img_surface.w) * int(img_surface.h)
+	log.debugf("loaded image of size: [%v, %v]", img_surface.w, img_surface.h)
+
+	img_map := make(map[[2]int]_UI_Image, 16, virtual.arena_allocator(&ctx.image_allocator))
+	img_map[size] = _UI_Image{img_surface, img_texture, texture_size}
+
+	pipeline.status += {.TEXTURE_DIRTY}
+	sa.append(&ctx.images, UI_Image{image = img_map, data = data})
+	return sa.len(ctx.images) - 1
 }
 
 UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
@@ -1488,5 +1563,27 @@ UI_modal_escapable :: proc(
 	) {
 		res, id = widget(ctx, user_data)
 	}
+	return
+}
+
+UI_icon :: proc(
+	ctx: ^UI_Context,
+	image_id: int,
+	image_size: [2]int,
+	tint: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()(
+	{
+		layout = {sizing = {width = clay.SizingFixed(c.float(image_size.x))}},
+		image = {
+			imageData = UI_retrieve_image(ctx, image_id, image_size),
+			sourceDimensions = {width = c.float(image_size.x), height = c.float(image_size.y)},
+		},
+		backgroundColor = tint,
+	},
+	) {}
 	return
 }

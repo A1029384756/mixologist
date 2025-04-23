@@ -36,6 +36,15 @@ const vec2 positions[6] = vec2[](
   vec2(1.0, 1.0)   // top left
 );
 
+const vec2 uvs[6] = vec2[](
+  vec2(1.0, 1.0),  // top left
+  vec2(1.0, 0.0),  // top right
+  vec2(0.0, 0.0),  // bottom right
+  vec2(0.0, 0.0),  // bottom right
+  vec2(0.0, 1.0),  // bottom left
+  vec2(1.0, 1.0)   // top left
+);
+
 void main() {
   o_type = i_type;
   if (i_type == 0.0) { // quads
@@ -61,13 +70,24 @@ void main() {
     o_border_width = i_border_width * dpi_scale;
 
     gl_Position = projection * vec4(local_pos, 0.0, 1.0);
-  } else { // text
+  } else if (i_type == 1.0) { // text
     o_color = i_text_color;
     o_uv = i_text_pos_uv.zw;
 
     vec2 local_pos = i_text_pos_uv.xy;
     local_pos += i_text_pos * dpi_scale;
 
+    gl_Position = projection * vec4(local_pos, 0.0, 1.0);
+  } else { // texture // quads
+    vec2 position = i_pos_scale.xy * dpi_scale;
+    vec2 scale = i_pos_scale.zw * dpi_scale;
+
+    vec2 local_pos = positions[gl_VertexIndex];
+    local_pos *= scale;
+    local_pos += position;
+
+    o_color = i_color;
+    o_uv = uvs[gl_VertexIndex];
     gl_Position = projection * vec4(local_pos, 0.0, 1.0);
   }
 }
