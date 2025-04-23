@@ -349,7 +349,7 @@ Renderer_draw :: proc(
 					texture.surface.pixels,
 					texture.size,
 				)
-        transfer_offset += texture.size
+				transfer_offset += texture.size
 			}
 			sdl.UnmapGPUTransferBuffer(ctx.device, pipeline.texture_buffer)
 
