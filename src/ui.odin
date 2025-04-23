@@ -856,6 +856,42 @@ UI_text_button :: proc(
 	return
 }
 
+UI_icon_button :: proc(
+	ctx: ^UI_Context,
+	layout: clay.LayoutConfig,
+	corner_radius: clay.CornerRadius,
+	color, hover_color, press_color, icon_color: clay.Color,
+	icon_id: int,
+	icon_size: [2]int,
+	icon_padding: u16,
+	enabled := true,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__icon_button(
+		ctx,
+		layout,
+		corner_radius,
+		enabled ? color : color * {0.65, 0.65, 0.65, 1},
+		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
+		enabled ? press_color : color * {0.65, 0.65, 0.65, 1},
+		icon_color,
+		icon_id,
+		icon_size,
+		icon_padding,
+	)
+
+	if enabled {
+		if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+		else do UI_unfocus(ctx, id)
+
+		if .PRESS in res do UI_widget_focus(ctx, id)
+		else if .RELEASE in res do UI_unfocus(ctx, id)
+	}
+	return
+}
+
 UI__scrollbar :: proc(
 	ctx: ^UI_Context,
 	scroll_container_data: clay.ScrollContainerData,
@@ -1467,7 +1503,6 @@ UI__slider :: proc(
 	return
 }
 
-
 UI__text_button :: proc(
 	ctx: ^UI_Context,
 	text: string,
@@ -1508,6 +1543,50 @@ UI__text_button :: proc(
 		},
 		) {
 			clay.TextDynamic(text, text_config)
+		}
+	}
+	return
+}
+
+UI__icon_button :: proc(
+	ctx: ^UI_Context,
+	layout: clay.LayoutConfig,
+	corner_radius: clay.CornerRadius,
+	color, hover_color, press_color, icon_color: clay.Color,
+	icon_id: int,
+	icon_size: [2]int,
+	icon_padding: u16,
+	enabled := true,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()({layout = layout}) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
+
+		active := UI_widget_active(ctx, id)
+		selected_color := color
+		if active do selected_color = press_color
+		else if clay.Hovered() do selected_color = hover_color
+
+		if clay.Hovered() do ctx.hovered_widget = id
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
+
+		if clay.UI()(
+		{
+			id = local_id,
+			layout = {
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				padding = clay.PaddingAll(icon_padding),
+			},
+			backgroundColor = selected_color,
+			cornerRadius = corner_radius,
+		},
+		) {
+			UI_icon(ctx, icon_id, icon_size, icon_color)
 		}
 	}
 	return
