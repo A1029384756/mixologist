@@ -47,7 +47,6 @@ UI_Context :: struct {
 	clay_memory:         []u8,
 	font_allocator:      virtual.Arena,
 	fonts:               sa.Small_Array(16, UI_Font),
-	image_allocator:     virtual.Arena,
 	images:              sa.Small_Array(16, UI_Image),
 	// sdl3
 	window:              ^sdl.Window,
@@ -192,8 +191,6 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	odin_context = context
 	font_arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if font_arena_init_err != nil do panic("font allocator initialization failed")
-	image_arena_init_err := virtual.arena_init_growing(&ctx.image_allocator)
-	if image_arena_init_err != nil do panic("image allocator initialization failed")
 
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
@@ -281,7 +278,6 @@ UI_deinit :: proc(ctx: ^UI_Context) {
 		sdl.ReleaseGPUTexture(ctx.device, img.image.texture)
 		sdl.DestroySurface(img.image.surface)
 	}
-	virtual.arena_destroy(&ctx.image_allocator)
 
 	Renderer_destroy(ctx)
 
