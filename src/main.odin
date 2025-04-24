@@ -289,6 +289,7 @@ main :: proc() {
 			case Volume:
 				log.debugf("setting volume: %v", event)
 				mixologist.volume = event
+				mixologist.volume = clamp(mixologist.volume, -1, 1)
 				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 				sink_set_volume(&mixologist.daemon.default_sink, def_vol)
 				sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
@@ -338,13 +339,11 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 				IPC_Server_send(&mixologist.ipc, sender, vol)
 			case .Set:
 				log.debugf("setting volume %v: socket %v", msg.val, sender)
-				vol := clamp(msg.val, -1, 1)
-				append(&mixologist.events, vol)
+				append(&mixologist.events, msg.val)
 				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			case .Shift:
 				log.debugf("shifting volume %v: socket %v", msg.val, sender)
 				vol := mixologist.volume + msg.val
-				vol = clamp(vol, -1, 1)
 				append(&mixologist.events, vol)
 				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			case .Subscribe:

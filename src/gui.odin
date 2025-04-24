@@ -28,6 +28,13 @@ GUI_Context :: struct {
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	UI_init(&ctx.ui_ctx, minimized)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64}) // MUSIC = 1
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {24, 24}) // EDIT = 2
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/cancel-symbolic.svg"), {24, 24}) // CANCEL = 3
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {24, 24}) // DELETE = 4
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {24, 24}) // APPLY = 5
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {24, 24}) // PLUS = 6
 }
 
 gui_tick :: proc(ctx: ^GUI_Context) {
@@ -146,6 +153,8 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
+		UI_icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
+
 		vol := mixologist.volume
 		slider_res, _ := UI_slider(
 			&ctx.ui_ctx,
@@ -167,6 +176,8 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 			append(&mixologist.events, Volume(vol))
 			ctx.statuses += {.VOLUME}
 		}
+
+		UI_icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
 	}
 }
 
@@ -220,16 +231,15 @@ rules_label :: proc(ctx: ^GUI_Context) {
 		}
 		UI_spacer(&ctx.ui_ctx)
 
-		res, _ := UI_text_button(
+		res, _ := UI_button(
 			&ctx.ui_ctx,
-			"Add Rule",
+			&{id = 6, size = 16, color = TEXT},
+			&{text = "Add Rule", size = 16, color = TEXT},
 			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 			clay.CornerRadiusAll(5),
 			SURFACE_2,
 			SURFACE_1,
 			SURFACE_0,
-			TEXT,
-			16,
 			5,
 		)
 
@@ -288,16 +298,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
 				if clay.UI()({}) {
-					delete_res, _ := UI_text_button(
+					delete_res, _ := UI_button(
 						&ctx.ui_ctx,
-						"Delete",
+						&{id = 4, size = 16, color = CRUST},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						RED,
 						RED * {0.9, 0.9, 0.9, 1},
 						RED * {0.8, 0.8, 0.8, 1},
-						CRUST,
-						16,
 						5,
 					)
 					if .RELEASE in delete_res {
@@ -307,16 +316,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					cancel_res, _ := UI_text_button(
+					cancel_res, _ := UI_button(
 						&ctx.ui_ctx,
-						"Cancel",
+						&{id = 3, size = 16, color = TEXT},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						SURFACE_2,
 						SURFACE_1,
 						SURFACE_0,
-						TEXT,
-						16,
 						5,
 					)
 
@@ -327,16 +335,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					apply_res, _ := UI_text_button(
+					apply_res, _ := UI_button(
 						&ctx.ui_ctx,
-						"Apply",
+						&{id = 5, size = 16, color = CRUST},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						MAUVE,
 						MAUVE * {0.9, 0.9, 0.9, 1},
 						MAUVE * {0.8, 0.8, 0.8, 1},
-						CRUST,
-						16,
 						5,
 					)
 
@@ -354,16 +361,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 			}
 		} else {
-			button_res, _ := UI_text_button(
+			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-				"Edit",
+				&{id = 2, size = 16, color = TEXT},
+				nil,
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(5),
 				SURFACE_2,
 				SURFACE_1,
 				SURFACE_0,
-				TEXT,
-				16,
 				5,
 			)
 
@@ -481,16 +487,15 @@ rule_add_line :: proc(
 			},
 		},
 		) {
-			button_res, _ := UI_text_button(
+			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-				"Add Rule",
+				nil,
+				&{text = "Add Rule", size = 16, color = TEXT},
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(32),
 				SURFACE_2,
 				SURFACE_1,
 				SURFACE_0,
-				TEXT,
-				16,
 				12,
 				ctx.new_rule_len > 0,
 			)

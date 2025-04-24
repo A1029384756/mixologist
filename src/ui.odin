@@ -47,6 +47,7 @@ UI_Context :: struct {
 	clay_memory:         []u8,
 	font_allocator:      virtual.Arena,
 	fonts:               sa.Small_Array(16, UI_Font),
+	images:              sa.Small_Array(16, UI_Image),
 	// sdl3
 	window:              ^sdl.Window,
 	start_time:          time.Time,
@@ -132,6 +133,18 @@ UI_Font :: struct {
 	data: []u8,
 }
 
+_UI_Image :: struct {
+	surface: ^sdl.Surface,
+	texture: ^sdl.GPUTexture,
+	size:    int,
+}
+
+UI_Image :: struct {
+	image:      _UI_Image,
+	dimensions: [2]int,
+	data:       []u8,
+}
+
 UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
 	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
@@ -143,14 +156,41 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	return font^
 }
 
+UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image {
+	ui_img := sa.get_ptr(&ctx.images, id)
+	if ui_img.dimensions.x < size.x || ui_img.dimensions.y < size.y {
+		sdl.ReleaseGPUTexture(ctx.device, ui_img.image.texture)
+		sdl.DestroySurface(ui_img.image.surface)
+
+		img_stream := sdl.IOFromConstMem(raw_data(ui_img.data), len(ui_img.data))
+		defer sdl.CloseIO(img_stream)
+		img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
+		img_texture := sdl.CreateGPUTexture(
+			ctx.device,
+			{
+				format = .R8G8B8A8_UNORM,
+				usage = {.SAMPLER},
+				width = u32(img_surface.w),
+				height = u32(img_surface.h),
+				layer_count_or_depth = 1,
+				num_levels = 1,
+			},
+		)
+		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
+		ui_img.image = _UI_Image{img_surface, img_texture, texture_size}
+		pipeline.status += {.TEXTURE_DIRTY}
+	}
+	return &ui_img.image
+}
+
 TEXT_CURSOR: ^sdl.Cursor
 HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
 UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	odin_context = context
-	arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
-	if arena_init_err != nil do panic("font allocator initialization failed")
+	font_arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
+	if font_arena_init_err != nil do panic("font allocator initialization failed")
 
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
@@ -234,7 +274,13 @@ UI_deinit :: proc(ctx: ^UI_Context) {
 
 	sdl.DestroyTray(ctx.tray)
 
+	for img in sa.slice(&ctx.images) {
+		sdl.ReleaseGPUTexture(ctx.device, img.image.texture)
+		sdl.DestroySurface(img.image.surface)
+	}
+
 	Renderer_destroy(ctx)
+
 	sdl.DestroyWindow(ctx.window)
 }
 
@@ -547,6 +593,30 @@ UI_exit :: proc(ctx: ^UI_Context) {
 	ctx.statuses += {.APP_EXIT}
 }
 
+UI_load_image_mem :: proc(ctx: ^UI_Context, data: []u8, size: [2]int) -> int {
+	img_stream := sdl.IOFromConstMem(raw_data(data), len(data))
+	defer sdl.CloseIO(img_stream)
+	img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
+	img_texture := sdl.CreateGPUTexture(
+		ctx.device,
+		{
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
+			width = u32(img_surface.w),
+			height = u32(img_surface.h),
+			layer_count_or_depth = 1,
+			num_levels = 1,
+		},
+	)
+	texture_size := 4 * int(img_surface.w) * int(img_surface.h)
+	log.debugf("loaded image of size: [%v, %v]", img_surface.w, img_surface.h)
+	image := _UI_Image{img_surface, img_texture, texture_size}
+
+	pipeline.status += {.TEXTURE_DIRTY}
+	sa.append(&ctx.images, UI_Image{image = image, dimensions = size, data = data})
+	return sa.len(ctx.images) - 1
+}
+
 UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
 	font_stream := sdl.IOFromConstMem(raw_data(data), len(data))
 	font := ttf.OpenFontIO(font_stream, true, c.float(fontsize))
@@ -745,30 +815,41 @@ UI_slider :: proc(
 	return
 }
 
-UI_text_button :: proc(
+UI_TextConfig :: struct {
+	text:  string,
+	size:  u16,
+	color: clay.Color,
+}
+
+UI_IconConfig :: struct {
+	id:    int,
+	size:  [2]int,
+	color: clay.Color,
+}
+
+UI_button :: proc(
 	ctx: ^UI_Context,
-	text: string,
+	icon_config: ^UI_IconConfig,
+	text_config: ^UI_TextConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, text_color: clay.Color,
-	text_size: u16,
-	text_padding: u16,
+	color, hover_color, press_color: clay.Color,
+	padding: u16,
 	enabled := true,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__text_button(
+	res, id = UI__button(
 		ctx,
-		text,
+		icon_config,
+		text_config,
 		layout,
 		corner_radius,
 		enabled ? color : color * {0.65, 0.65, 0.65, 1},
 		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
 		enabled ? press_color : color * {0.65, 0.65, 0.65, 1},
-		text_color,
-		text_size,
-		text_padding,
+		padding,
 	)
 
 	if enabled {
@@ -1392,21 +1473,18 @@ UI__slider :: proc(
 	return
 }
 
-
-UI__text_button :: proc(
+UI__button :: proc(
 	ctx: ^UI_Context,
-	text: string,
+	icon_config: ^UI_IconConfig,
+	text_config: ^UI_TextConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, text_color: clay.Color,
-	text_size: u16,
-	text_padding: u16,
+	color, hover_color, press_color: clay.Color,
+	padding: u16,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
-
 	if clay.UI()({layout = layout}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
@@ -1426,13 +1504,23 @@ UI__text_button :: proc(
 			id = local_id,
 			layout = {
 				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-				padding = clay.PaddingAll(text_padding),
+				padding = clay.PaddingAll(padding),
+				childAlignment = {x = .Center, y = .Center},
 			},
 			backgroundColor = selected_color,
 			cornerRadius = corner_radius,
 		},
 		) {
-			clay.TextDynamic(text, text_config)
+			if icon_config != nil {
+				UI_icon(ctx, icon_config.id, icon_config.size, icon_config.color)
+			}
+
+			if text_config != nil {
+				clay_textconfig := clay.TextConfig(
+					{textColor = text_config.color, fontSize = text_config.size},
+				)
+				clay.TextDynamic(text_config.text, clay_textconfig)
+			}
 		}
 	}
 	return
@@ -1488,5 +1576,27 @@ UI_modal_escapable :: proc(
 	) {
 		res, id = widget(ctx, user_data)
 	}
+	return
+}
+
+UI_icon :: proc(
+	ctx: ^UI_Context,
+	image_id: int,
+	image_size: [2]int,
+	tint: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()(
+	{
+		layout = {sizing = {width = clay.SizingFixed(c.float(image_size.x))}},
+		image = {
+			imageData = UI_retrieve_image(ctx, image_id, image_size),
+			sourceDimensions = {width = c.float(image_size.x), height = c.float(image_size.y)},
+		},
+		backgroundColor = tint,
+	},
+	) {}
 	return
 }

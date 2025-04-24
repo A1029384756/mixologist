@@ -34,7 +34,11 @@ void main() {
 
       o_color = vec4(border_mixed.rgb, border_mixed.a * alpha);
     }
-  } else { // text
-    o_color = i_color * texture(atlas, i_uv);
+  } else if (i_type == 1.0) { // text
+    vec4 texture_color = texture(atlas, i_uv);
+    o_color = vec4(i_color.rgb, i_color.a * texture_color.a);
+  } else { // texture
+    vec4 texture_color = texture(atlas, i_uv);
+    o_color = i_color * texture_color.a;
   }
 }
