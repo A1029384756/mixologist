@@ -489,7 +489,7 @@ rule_add_line :: proc(
 		) {
 			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-        nil,
+				nil,
 				&{text = "Add Rule", size = 16, color = TEXT},
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(32),
