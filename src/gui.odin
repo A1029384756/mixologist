@@ -231,16 +231,15 @@ rules_label :: proc(ctx: ^GUI_Context) {
 		}
 		UI_spacer(&ctx.ui_ctx)
 
-		res, _ := UI_icon_button(
+		res, _ := UI_button(
 			&ctx.ui_ctx,
+			&{id = 6, size = 16, color = TEXT},
+			&{text = "Add Rule", size = 16, color = TEXT},
 			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 			clay.CornerRadiusAll(5),
 			SURFACE_2,
 			SURFACE_1,
 			SURFACE_0,
-			TEXT,
-			6,
-			16,
 			5,
 		)
 
@@ -299,16 +298,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
 				if clay.UI()({}) {
-					delete_res, _ := UI_icon_button(
+					delete_res, _ := UI_button(
 						&ctx.ui_ctx,
+						&{id = 4, size = 16, color = CRUST},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						RED,
 						RED * {0.9, 0.9, 0.9, 1},
 						RED * {0.8, 0.8, 0.8, 1},
-						CRUST,
-						4,
-						16,
 						5,
 					)
 					if .RELEASE in delete_res {
@@ -318,16 +316,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					cancel_res, _ := UI_icon_button(
+					cancel_res, _ := UI_button(
 						&ctx.ui_ctx,
+						&{id = 3, size = 16, color = TEXT},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						SURFACE_2,
 						SURFACE_1,
 						SURFACE_0,
-						TEXT,
-						3,
-						16,
 						5,
 					)
 
@@ -338,16 +335,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					apply_res, _ := UI_icon_button(
+					apply_res, _ := UI_button(
 						&ctx.ui_ctx,
+						&{id = 5, size = 16, color = CRUST},
+						nil,
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						MAUVE,
 						MAUVE * {0.9, 0.9, 0.9, 1},
 						MAUVE * {0.8, 0.8, 0.8, 1},
-						CRUST,
-						5,
-						16,
 						5,
 					)
 
@@ -365,16 +361,15 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 			}
 		} else {
-			button_res, _ := UI_icon_button(
+			button_res, _ := UI_button(
 				&ctx.ui_ctx,
+				&{id = 2, size = 16, color = TEXT},
+				nil,
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(5),
 				SURFACE_2,
 				SURFACE_1,
 				SURFACE_0,
-				TEXT,
-				2,
-				16,
 				5,
 			)
 
@@ -492,16 +487,15 @@ rule_add_line :: proc(
 			},
 		},
 		) {
-			button_res, _ := UI_text_button(
+			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-				"Add Rule",
+        nil,
+				&{text = "Add Rule", size = 16, color = TEXT},
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(32),
 				SURFACE_2,
 				SURFACE_1,
 				SURFACE_0,
-				TEXT,
-				16,
 				12,
 				ctx.new_rule_len > 0,
 			)

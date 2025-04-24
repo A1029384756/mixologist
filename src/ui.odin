@@ -815,66 +815,41 @@ UI_slider :: proc(
 	return
 }
 
-UI_text_button :: proc(
-	ctx: ^UI_Context,
-	text: string,
-	layout: clay.LayoutConfig,
-	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, text_color: clay.Color,
-	text_size: u16,
-	text_padding: u16,
-	enabled := true,
-) -> (
-	res: UI_WidgetResults,
-	id: clay.ElementId,
-) {
-	res, id = UI__text_button(
-		ctx,
-		text,
-		layout,
-		corner_radius,
-		enabled ? color : color * {0.65, 0.65, 0.65, 1},
-		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
-		enabled ? press_color : color * {0.65, 0.65, 0.65, 1},
-		text_color,
-		text_size,
-		text_padding,
-	)
-
-	if enabled {
-		if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
-		else do UI_unfocus(ctx, id)
-
-		if .PRESS in res do UI_widget_focus(ctx, id)
-		else if .RELEASE in res do UI_unfocus(ctx, id)
-	}
-	return
+UI_TextConfig :: struct {
+	text:  string,
+	size:  u16,
+	color: clay.Color,
 }
 
-UI_icon_button :: proc(
+UI_IconConfig :: struct {
+	id:    int,
+	size:  [2]int,
+	color: clay.Color,
+}
+
+UI_button :: proc(
 	ctx: ^UI_Context,
+	icon_config: ^UI_IconConfig,
+	text_config: ^UI_TextConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, icon_color: clay.Color,
-	icon_id: int,
-	icon_size: [2]int,
-	icon_padding: u16,
+	color, hover_color, press_color: clay.Color,
+	padding: u16,
 	enabled := true,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__icon_button(
+	res, id = UI__button(
 		ctx,
+		icon_config,
+		text_config,
 		layout,
 		corner_radius,
 		enabled ? color : color * {0.65, 0.65, 0.65, 1},
 		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
 		enabled ? press_color : color * {0.65, 0.65, 0.65, 1},
-		icon_color,
-		icon_id,
-		icon_size,
-		icon_padding,
+		padding,
 	)
 
 	if enabled {
@@ -1498,60 +1473,14 @@ UI__slider :: proc(
 	return
 }
 
-UI__text_button :: proc(
+UI__button :: proc(
 	ctx: ^UI_Context,
-	text: string,
+	icon_config: ^UI_IconConfig,
+	text_config: ^UI_TextConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, text_color: clay.Color,
-	text_size: u16,
-	text_padding: u16,
-) -> (
-	res: UI_WidgetResults,
-	id: clay.ElementId,
-) {
-	text_config := clay.TextConfig({textColor = text_color, fontSize = text_size})
-
-	if clay.UI()({layout = layout}) {
-		local_id := clay.ID_LOCAL(#procedure)
-		id = local_id
-
-		active := UI_widget_active(ctx, id)
-		selected_color := color
-		if active do selected_color = press_color
-		else if clay.Hovered() do selected_color = hover_color
-
-		if clay.Hovered() do ctx.hovered_widget = id
-		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
-		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
-
-		if clay.UI()(
-		{
-			id = local_id,
-			layout = {
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-				padding = clay.PaddingAll(text_padding),
-			},
-			backgroundColor = selected_color,
-			cornerRadius = corner_radius,
-		},
-		) {
-			clay.TextDynamic(text, text_config)
-		}
-	}
-	return
-}
-
-UI__icon_button :: proc(
-	ctx: ^UI_Context,
-	layout: clay.LayoutConfig,
-	corner_radius: clay.CornerRadius,
-	color, hover_color, press_color, icon_color: clay.Color,
-	icon_id: int,
-	icon_size: [2]int,
-	icon_padding: u16,
-	enabled := true,
+	color, hover_color, press_color: clay.Color,
+	padding: u16,
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -1575,13 +1504,23 @@ UI__icon_button :: proc(
 			id = local_id,
 			layout = {
 				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
-				padding = clay.PaddingAll(icon_padding),
+				padding = clay.PaddingAll(padding),
+				childAlignment = {x = .Center, y = .Center},
 			},
 			backgroundColor = selected_color,
 			cornerRadius = corner_radius,
 		},
 		) {
-			UI_icon(ctx, icon_id, icon_size, icon_color)
+			if icon_config != nil {
+				UI_icon(ctx, icon_config.id, icon_config.size, icon_config.color)
+			}
+
+			if text_config != nil {
+				clay_textconfig := clay.TextConfig(
+					{textColor = text_config.color, fontSize = text_config.size},
+				)
+				clay.TextDynamic(text_config.text, clay_textconfig)
+			}
 		}
 	}
 	return
