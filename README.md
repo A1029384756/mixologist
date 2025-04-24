@@ -54,7 +54,10 @@ Flags:
 Mixologist exits to the tray and is "always running" unless
 otherwise explicitly exited.
 
-If you wish to have hardware volume control,
+Mixologist can be controlled via global shortcuts that should
+open on first launch, asking you to configure them.
+
+If you don't have access to global shortcuts,
 set keybinds in your desktop environment to the
 corresponding command that you wish to
 invoke. For example:
@@ -79,7 +82,8 @@ This is currently a JSON file of the following structure:
 {
 	"rules": [
 		"Chromium.*"
-	]
+	],
+    "start_minimized": false
 }
 ```
 This represent the set of programs you wish to isolate.
@@ -90,6 +94,8 @@ text editor.
 ## Planned Features
 - [x] GUI
 - [x] Flatpak distribution (GUI-only)
+- [ ] Proper settings menu
+- [ ] Revamped theming system
 - [ ] Improved Packaging for:
     - Debian
     - NixOS
