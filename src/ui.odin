@@ -141,8 +141,9 @@ _UI_Image :: struct {
 }
 
 UI_Image :: struct {
-	image: map[[2]int]_UI_Image,
-	data:  []u8,
+	image:      _UI_Image,
+	dimensions: [2]int,
+	data:       []u8,
 }
 
 UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
@@ -158,8 +159,10 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 
 UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image {
 	ui_img := sa.get_ptr(&ctx.images, id)
-	_, m_img, just_inserted, _ := map_entry(&ui_img.image, size)
-	if just_inserted {
+	if ui_img.dimensions.x < size.x || ui_img.dimensions.y < size.y {
+		sdl.ReleaseGPUTexture(ctx.device, ui_img.image.texture)
+		sdl.DestroySurface(ui_img.image.surface)
+
 		img_stream := sdl.IOFromConstMem(raw_data(ui_img.data), len(ui_img.data))
 		defer sdl.CloseIO(img_stream)
 		img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
@@ -175,10 +178,10 @@ UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image
 			},
 		)
 		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
-		m_img^ = _UI_Image{img_surface, img_texture, texture_size}
+		ui_img.image = _UI_Image{img_surface, img_texture, texture_size}
 		pipeline.status += {.TEXTURE_DIRTY}
 	}
-	return m_img
+	return &ui_img.image
 }
 
 TEXT_CURSOR: ^sdl.Cursor
@@ -274,11 +277,9 @@ UI_deinit :: proc(ctx: ^UI_Context) {
 
 	sdl.DestroyTray(ctx.tray)
 
-	for image in sa.slice(&ctx.images) {
-		for _, img in image.image {
-			sdl.ReleaseGPUTexture(ctx.device, img.texture)
-			sdl.DestroySurface(img.surface)
-		}
+	for img in sa.slice(&ctx.images) {
+		sdl.ReleaseGPUTexture(ctx.device, img.image.texture)
+		sdl.DestroySurface(img.image.surface)
 	}
 	virtual.arena_destroy(&ctx.image_allocator)
 
@@ -613,12 +614,10 @@ UI_load_image_mem :: proc(ctx: ^UI_Context, data: []u8, size: [2]int) -> int {
 	)
 	texture_size := 4 * int(img_surface.w) * int(img_surface.h)
 	log.debugf("loaded image of size: [%v, %v]", img_surface.w, img_surface.h)
-
-	img_map := make(map[[2]int]_UI_Image, 16, virtual.arena_allocator(&ctx.image_allocator))
-	img_map[size] = _UI_Image{img_surface, img_texture, texture_size}
+	image := _UI_Image{img_surface, img_texture, texture_size}
 
 	pipeline.status += {.TEXTURE_DIRTY}
-	sa.append(&ctx.images, UI_Image{image = img_map, data = data})
+	sa.append(&ctx.images, UI_Image{image = image, dimensions = size, data = data})
 	return sa.len(ctx.images) - 1
 }
 
