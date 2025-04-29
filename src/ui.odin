@@ -815,6 +815,11 @@ UI_slider :: proc(
 	return
 }
 
+UI_ElementConfig :: union {
+	UI_TextConfig,
+	UI_IconConfig,
+}
+
 UI_TextConfig :: struct {
 	text:  string,
 	size:  u16,
@@ -829,8 +834,7 @@ UI_IconConfig :: struct {
 
 UI_button :: proc(
 	ctx: ^UI_Context,
-	icon_config: ^UI_IconConfig,
-	text_config: ^UI_TextConfig,
+	elements: []UI_ElementConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
 	color, hover_color, press_color: clay.Color,
@@ -842,8 +846,7 @@ UI_button :: proc(
 ) {
 	res, id = UI__button(
 		ctx,
-		icon_config,
-		text_config,
+		elements,
 		layout,
 		corner_radius,
 		enabled ? color : color * {0.65, 0.65, 0.65, 1},
@@ -1475,8 +1478,7 @@ UI__slider :: proc(
 
 UI__button :: proc(
 	ctx: ^UI_Context,
-	icon_config: ^UI_IconConfig,
-	text_config: ^UI_TextConfig,
+	elements: []UI_ElementConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
 	color, hover_color, press_color: clay.Color,
@@ -1511,15 +1513,16 @@ UI__button :: proc(
 			cornerRadius = corner_radius,
 		},
 		) {
-			if icon_config != nil {
-				UI_icon(ctx, icon_config.id, icon_config.size, icon_config.color)
-			}
-
-			if text_config != nil {
-				clay_textconfig := clay.TextConfig(
-					{textColor = text_config.color, fontSize = text_config.size},
-				)
-				clay.TextDynamic(text_config.text, clay_textconfig)
+			for element in elements {
+				switch element in element {
+				case UI_IconConfig:
+					UI_icon(ctx, element.id, element.size, element.color)
+				case UI_TextConfig:
+					clay_textconfig := clay.TextConfig(
+						{textColor = element.color, fontSize = element.size},
+					)
+					clay.TextDynamic(element.text, clay_textconfig)
+				}
 			}
 		}
 	}

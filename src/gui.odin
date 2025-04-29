@@ -233,8 +233,10 @@ rules_label :: proc(ctx: ^GUI_Context) {
 
 		res, _ := UI_button(
 			&ctx.ui_ctx,
-			&{id = 6, size = 16, color = TEXT},
-			&{text = "Add Rule", size = 16, color = TEXT},
+			{
+				UI_IconConfig{id = 6, size = 16, color = TEXT},
+				UI_TextConfig{text = "Add Rule", size = 16, color = TEXT},
+			},
 			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 			clay.CornerRadiusAll(5),
 			SURFACE_2,
@@ -300,8 +302,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				if clay.UI()({}) {
 					delete_res, _ := UI_button(
 						&ctx.ui_ctx,
-						&{id = 4, size = 16, color = CRUST},
-						nil,
+						{UI_IconConfig{id = 4, size = 16, color = CRUST}},
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						RED,
@@ -318,8 +319,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				if clay.UI()({}) {
 					cancel_res, _ := UI_button(
 						&ctx.ui_ctx,
-						&{id = 3, size = 16, color = TEXT},
-						nil,
+						{UI_IconConfig{id = 3, size = 16, color = TEXT}},
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						SURFACE_2,
@@ -337,8 +337,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				if clay.UI()({}) {
 					apply_res, _ := UI_button(
 						&ctx.ui_ctx,
-						&{id = 5, size = 16, color = CRUST},
-						nil,
+						{UI_IconConfig{id = 5, size = 16, color = CRUST}},
 						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 						clay.CornerRadiusAll(5),
 						MAUVE,
@@ -363,8 +362,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 		} else {
 			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-				&{id = 2, size = 16, color = TEXT},
-				nil,
+				{UI_IconConfig{id = 2, size = 16, color = TEXT}},
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(5),
 				SURFACE_2,
@@ -489,8 +487,7 @@ rule_add_line :: proc(
 		) {
 			button_res, _ := UI_button(
 				&ctx.ui_ctx,
-				nil,
-				&{text = "Add Rule", size = 16, color = TEXT},
+				{UI_TextConfig{text = "Add Rule", size = 16, color = TEXT}},
 				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 				clay.CornerRadiusAll(32),
 				SURFACE_2,
