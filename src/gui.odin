@@ -4,6 +4,7 @@ import "./clay"
 import "core:strings"
 
 GUI_Context_Status :: enum u8 {
+	SETTINGS,
 	ADDING_NEW,
 	ADDING,
 	RULES,
@@ -35,6 +36,7 @@ gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {24, 24}) // DELETE = 4
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {24, 24}) // APPLY = 5
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {24, 24}) // PLUS = 6
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/settings-symbolic.svg"), {24, 24}) // SETTINGS = 7
 }
 
 gui_tick :: proc(ctx: ^GUI_Context) {
@@ -132,52 +134,77 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 				scrollbar(ctx)
 			}
 
-			volume_slider(ctx)
+			bottom_slider(ctx)
 		}
 	}
-	rule_add_modal(ctx)
+	modals(ctx)
 
 	return clay.EndLayout()
 }
 
-volume_slider :: proc(ctx: ^GUI_Context) {
+bottom_slider :: proc(ctx: ^GUI_Context) {
 	if clay.UI()(
 	{
 		layout = {
 			sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
-			padding = clay.PaddingAll(16),
-			childGap = 12,
 			childAlignment = {.Center, .Center},
 			layoutDirection = .LeftToRight,
 		},
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		UI_icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
-
-		vol := mixologist.volume
-		slider_res, _ := UI_slider(
+		settings_res, _ := UI_button(
 			&ctx.ui_ctx,
-			&vol,
-			0,
-			-1,
-			1,
-			OVERLAY_2,
-			OVERLAY_1,
-			OVERLAY_0,
+			{UI_IconConfig{id = 7, size = 32, color = TEXT}},
+			{sizing = {clay.SizingFixed(48), clay.SizingFixed(48)}},
+			clay.CornerRadiusAll(0),
 			SURFACE_2,
-			MAUVE,
-			{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
-			0.025,
+			SURFACE_1,
+			SURFACE_1 * 0.8,
 			0,
 		)
-
-		if .CHANGE in slider_res {
-			append(&mixologist.events, Volume(vol))
-			ctx.statuses += {.VOLUME}
+		if .RELEASE in settings_res {
+			ctx.statuses += {.SETTINGS}
 		}
 
-		UI_icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
+		if clay.UI()(
+		{
+			layout = {
+				sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+				padding = clay.PaddingAll(16),
+				childGap = 12,
+				childAlignment = {.Center, .Center},
+				layoutDirection = .LeftToRight,
+			},
+			backgroundColor = SURFACE_0,
+		},
+		) {
+			UI_icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
+
+			vol := mixologist.volume
+			slider_res, _ := UI_slider(
+				&ctx.ui_ctx,
+				&vol,
+				0,
+				-1,
+				1,
+				OVERLAY_2,
+				OVERLAY_1,
+				OVERLAY_0,
+				SURFACE_2,
+				MAUVE,
+				{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+				0.025,
+				0,
+			)
+
+			if .CHANGE in slider_res {
+				append(&mixologist.events, Volume(vol))
+				ctx.statuses += {.VOLUME}
+			}
+
+			UI_icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
+		}
 	}
 }
 
@@ -299,64 +326,58 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
-				if clay.UI()({}) {
-					delete_res, _ := UI_button(
-						&ctx.ui_ctx,
-						{UI_IconConfig{id = 4, size = 16, color = CRUST}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-						clay.CornerRadiusAll(5),
-						RED,
-						RED * {0.9, 0.9, 0.9, 1},
-						RED * {0.8, 0.8, 0.8, 1},
-						5,
-					)
-					if .RELEASE in delete_res {
-						append(&mixologist.events, Rule_Remove(rule))
-						ctx.statuses += {.RULES}
-					}
+				delete_res, _ := UI_button(
+					&ctx.ui_ctx,
+					{UI_IconConfig{id = 4, size = 16, color = CRUST}},
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					RED,
+					RED * {0.9, 0.9, 0.9, 1},
+					RED * {0.8, 0.8, 0.8, 1},
+					5,
+				)
+				if .RELEASE in delete_res {
+					append(&mixologist.events, Rule_Remove(rule))
+					ctx.statuses += {.RULES}
 				}
 
-				if clay.UI()({}) {
-					cancel_res, _ := UI_button(
-						&ctx.ui_ctx,
-						{UI_IconConfig{id = 3, size = 16, color = TEXT}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-						clay.CornerRadiusAll(5),
-						SURFACE_2,
-						SURFACE_1,
-						SURFACE_0,
-						5,
-					)
+				cancel_res, _ := UI_button(
+					&ctx.ui_ctx,
+					{UI_IconConfig{id = 3, size = 16, color = TEXT}},
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					5,
+				)
 
-					if .RELEASE in cancel_res {
-						ctx.active_line = 0
-						UI_unfocus(&ctx.ui_ctx, tb_id)
-					}
+				if .RELEASE in cancel_res {
+					ctx.active_line = 0
+					UI_unfocus(&ctx.ui_ctx, tb_id)
 				}
 
-				if clay.UI()({}) {
-					apply_res, _ := UI_button(
-						&ctx.ui_ctx,
-						{UI_IconConfig{id = 5, size = 16, color = CRUST}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-						clay.CornerRadiusAll(5),
-						MAUVE,
-						MAUVE * {0.9, 0.9, 0.9, 1},
-						MAUVE * {0.8, 0.8, 0.8, 1},
-						5,
-					)
+				apply_res, _ := UI_button(
+					&ctx.ui_ctx,
+					{UI_IconConfig{id = 5, size = 16, color = CRUST}},
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					MAUVE,
+					MAUVE * {0.9, 0.9, 0.9, 1},
+					MAUVE * {0.8, 0.8, 0.8, 1},
+					5,
+				)
 
-					if .RELEASE in apply_res {
-						append(
-							&mixologist.events,
-							Rule_Update {
-								rule,
-								strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
-							},
-						)
-						ctx.statuses += {.RULES}
-						ctx.active_line = 0
-					}
+				if .RELEASE in apply_res {
+					append(
+						&mixologist.events,
+						Rule_Update {
+							rule,
+							strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
+						},
+					)
+					ctx.statuses += {.RULES}
+					ctx.active_line = 0
 				}
 			}
 		} else {
@@ -404,10 +425,13 @@ list_separator :: proc() {
 	}
 }
 
-rule_add_modal :: proc(ctx: ^GUI_Context) {
+modals :: proc(ctx: ^GUI_Context) {
 	if .ADDING in ctx.statuses {
 		res, _ := UI_modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, rule_add_line, ctx)
 		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
+	} else if .SETTINGS in ctx.statuses {
+		res, _ := UI_modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, settings_menu, ctx)
+		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
 	}
 }
 
@@ -508,6 +532,69 @@ rule_add_line :: proc(
 					res += {.SUBMIT}
 				}
 			}
+		}
+	}
+
+	return
+}
+
+settings_menu :: proc(
+	ui_ctx: ^UI_Context,
+	ctx: rawptr,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	ctx := cast(^GUI_Context)ctx
+
+	if clay.UI()(
+	{
+		layout = {
+			sizing = {clay.SizingFit({}), clay.SizingFit({})},
+			childAlignment = {y = .Center},
+			layoutDirection = .TopToBottom,
+			padding = clay.PaddingAll(16),
+			childGap = 16,
+		},
+		backgroundColor = BASE,
+		cornerRadius = clay.CornerRadiusAll(10),
+	},
+	) {
+		if !clay.Hovered() && .LEFT in ctx.ui_ctx.mouse_pressed do res += {.CANCEL}
+		if .ESCAPE in ctx.ui_ctx.keys_pressed do res += {.CANCEL}
+
+		UI_textlabel("Settings", {textColor = TEXT, fontSize = 20})
+
+		if .GlobalShortcuts in mixologist.statuses {
+			if clay.UI()({layout = {childAlignment = {y = .Center}, childGap = 5}}) {
+				UI_textlabel("Rebind Hotkeys", {textColor = TEXT, fontSize = 16})
+				UI_spacer(&ctx.ui_ctx)
+				_, _ = UI_button(
+					&ctx.ui_ctx,
+					{UI_IconConfig{id = 6, size = 16, color = TEXT}},
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(5),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					5,
+				)
+			}
+		}
+
+		if clay.UI()({layout = {childAlignment = {y = .Center}, childGap = 5}}) {
+			UI_textlabel("Start Minimized", {textColor = TEXT, fontSize = 16})
+			UI_spacer(&ctx.ui_ctx)
+			_, _ = UI_button(
+				&ctx.ui_ctx,
+				{UI_IconConfig{id = 6, size = 16, color = TEXT}},
+				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+				clay.CornerRadiusAll(5),
+				SURFACE_2,
+				SURFACE_1,
+				SURFACE_0,
+				5,
+			)
 		}
 	}
 

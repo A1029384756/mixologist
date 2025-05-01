@@ -27,6 +27,7 @@ UI_Context :: struct {
 	hovered_widget:      clay.ElementId,
 	prev_hovered_widget: clay.ElementId,
 	statuses:            UI_Context_Statuses,
+	id_counter:          u32,
 	// input handling
 	_text_store:         [1024]u8, // global text input per frame
 	click_count:         int,
@@ -421,8 +422,10 @@ UI_tick :: proc(
 
 	// run layout twice to avoid 1-frame
 	// delay of immediate mode
+	ctx.id_counter = 0
 	_ = ui_create_layout(ctx, userdata)
 	{
+		ctx.id_counter = 0
 		strings.builder_reset(&ctx.textbox_input)
 		ctx.mouse_pressed = {}
 		ctx.mouse_released = {}
@@ -875,7 +878,7 @@ UI__scrollbar :: proc(
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	local_id := clay.ID_LOCAL(#procedure)
+	local_id := UI__gen_local_id(ctx, #procedure)
 	id = local_id
 
 	bar_width := bar_width
@@ -975,7 +978,7 @@ UI__scroll_target :: proc(
 		},
 	},
 	) {
-		local_id := clay.ID_LOCAL(#procedure)
+		local_id := UI__gen_local_id(ctx, #procedure)
 		id = local_id
 
 		if clay.UI()(
@@ -1026,7 +1029,7 @@ UI__textbox :: proc(
 	text_config := clay.TextConfig(text_config)
 
 	if clay.UI()({layout = {sizing = config.layout.sizing}}) {
-		local_id := clay.ID_LOCAL(#procedure)
+		local_id := UI__gen_local_id(ctx, #procedure)
 		id = local_id
 
 		active := UI_widget_active(ctx, local_id)
@@ -1341,7 +1344,7 @@ UI__slider :: proc(
 	id: clay.ElementId,
 ) where intrinsics.type_is_float(T) {
 	if clay.UI()({layout = layout}) {
-		local_id := clay.ID_LOCAL(#procedure)
+		local_id := UI__gen_local_id(ctx, #procedure)
 		id = local_id
 
 		active := UI_widget_active(ctx, local_id)
@@ -1488,7 +1491,7 @@ UI__button :: proc(
 	id: clay.ElementId,
 ) {
 	if clay.UI()({layout = layout}) {
-		local_id := clay.ID_LOCAL(#procedure)
+		local_id := UI__gen_local_id(ctx, #procedure)
 		id = local_id
 
 		active := UI_widget_active(ctx, id)
@@ -1531,7 +1534,7 @@ UI__button :: proc(
 
 UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementId) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
-		local_id := clay.ID_LOCAL(#procedure)
+		local_id := UI__gen_local_id(ctx, #procedure)
 		id = local_id
 		if clay.UI()({id = local_id}) {
 			if clay.Hovered() do ctx.hovered_widget = id
@@ -1602,4 +1605,10 @@ UI_icon :: proc(
 	},
 	) {}
 	return
+}
+
+UI__gen_local_id :: proc(ctx: ^UI_Context, label: string) -> clay.ElementId {
+	local_id := clay.ID_LOCAL(label, ctx.id_counter)
+	ctx.id_counter += 1
+	return local_id
 }
