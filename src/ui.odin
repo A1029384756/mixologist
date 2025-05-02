@@ -1049,7 +1049,7 @@ UI__textbox :: proc(
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
 					childAlignment = {y = .Center},
 				},
-				scroll = {horizontal = active},
+				clip = {horizontal = active, childOffset = clay.GetScrollOffset()},
 			},
 			) {
 				elem_loc_data := clay.GetElementData(local_id)
@@ -1246,7 +1246,7 @@ UI__textbox :: proc(
 						ctx,
 					)
 
-					PADDING :: 5
+					PADDING :: 0
 					sizing := [2]c.float {
 						elem_loc_data.boundingBox.width,
 						elem_loc_data.boundingBox.height,
