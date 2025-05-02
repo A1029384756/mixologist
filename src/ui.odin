@@ -1049,7 +1049,10 @@ UI__textbox :: proc(
 					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
 					childAlignment = {y = .Center},
 				},
-				scroll = {horizontal = active},
+				clip = {
+					horizontal = true,
+					childOffset = {active ? c.float(ctx.textbox_offset) : 0, 0},
+				},
 			},
 			) {
 				elem_loc_data := clay.GetElementData(local_id)
@@ -1313,11 +1316,6 @@ UI__textbox :: proc(
 							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
-
-					// [TODO] fix nested scrolldata fetching
-					scroll_data := clay.GetScrollContainerData(local_id)
-					if scroll_data.found do scroll_data.scrollPosition^ = {c.float(ctx.textbox_offset), 0}
-					else do fmt.eprintln("Could not get scroll data for:", local_id)
 
 					clay.TextDynamic(text_str, text_config)
 				} else {

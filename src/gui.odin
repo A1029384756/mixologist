@@ -89,7 +89,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 						padding = clay.PaddingAll(16),
 						childAlignment = {x = .Center},
 					},
-					scroll = {vertical = true},
+					clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 				},
 				) {
 					if clay.UI()(
