@@ -234,3 +234,10 @@ fprintf :: proc(
 	w := bufio.writer_to_writer(&b)
 	return fmt.wprintf(w, format, ..args, flush = flush, newline = newline)
 }
+
+string_subst_bytes :: proc(input: string, og, replacement: byte) {
+	input_bytes := transmute([]u8)input
+	for &input_byte in input_bytes {
+		if input_byte == og do input_byte = replacement
+	}
+}

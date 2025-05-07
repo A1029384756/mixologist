@@ -162,7 +162,7 @@ main :: proc() {
 				if listed_shortcut.id == shortcut.id do found = true
 			}
 			if !found {
-				fmt.println(shortcut)
+				log.infof("could not find shortcut: %v", shortcut)
 				all_shortcuts_bound = false
 				break
 			}
@@ -473,6 +473,7 @@ mixologist_globalshortcuts_handler :: proc "c" (
 		case .RESET:
 			append(&mixologist.events, 0)
 		}
+		return .HANDLED
 	}
-	return .HANDLED
+	return .NOT_YET_HANDLED
 }

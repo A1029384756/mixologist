@@ -1,10 +1,15 @@
 package mixologist
 
 import "../dbus"
+import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:math/rand"
 import "core:os/os2"
 import "core:strings"
+import "core:time"
+
+GlobalShortcuts_odin_ctx: runtime.Context
 
 GlobalShortcuts_Session :: struct {
 	conn:           ^dbus.Connection,
@@ -16,6 +21,16 @@ GlobalShortcut :: struct {
 	id:                  string,
 	description:         string,
 	trigger_description: string,
+}
+
+GlobalShortcuts_ResponseContext :: struct {
+	// possible values
+	shortcuts:     []GlobalShortcut,
+	// status fields
+	completed:     bool,
+	response_code: u32,
+	match_rule:    cstring,
+	allocator:     runtime.Allocator,
 }
 
 GlobalShortcuts_SignalType :: enum {
@@ -68,6 +83,7 @@ GlobalShortcuts_Init :: proc(
 	signal_userdata: rawptr,
 	signal_data_free: dbus.FreeProc,
 ) -> Error {
+	GlobalShortcuts_odin_ctx = context
 	err: dbus.Error
 	dbus.error_init(&err)
 	gs.conn = dbus.bus_get(.SESSION, &err)
@@ -155,9 +171,10 @@ GlobalShortcuts_CreateSession :: proc(
 	defer dbus.message_unref(reply)
 
 	reply_args: dbus.MessageIter
-	request_path: cstring
+	received_path: cstring
 	dbus.message_iter_init(reply, &reply_args)
-	dbus.message_iter_get_basic(&reply_args, &request_path)
+	dbus.message_iter_get_basic(&reply_args, &received_path)
+	log.infof("received request path: %s", received_path)
 
 	for dbus.connection_read_write_dispatch(gs.conn, 100) {
 		signal_msg := dbus.connection_pop_message(gs.conn)
@@ -166,7 +183,7 @@ GlobalShortcuts_CreateSession :: proc(
 
 		if dbus.message_is_signal(signal_msg, "org.freedesktop.portal.Request", "Response") {
 			signal_path := dbus.message_get_path(signal_msg)
-			if signal_path != request_path do continue
+			if signal_path != received_path do continue
 
 			signal_args, results: dbus.MessageIter
 			response_code: u32
@@ -229,6 +246,23 @@ GlobalShortcuts_BindShortcuts :: proc(
 
 	err: dbus.Error
 	dbus.error_init(&err)
+
+	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	response_context: GlobalShortcuts_ResponseContext
+	_GlobalShortcuts_dbus_Subscribe(
+		&response_context,
+		gs.conn,
+		handle_token,
+		GlobalShortcuts_ShortcutResponseHandler,
+		allocator,
+		temp_allocator,
+	)
+	defer _GlobalShortcuts_dbus_Unsubscribe(
+		&response_context,
+		gs.conn,
+		GlobalShortcuts_ShortcutResponseHandler,
+	)
+
 	msg := dbus.message_new_method_call(
 		"org.freedesktop.portal.Desktop",
 		"/org/freedesktop/portal/desktop",
@@ -269,12 +303,7 @@ GlobalShortcuts_BindShortcuts :: proc(
 
 	options: dbus.MessageIter
 	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &options) {
-		_dict_append_entry(
-			&options,
-			"handle_token",
-			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
-			temp_allocator,
-		)
+		_dict_append_entry(&options, "handle_token", handle_token, temp_allocator)
 	}
 
 	reply := dbus.connection_send_with_reply_and_block(
@@ -285,37 +314,30 @@ GlobalShortcuts_BindShortcuts :: proc(
 	)
 	if dbus.error_is_set(&err) do return nil, err.message
 	defer dbus.message_unref(reply)
+	log.infof("sent global shortcut bind request")
 
 	reply_args: dbus.MessageIter
-	request_path: cstring
+	received_path: cstring
 	if !dbus.message_iter_init(reply, &reply_args) {
 		return nil, "Failed to parse BindShortcuts reply"
 	}
-	dbus.message_iter_get_basic(&reply_args, &request_path)
+	dbus.message_iter_get_basic(&reply_args, &received_path)
+	log.infof("received request path: %s", received_path)
 
-	for dbus.connection_read_write_dispatch(gs.conn, 100) {
-		signal_msg := dbus.connection_pop_message(gs.conn)
-		if signal_msg == nil do continue
-		defer dbus.message_unref(signal_msg)
+	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn, 5 * time.Second)
 
-		if dbus.message_is_signal(signal_msg, "org.freedesktop.portal.Request", "Response") {
-			signal_path := dbus.message_get_path(signal_msg)
-			if signal_path != request_path do continue
-
-			signal_args, results: dbus.MessageIter
-			response_code: u32
-
-			dbus.message_iter_init(signal_msg, &signal_args)
-			dbus.message_iter_get_basic(&signal_args, &response_code)
-
-			dbus.message_iter_next(&signal_args)
-			dbus.message_iter_recurse(&signal_args, &results)
-
-			shortcuts_iter := Dict_GetKey(&results, "shortcuts")
-			return _GlobalShortcuts_DeserializeShortcuts(&shortcuts_iter, allocator), nil
-		}
+	if response_context.response_code != 0 {
+		log.infof("bindshortcuts error response code: %d", response_context.response_code)
 	}
-	return nil, "failed to parse BindShortcuts reply"
+
+	if len(response_context.shortcuts) == 0 {
+		log.info("no shortcuts returned")
+		return nil, nil
+	}
+
+	res_shortcuts := response_context.shortcuts
+	response_context.shortcuts = nil
+	return res_shortcuts, nil
 }
 
 GlobalShortcuts_ListShortcuts :: proc(
@@ -330,6 +352,22 @@ GlobalShortcuts_ListShortcuts :: proc(
 
 	err: dbus.Error
 	dbus.error_init(&err)
+
+	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	response_context: GlobalShortcuts_ResponseContext
+	_GlobalShortcuts_dbus_Subscribe(
+		&response_context,
+		gs.conn,
+		handle_token,
+		GlobalShortcuts_ShortcutResponseHandler,
+		allocator,
+		temp_allocator,
+	)
+	defer _GlobalShortcuts_dbus_Unsubscribe(
+		&response_context,
+		gs.conn,
+		GlobalShortcuts_ShortcutResponseHandler,
+	)
 
 	msg := dbus.message_new_method_call(
 		"org.freedesktop.portal.Desktop",
@@ -346,11 +384,7 @@ GlobalShortcuts_ListShortcuts :: proc(
 	dbus.message_iter_append_basic(&args, .OBJECT_PATH, &session_handle_cstr)
 
 	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &dict) {
-		_dict_append_entry(
-			&dict,
-			"handle_token",
-			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
-		)
+		_dict_append_entry(&dict, "handle_token", handle_token)
 	}
 
 	reply := dbus.connection_send_with_reply_and_block(
@@ -363,35 +397,26 @@ GlobalShortcuts_ListShortcuts :: proc(
 	defer dbus.message_unref(reply)
 
 	reply_args: dbus.MessageIter
-	request_path: cstring
+	received_path: cstring
 	if !dbus.message_iter_init(reply, &reply_args) {
 		return nil, "Failed to parse ListShortcuts reply"
 	}
-	dbus.message_iter_get_basic(&reply_args, &request_path)
+	dbus.message_iter_get_basic(&reply_args, &received_path)
+	log.infof("received request path: %s", received_path)
 
-	for dbus.connection_read_write_dispatch(gs.conn, 100) {
-		signal_msg := dbus.connection_pop_message(gs.conn)
-		if signal_msg == nil do continue
-		defer dbus.message_unref(signal_msg)
-
-		if dbus.message_is_signal(signal_msg, "org.freedesktop.portal.Request", "Response") {
-			signal_path := dbus.message_get_path(signal_msg)
-			if signal_path != request_path do continue
-
-			signal_args, results: dbus.MessageIter
-			response_code: u32
-
-			dbus.message_iter_init(signal_msg, &signal_args)
-			dbus.message_iter_get_basic(&signal_args, &response_code)
-
-			dbus.message_iter_next(&signal_args)
-			dbus.message_iter_recurse(&signal_args, &results)
-
-			shortcuts_iter := Dict_GetKey(&results, "shortcuts")
-			return _GlobalShortcuts_DeserializeShortcuts(&shortcuts_iter, allocator), nil
-		}
+	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn, 5 * time.Second)
+	if response_context.response_code != 0 {
+		log.infof("listshortcuts error response code: %d", response_context.response_code)
 	}
-	return nil, "failed to parse ListShortcuts reply"
+
+	if len(response_context.shortcuts) == 0 {
+		log.info("no shortcuts returned")
+		return nil, nil
+	}
+
+	shortcuts = response_context.shortcuts
+	response_context.shortcuts = nil
+	return
 }
 
 GlobalShortcuts_SliceDelete :: proc(shortcuts: []GlobalShortcut, allocator := context.allocator) {
@@ -461,7 +486,7 @@ Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> dbus.MessageI
 		dbus.message_iter_next(dict_iter)
 	}
 
-	fmt.panicf("could not get key: %v", get)
+	log.panicf("could not get key: %v", get)
 }
 
 _dict_append_entry :: proc(
@@ -479,4 +504,106 @@ _dict_append_entry :: proc(
 			dbus.message_iter_append_basic(&variant, .STRING, &val_cstr)
 		}
 	}
+}
+
+GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
+	conn: ^dbus.Connection,
+	msg: ^dbus.Message,
+	user_data: rawptr,
+) -> dbus.HandlerResult {
+	context = GlobalShortcuts_odin_ctx
+	response_context := cast(^GlobalShortcuts_ResponseContext)user_data
+
+	if dbus.message_is_signal(msg, "org.freedesktop.portal.Request", "Response") {
+		signal_args, results: dbus.MessageIter
+		dbus.message_iter_init(msg, &signal_args)
+		dbus.message_iter_get_basic(&signal_args, &response_context.response_code)
+
+		dbus.message_iter_next(&signal_args)
+		dbus.message_iter_recurse(&signal_args, &results)
+
+		shortcuts_iter := Dict_GetKey(&results, "shortcuts")
+		if dbus.message_iter_get_arg_type(&shortcuts_iter) == .ARRAY {
+			response_context.shortcuts = _GlobalShortcuts_DeserializeShortcuts(
+				&shortcuts_iter,
+				response_context.allocator,
+			)
+		} else {
+			log.errorf(
+				"expected ARRAY for 'shortcuts', got %v",
+				dbus.message_iter_get_arg_type(&shortcuts_iter),
+			)
+		}
+
+		response_context.completed = true
+		return .HANDLED
+	}
+
+	return .NOT_YET_HANDLED
+}
+
+_GlobalShortcuts_dbus_Subscribe :: proc(
+	ctx: ^GlobalShortcuts_ResponseContext,
+	conn: ^dbus.Connection,
+	handle_token: string,
+	handler: dbus.HandleMessageProc,
+	allocator := context.allocator,
+	temp_allocator := context.temp_allocator,
+) {
+	err: dbus.Error
+	dbus.error_init(&err)
+
+	request_path := fmt.aprintf(
+		"/org/freedesktop/portal/desktop/request/%s/%s",
+		string(dbus.bus_get_unique_name(conn))[1:],
+		handle_token,
+		allocator = temp_allocator,
+	)
+	string_subst_bytes(request_path, '.', '_')
+	ctx.allocator = allocator
+
+	ctx.match_rule = fmt.caprintf(
+		"type='signal',interface='org.freedesktop.portal.Request',member='Response',path='%s'",
+		request_path,
+		allocator = temp_allocator,
+	)
+	dbus.bus_add_match(conn, ctx.match_rule, &err)
+	if dbus.error_is_set(&err) {
+		log.panicf("could not add match rule %s", err.message)
+	}
+
+	dbus.connection_add_filter(conn, handler, ctx, nil)
+}
+
+_GlobalShortcuts_dbus_Unsubscribe :: proc(
+	ctx: ^GlobalShortcuts_ResponseContext,
+	conn: ^dbus.Connection,
+	handler: dbus.HandleMessageProc,
+) {
+	dbus.connection_remove_filter(conn, handler, ctx)
+	dbus.bus_remove_match(conn, ctx.match_rule, nil)
+	if ctx.shortcuts != nil {
+		GlobalShortcuts_SliceDelete(ctx.shortcuts, ctx.allocator)
+	}
+}
+
+_GlobalShortcuts_dbus_wait_for_response :: proc(
+	ctx: ^GlobalShortcuts_ResponseContext,
+	conn: ^dbus.Connection,
+	timeout: time.Duration,
+) -> bool {
+	start_time := time.now()
+	for !ctx.completed {
+		if !dbus.connection_read_write_dispatch(conn, 100) {
+			log.errorf("dbus dispatch failure")
+			return false
+		}
+
+		if timeout > 0 && time.since(start_time) > timeout {
+			log.errorf("timed out waiting for response signal")
+			return false
+		}
+	}
+
+	return true
 }
