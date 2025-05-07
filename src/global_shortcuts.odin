@@ -324,7 +324,7 @@ GlobalShortcuts_BindShortcuts :: proc(
 	dbus.message_iter_get_basic(&reply_args, &received_path)
 	log.infof("received request path: %s", received_path)
 
-	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn, 5 * time.Second)
+	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn)
 
 	if response_context.response_code != 0 {
 		log.infof("bindshortcuts error response code: %d", response_context.response_code)
@@ -404,7 +404,7 @@ GlobalShortcuts_ListShortcuts :: proc(
 	dbus.message_iter_get_basic(&reply_args, &received_path)
 	log.infof("received request path: %s", received_path)
 
-	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn, 5 * time.Second)
+	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn)
 	if response_context.response_code != 0 {
 		log.infof("listshortcuts error response code: %d", response_context.response_code)
 	}
@@ -590,7 +590,7 @@ _GlobalShortcuts_dbus_Unsubscribe :: proc(
 _GlobalShortcuts_dbus_wait_for_response :: proc(
 	ctx: ^GlobalShortcuts_ResponseContext,
 	conn: ^dbus.Connection,
-	timeout: time.Duration,
+	timeout: time.Duration = 0,
 ) -> bool {
 	start_time := time.now()
 	for !ctx.completed {
