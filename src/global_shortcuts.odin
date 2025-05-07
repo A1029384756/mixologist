@@ -249,7 +249,7 @@ GlobalShortcuts_BindShortcuts :: proc(
 
 	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
 	response_context: GlobalShortcuts_ResponseContext
-	_GlobalShortcuts_dbus_Subscribe(
+	GlobalShortcuts_dbus_Subscribe(
 		&response_context,
 		gs.conn,
 		handle_token,
@@ -257,7 +257,7 @@ GlobalShortcuts_BindShortcuts :: proc(
 		allocator,
 		temp_allocator,
 	)
-	defer _GlobalShortcuts_dbus_Unsubscribe(
+	defer GlobalShortcuts_dbus_Unsubscribe(
 		&response_context,
 		gs.conn,
 		GlobalShortcuts_ShortcutResponseHandler,
@@ -355,7 +355,7 @@ GlobalShortcuts_ListShortcuts :: proc(
 
 	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
 	response_context: GlobalShortcuts_ResponseContext
-	_GlobalShortcuts_dbus_Subscribe(
+	GlobalShortcuts_dbus_Subscribe(
 		&response_context,
 		gs.conn,
 		handle_token,
@@ -363,7 +363,7 @@ GlobalShortcuts_ListShortcuts :: proc(
 		allocator,
 		temp_allocator,
 	)
-	defer _GlobalShortcuts_dbus_Unsubscribe(
+	defer GlobalShortcuts_dbus_Unsubscribe(
 		&response_context,
 		gs.conn,
 		GlobalShortcuts_ShortcutResponseHandler,
@@ -542,7 +542,7 @@ GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
 	return .NOT_YET_HANDLED
 }
 
-_GlobalShortcuts_dbus_Subscribe :: proc(
+GlobalShortcuts_dbus_Subscribe :: proc(
 	ctx: ^GlobalShortcuts_ResponseContext,
 	conn: ^dbus.Connection,
 	handle_token: string,
@@ -575,7 +575,7 @@ _GlobalShortcuts_dbus_Subscribe :: proc(
 	dbus.connection_add_filter(conn, handler, ctx, nil)
 }
 
-_GlobalShortcuts_dbus_Unsubscribe :: proc(
+GlobalShortcuts_dbus_Unsubscribe :: proc(
 	ctx: ^GlobalShortcuts_ResponseContext,
 	conn: ^dbus.Connection,
 	handler: dbus.HandleMessageProc,
