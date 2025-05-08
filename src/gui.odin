@@ -61,7 +61,9 @@ UI_create_layout :: proc(
 	userdata: rawptr,
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
-	return create_layout(mgst_ctx)
+	layout := create_layout(mgst_ctx)
+	mixologist_process_events(&mixologist)
+	return layout
 }
 
 create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
@@ -330,7 +332,6 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 
 					if .RELEASE in cancel_res {
 						ctx.active_line = 0
-						UI_unfocus(&ctx.ui_ctx, tb_id)
 					}
 				}
 

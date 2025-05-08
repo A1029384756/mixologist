@@ -37,8 +37,6 @@ UI_Context :: struct {
 	mouse_down:          UI_Mouse_Buttons,
 	mouse_released:      UI_Mouse_Buttons,
 	mouse_pos:           [2]c.float,
-	mouse_prev_pos:      [2]c.float,
-	mouse_delta:         [2]c.float,
 	scroll_delta:        [2]c.float,
 	// keyboard
 	keys_pressed:        UI_Control_Keys,
@@ -299,7 +297,6 @@ UI_tick :: proc(
 		ctx.mouse_released = {}
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
-		ctx.mouse_prev_pos = ctx.mouse_pos
 		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
 		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING}
 	}
@@ -427,7 +424,6 @@ UI_tick :: proc(
 		ctx.mouse_pressed = {}
 		ctx.mouse_released = {}
 		ctx.keys_pressed = {}
-		ctx.mouse_prev_pos = ctx.mouse_pos
 	}
 
 	// runs during second layout pass to prevent issues

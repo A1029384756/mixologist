@@ -225,10 +225,12 @@ main :: proc() {
 
 		if .GlobalShortcuts in mixologist.statuses {
 			Portals_Tick(mixologist.shortcuts.conn)
+			mixologist_process_events(&mixologist)
 		}
 
 		if .Daemon in mixologist.statuses {
 			daemon_tick(&mixologist.daemon)
+			mixologist_process_events(&mixologist)
 			if daemon_should_exit(&mixologist.daemon) {
 				mixologist.statuses += {.Exit}
 			}
@@ -242,61 +244,6 @@ main :: proc() {
 		} else {
 			time.sleep(time.Millisecond / 2)
 		}
-
-		for event in mixologist.events {
-			switch event in event {
-			case Rule_Add:
-				log.debugf("adding rule: %v", event)
-				daemon_add_program(&mixologist.daemon, string(event))
-				append(&mixologist.config.rules, string(event))
-				mixologist_config_write(&mixologist)
-			case Rule_Remove:
-				log.debugf("removing rule: %v", event)
-				daemon_remove_program(&mixologist.daemon, string(event))
-				#reverse for rule, idx in mixologist.config.rules {
-					if rule == string(event) {
-						delete(rule)
-						ordered_remove(&mixologist.config.rules, idx)
-						break
-					}
-				}
-				mixologist_config_write(&mixologist)
-			case Rule_Update:
-				if len(event.cur) == 0 {
-					log.debugf("updating to zero-length rule: %v", event.prev)
-					daemon_remove_program(&mixologist.daemon, event.prev)
-					for rule, idx in mixologist.config.rules {
-						if rule == event.prev {
-							delete(rule)
-							delete(event.cur)
-							ordered_remove(&mixologist.config.rules, idx)
-							break
-						}
-					}
-				} else {
-					log.debugf("updating rule: %v -> %v", event.prev, event.cur)
-					daemon_remove_program(&mixologist.daemon, event.prev)
-					daemon_add_program(&mixologist.daemon, event.cur)
-					for &rule in mixologist.config.rules {
-						if rule == event.prev {
-							delete(rule)
-							rule = event.cur
-							break
-						}
-					}
-				}
-				mixologist_config_write(&mixologist)
-			case Volume:
-				log.debugf("setting volume: %v", event)
-				mixologist.volume = event
-				mixologist.volume = clamp(mixologist.volume, -1, 1)
-				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
-				sink_set_volume(&mixologist.daemon.default_sink, def_vol)
-				sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
-			}
-			mixologist.gui.ui_ctx.statuses += {.DIRTY}
-		}
-		clear(&mixologist.events)
 
 		free_all(context.temp_allocator)
 	}
@@ -319,6 +266,63 @@ main :: proc() {
 		err := linux.inotify_rm_watch(mixologist.fd, mixologist.wd)
 		assert(err == nil)
 	}
+}
+
+mixologist_process_events :: proc(mixologist: ^Mixologist) {
+	for event in mixologist.events {
+		switch event in event {
+		case Rule_Add:
+			log.debugf("adding rule: %v", event)
+			daemon_add_program(&mixologist.daemon, string(event))
+			append(&mixologist.config.rules, string(event))
+			mixologist_config_write(mixologist)
+		case Rule_Remove:
+			log.debugf("removing rule: %v", event)
+			daemon_remove_program(&mixologist.daemon, string(event))
+			#reverse for rule, idx in mixologist.config.rules {
+				if rule == string(event) {
+					delete(rule)
+					ordered_remove(&mixologist.config.rules, idx)
+					break
+				}
+			}
+			mixologist_config_write(mixologist)
+		case Rule_Update:
+			if len(event.cur) == 0 {
+				log.debugf("updating to zero-length rule: %v", event.prev)
+				daemon_remove_program(&mixologist.daemon, event.prev)
+				for rule, idx in mixologist.config.rules {
+					if rule == event.prev {
+						delete(rule)
+						delete(event.cur)
+						ordered_remove(&mixologist.config.rules, idx)
+						break
+					}
+				}
+			} else {
+				log.debugf("updating rule: %v -> %v", event.prev, event.cur)
+				daemon_remove_program(&mixologist.daemon, event.prev)
+				daemon_add_program(&mixologist.daemon, event.cur)
+				for &rule in mixologist.config.rules {
+					if rule == event.prev {
+						delete(rule)
+						rule = event.cur
+						break
+					}
+				}
+			}
+			mixologist_config_write(mixologist)
+		case Volume:
+			log.debugf("setting volume: %v", event)
+			mixologist.volume = event
+			mixologist.volume = clamp(mixologist.volume, -1, 1)
+			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
+			sink_set_volume(&mixologist.daemon.default_sink, def_vol)
+			sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
+		}
+		mixologist.gui.ui_ctx.statuses += {.DIRTY}
+	}
+	clear(&mixologist.events)
 }
 
 mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
