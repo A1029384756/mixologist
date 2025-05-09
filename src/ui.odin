@@ -904,7 +904,7 @@ UI__scrollbar :: proc(
 			scroll_active = true
 		}
 		if scroll_active {
-			if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+			ctx.statuses += {.EVENT}
 			scroll_res += {.CHANGE}
 
 			ratio := clay.Vector2 {
