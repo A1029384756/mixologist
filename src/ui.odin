@@ -1493,7 +1493,7 @@ UI__button :: proc(
 		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
-		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
+		if clay.Hovered() && active && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
 		if clay.UI()(
 		{
