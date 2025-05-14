@@ -13,9 +13,9 @@ import "core:slice"
 import "core:strings"
 import "core:text/edit"
 import "core:time"
-import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
 import img "vendor:sdl3/image"
+import ttf "vendor:sdl3/ttf"
 
 odin_context: runtime.Context
 
@@ -149,7 +149,7 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	if just_inserted {
 		font_stream := sdl.IOFromConstMem(raw_data(sdl_font.data), len(sdl_font.data))
 		font^ = ttf.OpenFontIO(font_stream, true, c.float(size))
-		ttf.SetFontSizeDPI(font^, f32(size), 72 * c.int(ctx.scaling), 72 * c.int(ctx.scaling))
+		_ = ttf.SetFontSizeDPI(font^, f32(size), 72 * c.int(ctx.scaling), 72 * c.int(ctx.scaling))
 	}
 	return font^
 }
@@ -529,7 +529,7 @@ UI__measure_text :: proc "c" (
 	font := UI_retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
 
 	size: [2]c.int
-	ttf.GetStringSize(font, cstring(text.chars), c.size_t(text.length), &size.x, &size.y)
+	_ = ttf.GetStringSize(font, cstring(text.chars), c.size_t(text.length), &size.x, &size.y)
 	return {c.float(size.x) / ctx.scaling, c.float(size.y) / ctx.scaling}
 }
 

@@ -5,8 +5,8 @@ import "core:c"
 import "core:log"
 import "core:mem"
 import "core:strings"
-import ttf "sdl3_ttf"
 import sdl "vendor:sdl3"
+import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
 pipeline: Pipeline
