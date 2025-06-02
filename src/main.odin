@@ -102,8 +102,22 @@ mixologist: Mixologist
 cli: CLI_State
 
 main :: proc() {
-	context.logger = log.create_console_logger(common.get_log_level())
-	defer log.destroy_console_logger(context.logger)
+	when ODIN_DEBUG {
+		context.logger = log.create_console_logger(common.get_log_level())
+		defer log.destroy_console_logger(context.logger)
+	} else {
+		cache_dir :=
+			os2.user_cache_dir(context.allocator) or_else panic("could not get user cache dir")
+		log_path :=
+			os2.join_path({cache_dir, "mixologist.log"}, context.allocator) or_else panic(
+				"could not create log path",
+			)
+
+		os2.remove(log_path)
+		log_file := os2.create(log_path) or_else panic("could not create log file")
+		context.logger = create_file_logger(log_file, common.get_log_level())
+		defer destroy_file_logger(context.logger)
+	}
 
 	flags.register_flag_checker(flag_checker)
 	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
