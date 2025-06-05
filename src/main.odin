@@ -119,8 +119,11 @@ main :: proc() {
 		if os2.exists(log_path) {
 			log_info, stat_err := os2.stat(log_path, context.allocator)
 			defer os2.file_info_delete(log_info, context.allocator)
+
 			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
+			} else if log_info.size <= TRUNC_THRESHOLD {
+				open_flags += {.Append}
 			}
 		}
 
