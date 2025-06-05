@@ -113,8 +113,18 @@ main :: proc() {
 				"could not create log path",
 			)
 
-		os2.remove(log_path)
-		log_file := os2.create(log_path) or_else panic("could not create log file")
+		open_flags := os2.File_Flags{.Write, .Create}
+		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
+
+		if os2.exists(log_path) {
+			log_info, stat_err := os2.stat(log_path, context.allocator)
+			defer os2.file_info_delete(log_info, context.allocator)
+			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
+				open_flags += {.Trunc}
+			}
+		}
+
+		log_file := os2.open(log_path, open_flags) or_else panic("could not access log file")
 		context.logger = create_file_logger(log_file, common.get_log_level())
 		defer destroy_file_logger(context.logger)
 	}
