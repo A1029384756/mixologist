@@ -109,7 +109,7 @@ send_message :: proc(msg: common.Message, recv := false) {
 	copy(client_addr.sun_path[:], SERVER_SOCKET)
 
 	connect_err := linux.connect(client_fd, &client_addr)
-	if connect_err != nil do log.panicf("could not connect to socket with error %v", connect_err)
+	if connect_err != nil do log.panicf("could not connect to socket with error %v, message %v", connect_err, msg)
 
 	bytes_sent, send_err := linux.send(client_fd, message, {})
 	if send_err != nil do log.panicf("could not send data with error %v", send_err)
