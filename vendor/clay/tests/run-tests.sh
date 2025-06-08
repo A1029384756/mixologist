@@ -1,1 +1,0 @@
-docker compose build && docker compose up && echo "Tests complete."
