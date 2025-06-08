@@ -1587,11 +1587,13 @@ UI_icon :: proc(
 ) {
 	if clay.UI()(
 	{
-		layout = {sizing = {width = clay.SizingFixed(c.float(image_size.x))}},
-		image = {
-			imageData = UI_retrieve_image(ctx, image_id, image_size),
-			sourceDimensions = {width = c.float(image_size.x), height = c.float(image_size.y)},
+		layout = {
+			sizing = {
+				width = clay.SizingFixed(c.float(image_size.x)),
+				height = clay.SizingFixed(c.float(image_size.y)),
+			},
 		},
+		image = {imageData = UI_retrieve_image(ctx, image_id, image_size)},
 		backgroundColor = tint,
 	},
 	) {}

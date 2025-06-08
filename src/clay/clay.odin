@@ -103,7 +103,7 @@ TextAlignment :: enum EnumBackingType {
 }
 
 TextElementConfig :: struct {
-	userData:			rawptr,
+	userData:           rawptr,
 	textColor:          Color,
 	fontId:             u16,
 	fontSize:           u16,
@@ -113,9 +113,12 @@ TextElementConfig :: struct {
 	textAlignment:      TextAlignment,
 }
 
+AspectRatioElementConfig :: struct {
+	aspectRatio:        f32,
+}
+
 ImageElementConfig :: struct {
 	imageData:        rawptr,
-	sourceDimensions: Dimensions,
 }
 
 CustomElementConfig :: struct {
@@ -138,7 +141,7 @@ BorderElementConfig :: struct {
 ClipElementConfig :: struct {
 	horizontal:  bool, // clip overflowing elements on the "X" axis
 	vertical:    bool, // clip overflowing elements on the "Y" axis
-  childOffset: Vector2, // offsets the [X,Y] positions of all child elements, primarily for scrolling containers
+	childOffset: Vector2, // offsets the [X,Y] positions of all child elements, primarily for scrolling containers
 }
 
 FloatingAttachPointType :: enum EnumBackingType {
@@ -170,6 +173,11 @@ FloatingAttachToElement :: enum EnumBackingType {
 	Root,
 }
 
+FloatingClipToElement :: enum EnumBackingType {
+	None,
+	AttachedParent,
+}
+
 FloatingElementConfig :: struct {
 	offset:             Vector2,
 	expand:             Dimensions,
@@ -178,6 +186,7 @@ FloatingElementConfig :: struct {
 	attachment:         FloatingAttachPoints,
 	pointerCaptureMode: PointerCaptureMode,
 	attachTo:           FloatingAttachToElement,
+	clipTo: 			FloatingClipToElement,
 }
 
 TextRenderData :: struct {
@@ -197,7 +206,6 @@ RectangleRenderData :: struct {
 ImageRenderData :: struct {
 	backgroundColor: Color,
 	cornerRadius: CornerRadius,
-	sourceDimensions: Dimensions,
 	imageData: rawptr,
 }
 
@@ -334,6 +342,7 @@ ElementDeclaration :: struct {
 	layout:          LayoutConfig,
 	backgroundColor: Color,
 	cornerRadius:    CornerRadius,
+	aspectRatio: 	 AspectRatioElementConfig,
 	image:           ImageElementConfig,
 	floating:        FloatingElementConfig,
 	custom:          CustomElementConfig,
@@ -386,7 +395,7 @@ foreign Clay {
 	Hovered :: proc() -> bool ---
 	OnHover :: proc(onHoverFunction: proc "c" (id: ElementId, pointerData: PointerData, userData: rawptr), userData: rawptr) ---
 	PointerOver :: proc(id: ElementId) -> bool ---
-  GetScrollOffset :: proc() -> Vector2 ---
+	GetScrollOffset :: proc() -> Vector2 ---
 	GetScrollContainerData :: proc(id: ElementId) -> ScrollContainerData ---
 	SetMeasureTextFunction :: proc(measureTextFunction: proc "c" (text: StringSlice, config: ^TextElementConfig, userData: rawptr) -> Dimensions, userData: rawptr) ---
 	SetQueryScrollOffsetFunction :: proc(queryScrollOffsetFunction: proc "c" (elementId: u32, userData: rawptr) -> Vector2, userData: rawptr) ---
@@ -437,6 +446,14 @@ TextConfig :: proc(config: TextElementConfig) -> ^TextElementConfig {
 
 PaddingAll :: proc(allPadding: u16) -> Padding {
 	return { left = allPadding, right = allPadding, top = allPadding, bottom = allPadding }
+}
+
+BorderOutside :: proc(width: u16) -> BorderWidth {
+	return {width, width, width, width, 0}
+}
+
+BorderAll :: proc(width: u16) -> BorderWidth {
+	return {width, width, width, width, width}
 }
 
 CornerRadiusAll :: proc(radius: f32) -> CornerRadius {
