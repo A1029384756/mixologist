@@ -31,7 +31,8 @@
 #if !( \
     (defined(__cplusplus) && __cplusplus >= 202002L) || \
     (defined(__STDC__) && __STDC__ == 1 && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || \
-    defined(_MSC_VER) \
+    defined(_MSC_VER) || \
+    defined(__OBJC__) \
 )
 #error "Clay requires C99, C++20, or MSVC"
 #endif
@@ -1283,15 +1284,12 @@ struct Clay_Context {
 
 Clay_Context* Clay__Context_Allocate_Arena(Clay_Arena *arena) {
     size_t totalSizeBytes = sizeof(Clay_Context);
-    uintptr_t memoryAddress = (uintptr_t)arena->memory;
-    // Make sure the memory address passed in for clay to use is cache line aligned
-    uintptr_t nextAllocOffset = (memoryAddress % 64);
-    if (nextAllocOffset + totalSizeBytes > arena->capacity)
+    if (totalSizeBytes > arena->capacity)
     {
         return NULL;
     }
-    arena->nextAllocation = nextAllocOffset + totalSizeBytes;
-    return (Clay_Context*)(memoryAddress + nextAllocOffset);
+    arena->nextAllocation += totalSizeBytes;
+    return (Clay_Context*)(arena->memory);
 }
 
 Clay_String Clay__WriteStringToCharBuffer(Clay__charArray *buffer, Clay_String string) {
@@ -1645,7 +1643,10 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
         char current = text->chars[end];
         if (current == ' ' || current == '\n') {
             int32_t length = end - start;
-            Clay_Dimensions dimensions = Clay__MeasureText(CLAY__INIT(Clay_StringSlice) { .length = length, .chars = &text->chars[start], .baseChars = text->chars }, config, context->measureTextUserData);
+            Clay_Dimensions dimensions = {};
+            if (length > 0) {
+                dimensions = Clay__MeasureText(CLAY__INIT(Clay_StringSlice) {.length = length, .chars = &text->chars[start], .baseChars = text->chars}, config, context->measureTextUserData);
+            }
             measured->minWidth = CLAY__MAX(dimensions.width, measured->minWidth);
             measuredHeight = CLAY__MAX(measuredHeight, dimensions.height);
             if (current == ' ') {
@@ -1795,13 +1796,13 @@ void Clay__CloseElement(void) {
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
     Clay_LayoutConfig *layoutConfig = openLayoutElement->layoutConfig;
-    bool elementHasScrollHorizontal = false;
-    bool elementHasScrollVertical = false;
+    bool elementHasClipHorizontal = false;
+    bool elementHasClipVertical = false;
     for (int32_t i = 0; i < openLayoutElement->elementConfigs.length; i++) {
         Clay_ElementConfig *config = Clay__ElementConfigArraySlice_Get(&openLayoutElement->elementConfigs, i);
         if (config->type == CLAY__ELEMENT_CONFIG_TYPE_CLIP) {
-            elementHasScrollHorizontal = config->config.clipElementConfig->horizontal;
-            elementHasScrollVertical = config->config.clipElementConfig->vertical;
+            elementHasClipHorizontal = config->config.clipElementConfig->horizontal;
+            elementHasClipVertical = config->config.clipElementConfig->vertical;
             context->openClipElementStack.length--;
             break;
         } else if (config->type == CLAY__ELEMENT_CONFIG_TYPE_FLOATING) {
@@ -1822,18 +1823,20 @@ void Clay__CloseElement(void) {
             Clay_LayoutElement *child = Clay_LayoutElementArray_Get(&context->layoutElements, childIndex);
             openLayoutElement->dimensions.width += child->dimensions.width;
             openLayoutElement->dimensions.height = CLAY__MAX(openLayoutElement->dimensions.height, child->dimensions.height + topBottomPadding);
-            // Minimum size of child elements doesn't matter to scroll containers as they can shrink and hide their contents
-            if (!elementHasScrollHorizontal) {
+            // Minimum size of child elements doesn't matter to clip containers as they can shrink and hide their contents
+            if (!elementHasClipHorizontal) {
                 openLayoutElement->minDimensions.width += child->minDimensions.width;
             }
-            if (!elementHasScrollVertical) {
+            if (!elementHasClipVertical) {
                 openLayoutElement->minDimensions.height = CLAY__MAX(openLayoutElement->minDimensions.height, child->minDimensions.height + topBottomPadding);
             }
             Clay__int32_tArray_Add(&context->layoutElementChildren, childIndex);
         }
         float childGap = (float)(CLAY__MAX(openLayoutElement->childrenOrTextContent.children.length - 1, 0) * layoutConfig->childGap);
-        openLayoutElement->dimensions.width += childGap; // TODO this is technically a bug with childgap and scroll containers
-        openLayoutElement->minDimensions.width += childGap;
+        openLayoutElement->dimensions.width += childGap;
+        if (!elementHasClipHorizontal) {
+            openLayoutElement->minDimensions.width += childGap;
+        }
     }
     else if (layoutConfig->layoutDirection == CLAY_TOP_TO_BOTTOM) {
         openLayoutElement->dimensions.height = topBottomPadding;
@@ -1843,18 +1846,20 @@ void Clay__CloseElement(void) {
             Clay_LayoutElement *child = Clay_LayoutElementArray_Get(&context->layoutElements, childIndex);
             openLayoutElement->dimensions.height += child->dimensions.height;
             openLayoutElement->dimensions.width = CLAY__MAX(openLayoutElement->dimensions.width, child->dimensions.width + leftRightPadding);
-            // Minimum size of child elements doesn't matter to scroll containers as they can shrink and hide their contents
-            if (!elementHasScrollVertical) {
+            // Minimum size of child elements doesn't matter to clip containers as they can shrink and hide their contents
+            if (!elementHasClipVertical) {
                 openLayoutElement->minDimensions.height += child->minDimensions.height;
             }
-            if (!elementHasScrollHorizontal) {
+            if (!elementHasClipHorizontal) {
                 openLayoutElement->minDimensions.width = CLAY__MAX(openLayoutElement->minDimensions.width, child->minDimensions.width + leftRightPadding);
             }
             Clay__int32_tArray_Add(&context->layoutElementChildren, childIndex);
         }
         float childGap = (float)(CLAY__MAX(openLayoutElement->childrenOrTextContent.children.length - 1, 0) * layoutConfig->childGap);
-        openLayoutElement->dimensions.height += childGap; // TODO this is technically a bug with childgap and scroll containers
-        openLayoutElement->minDimensions.height += childGap;
+        openLayoutElement->dimensions.height += childGap;
+        if (!elementHasClipVertical) {
+            openLayoutElement->minDimensions.height += childGap;
+        }
     }
 
     context->layoutElementChildrenBuffer.length -= openLayoutElement->childrenOrTextContent.children.length;
@@ -2512,7 +2517,7 @@ void Clay__CalculateFinalLayout(void) {
             // measuredWord->length == 0 means a newline character
             else if (measuredWord->length == 0 || lineWidth + measuredWord->width > containerElement->dimensions.width) {
                 // Wrapped text lines list has overflowed, just render out the line
-                bool finalCharIsSpace = textElementData->text.chars[lineStartOffset + lineLengthChars - 1] == ' ';
+                bool finalCharIsSpace = textElementData->text.chars[CLAY__MAX(lineStartOffset + lineLengthChars - 1, 0)] == ' ';
                 Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { { lineWidth + (finalCharIsSpace ? -spaceWidth : 0), lineHeight }, { .length = lineLengthChars + (finalCharIsSpace ? -1 : 0), .chars = &textElementData->text.chars[lineStartOffset] } });
                 textElementData->wrappedLines.length++;
                 if (lineLengthChars == 0 || measuredWord->length == 0) {
@@ -2690,7 +2695,6 @@ void Clay__CalculateFinalLayout(void) {
                     if (clipConfig->vertical) {
                         rootPosition.y += clipConfig->childOffset.y;
                     }
-                    break;
                 }
                 Clay__AddRenderCommand(CLAY__INIT(Clay_RenderCommand) {
                     .boundingBox = clipHashMapItem->boundingBox,
@@ -2927,6 +2931,7 @@ void Clay__CalculateFinalLayout(void) {
                             default: break;
                         }
                         currentElementTreeNode->nextChildOffset.x += extraSpace;
+                        extraSpace = CLAY__MAX(0, extraSpace);
                     } else {
                         for (int32_t i = 0; i < currentElement->childrenOrTextContent.children.length; ++i) {
                             Clay_LayoutElement *childElement = Clay_LayoutElementArray_Get(&context->layoutElements, currentElement->childrenOrTextContent.children.elements[i]);
@@ -2940,6 +2945,7 @@ void Clay__CalculateFinalLayout(void) {
                             case CLAY_ALIGN_Y_CENTER: extraSpace /= 2; break;
                             default: break;
                         }
+                        extraSpace = CLAY__MAX(0, extraSpace);
                         currentElementTreeNode->nextChildOffset.y += extraSpace;
                     }
 
@@ -3818,7 +3824,7 @@ Clay__Warning *Clay__WarningArray_Add(Clay__WarningArray *array, Clay__Warning i
 void* Clay__Array_Allocate_Arena(int32_t capacity, uint32_t itemSize, Clay_Arena *arena)
 {
     size_t totalSizeBytes = capacity * itemSize;
-    uintptr_t nextAllocOffset = arena->nextAllocation + (64 - (arena->nextAllocation % 64));
+    uintptr_t nextAllocOffset = arena->nextAllocation + ((64 - (arena->nextAllocation % 64)) & 63);
     if (nextAllocOffset + totalSizeBytes <= arena->capacity) {
         arena->nextAllocation = nextAllocOffset + totalSizeBytes;
         return (void*)((uintptr_t)arena->memory + (uintptr_t)nextAllocOffset);
@@ -3938,7 +3944,7 @@ void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
                 Clay_BoundingBox elementBox = mapItem->boundingBox;
                 elementBox.x -= root->pointerOffset.x;
                 elementBox.y -= root->pointerOffset.y;
-                if ((Clay__PointIsInsideRect(position, elementBox)) && (clipElementId == 0 || (Clay__PointIsInsideRect(position, clipItem->boundingBox)))) {
+                if ((Clay__PointIsInsideRect(position, elementBox)) && (clipElementId == 0 || (Clay__PointIsInsideRect(position, clipItem->boundingBox)) || context->externalScrollHandlingEnabled)) {
                     if (mapItem->onHoverFunction) {
                         mapItem->onHoverFunction(mapItem->elementId, context->pointerInfo, mapItem->hoverFunctionUserData);
                     }
@@ -3986,6 +3992,10 @@ void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
 
 CLAY_WASM_EXPORT("Clay_Initialize")
 Clay_Context* Clay_Initialize(Clay_Arena arena, Clay_Dimensions layoutDimensions, Clay_ErrorHandler errorHandler) {
+    // Cacheline align memory passed in
+    uintptr_t baseOffset = 64 - ((uintptr_t)arena.memory % 64);
+    baseOffset = baseOffset == 64 ? 0 : baseOffset;
+    arena.memory += baseOffset;
     Clay_Context *context = Clay__Context_Allocate_Arena(&arena);
     if (context == NULL) return NULL;
     // DEFAULTS
