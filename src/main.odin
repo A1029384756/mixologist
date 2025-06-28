@@ -35,6 +35,7 @@ Mixologist :: struct {
 
 Config :: struct {
 	rules:           [dynamic]string,
+	volume_falloff:  Volume_Falloff,
 	start_minimized: bool,
 }
 

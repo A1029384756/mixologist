@@ -4,6 +4,7 @@ import pw "../pipewire"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:mem/virtual"
 import "core:os/os2"
 import "core:strings"
@@ -163,7 +164,29 @@ sink_destroy :: proc(sink: ^Sink) {
 
 sink_set_volume :: proc(sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	proxy_set_volume(sink.loopback_node.proxy, volume, len(sink.loopback_node.ports))
+	proxy_volume := volume_falloff(volume, mixologist.config.volume_falloff)
+	proxy_set_volume(sink.loopback_node.proxy, proxy_volume, len(sink.loopback_node.ports))
+}
+
+Volume_Falloff :: enum {
+	Linear    = 0,
+	Quadratic = 1,
+	Power     = 2,
+	Cubic     = 3,
+}
+
+volume_falloff :: proc(volume: f32, falloff: Volume_Falloff) -> f32 {
+	switch falloff {
+	case .Linear:
+		return volume
+	case .Quadratic:
+		return volume * volume
+	case .Power:
+		return 1 - math.pow(1 - volume, 0.5)
+	case .Cubic:
+		return volume * volume * volume
+	}
+	unreachable()
 }
 
 module_destroy :: proc "c" (data: rawptr) {
