@@ -157,6 +157,7 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image {
 	ui_img := sa.get_ptr(&ctx.images, id)
 	if ui_img.dimensions.x < size.x || ui_img.dimensions.y < size.y {
+		log.infof("resizing image %v from %v to %v", id, ui_img.dimensions, size)
 		sdl.ReleaseGPUTexture(ctx.device, ui_img.image.texture)
 		sdl.DestroySurface(ui_img.image.surface)
 
@@ -176,6 +177,7 @@ UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image
 		)
 		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
 		ui_img.image = _UI_Image{img_surface, img_texture, texture_size}
+		ui_img.dimensions = size
 		pipeline.status += {.TEXTURE_DIRTY}
 	}
 	return &ui_img.image

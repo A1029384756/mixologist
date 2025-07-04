@@ -1,7 +1,6 @@
 package mixologist
 
 import "./clay"
-import "core:fmt"
 import "core:strings"
 
 GUI_Context_Status :: enum u8 {
@@ -625,7 +624,6 @@ settings_menu :: proc(
 			)
 
 			if .RELEASE in res {
-				fmt.println("settings changed")
 				append(&mixologist.events, settings)
 			}
 

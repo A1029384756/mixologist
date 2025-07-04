@@ -8,6 +8,7 @@ import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
 import "core:log"
+@(require) import "core:mem"
 import "core:os/os2"
 import "core:strings"
 import "core:sys/linux"
@@ -111,6 +112,17 @@ main :: proc() {
 	when ODIN_DEBUG {
 		context.logger = log.create_console_logger(common.get_log_level())
 		defer log.destroy_console_logger(context.logger)
+
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		defer mem.tracking_allocator_destroy(&track)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			for _, leak in track.allocation_map {
+				fmt.printf("%v leaked %m\n", leak.location, leak.size)
+			}
+		}
 	} else {
 		cache_dir :=
 			os2.user_cache_dir(context.allocator) or_else panic("could not get user cache dir")
