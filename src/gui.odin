@@ -159,7 +159,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		res, id := UI_button(
+		res, _ := UI_button(
 			&ctx.ui_ctx,
 			{UI_IconConfig{id = 7, size = 32, color = TEXT}},
 			{sizing = {clay.SizingFixed(48), clay.SizingFixed(48)}},
