@@ -162,6 +162,15 @@ Renderer_draw :: proc(
 ) {
 	clear(&commands)
 
+	clamp_corners :: proc(cr: clay.CornerRadius, bounds: clay.BoundingBox) -> clay.CornerRadius {
+		return clay.CornerRadius {
+			topLeft = clamp(cr.topLeft, 0, min(bounds.width, bounds.height) / 2),
+			topRight = clamp(cr.topRight, 0, min(bounds.width, bounds.height) / 2),
+			bottomLeft = clamp(cr.bottomLeft, 0, min(bounds.width, bounds.height) / 2),
+			bottomRight = clamp(cr.bottomRight, 0, min(bounds.width, bounds.height) / 2),
+		}
+	}
+
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
 		bounds := cmd.boundingBox
@@ -169,7 +178,7 @@ Renderer_draw :: proc(
 		case .Rectangle:
 			config := cmd.renderData.rectangle
 			color := f32_color(config.backgroundColor)
-			cr := config.cornerRadius
+			cr := clamp_corners(config.cornerRadius, bounds)
 			append(
 				&commands,
 				Quad {
@@ -181,7 +190,7 @@ Renderer_draw :: proc(
 		case .Border:
 			config := cmd.renderData.border
 			color := f32_color(config.color)
-			cr := config.cornerRadius
+			cr := clamp_corners(config.cornerRadius, bounds)
 			append(
 				&commands,
 				Quad {
@@ -487,8 +496,7 @@ Renderer_draw :: proc(
 }
 
 ScissorStart :: sdl.Rect
-ScissorEnd :: struct {
-}
+ScissorEnd :: struct {}
 
 Command :: union {
 	Text,
@@ -560,10 +568,10 @@ ortho_rh :: proc(
 	far: f32,
 ) -> matrix[4, 4]f32 {
 	return matrix[4, 4]f32{
-		2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left), 
-		0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom), 
-		0.0, 0.0, -2.0 / (far - near), -(far + near) / (far - near), 
-		0.0, 0.0, 0.0, 1.0, 
+		2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left),
+		0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom),
+		0.0, 0.0, -2.0 / (far - near), -(far + near) / (far - near),
+		0.0, 0.0, 0.0, 1.0,
 	}
 }
 

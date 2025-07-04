@@ -861,6 +861,26 @@ UI_button :: proc(
 	return
 }
 
+UI_switch :: proc(
+	ctx: ^UI_Context,
+	state: ^bool,
+	layout: clay.LayoutConfig,
+	color, background_color, active_background_color: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__switch(ctx, state, layout, color, background_color, active_background_color)
+
+	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
+	else do UI_unfocus(ctx, id)
+
+	if .PRESS in res do UI_widget_focus(ctx, id)
+	else if .RELEASE in res do UI_unfocus(ctx, id)
+
+	return
+}
+
 UI__scrollbar :: proc(
 	ctx: ^UI_Context,
 	scroll_container_data: clay.ScrollContainerData,
@@ -1523,6 +1543,47 @@ UI__button :: proc(
 	return
 }
 
+UI__switch :: proc(
+	ctx: ^UI_Context,
+	state: ^bool,
+	layout: clay.LayoutConfig,
+	color, background_color, active_background_color: clay.Color,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	layout := layout
+	layout.childAlignment.x = state^ ? .Right : .Left
+	layout.childAlignment.y = .Center
+	layout.padding = clay.PaddingAll(3)
+
+	if clay.UI()(
+	{
+		layout = layout,
+		backgroundColor = state^ ? active_background_color : background_color,
+		cornerRadius = clay.CornerRadiusAll(max(c.float)),
+	},
+	) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
+		if clay.Hovered() do ctx.hovered_widget = id
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
+		if clay.Hovered() && .LEFT in ctx.mouse_released do state^ = !state^
+
+		if clay.UI()(
+		{
+			layout = {sizing = {clay.SizingPercent(0.5), clay.SizingGrow({})}},
+			cornerRadius = clay.CornerRadiusAll(max(c.float)),
+			backgroundColor = color,
+		},
+		) {
+		}
+	}
+	return
+}
+
 UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementId) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
@@ -1598,4 +1659,156 @@ UI_icon :: proc(
 	},
 	) {}
 	return
+}
+
+UI_dropdown :: proc(
+	ctx: ^UI_Context,
+	options: []string,
+	selected: ^int,
+	color, background_color: clay.Color,
+	text_size: u16,
+	dropdown_icon_id, selection_icon_id: Maybe(int),
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	res, id = UI__dropdown(
+		ctx,
+		options,
+		selected,
+		color,
+		background_color,
+		text_size,
+		dropdown_icon_id,
+		selection_icon_id,
+	)
+	return
+}
+
+UI__dropdown :: proc(
+	ctx: ^UI_Context,
+	options: []string,
+	selected: ^int,
+	color, background_color: clay.Color,
+	text_size: u16,
+	dropdown_icon_id, selection_icon_id: Maybe(int),
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()({layout = {childAlignment = {x = .Left, y = .Center}}}) {
+		local_id := clay.ID_LOCAL(#procedure)
+		id = local_id
+		UI_textlabel(options[selected^], {textColor = color, fontSize = text_size})
+
+		if dropdown_icon_id, ok := dropdown_icon_id.?; ok {
+			UI_icon(ctx, dropdown_icon_id, {int(text_size), int(text_size)}, color)
+		}
+
+		open: bool
+		if clay.Hovered() do ctx.hovered_widget = id
+		if clay.Hovered() do res += {.HOVER}
+		if clay.Hovered() && .LEFT in ctx.mouse_released && !UI_widget_active(ctx, id) {
+			UI_widget_focus(ctx, id)
+			open = true
+		}
+
+		if UI_widget_active(ctx, id) {
+			dropdown_res, _ := UI__dropdown_options(
+				ctx,
+				options,
+				selected,
+				id,
+				color,
+				background_color,
+				text_size,
+				selection_icon_id,
+				open,
+			)
+			if .CHANGE in dropdown_res {
+				res += {.CHANGE}
+				UI_unfocus(ctx, id)
+			} else if .CANCEL in dropdown_res {
+				UI_unfocus(ctx, id)
+			}
+		}
+	}
+	return
+}
+
+UI__dropdown_options :: proc(
+	ctx: ^UI_Context,
+	options: []string,
+	selected: ^int,
+	parent_id: clay.ElementId,
+	color, background: clay.Color,
+	text_size: u16,
+	selection_icon_id: Maybe(int),
+	open: bool,
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()(
+	{
+		layout = {
+			childAlignment = {x = .Left, y = .Center},
+			layoutDirection = .TopToBottom,
+			padding = clay.PaddingAll(4),
+		},
+		floating = {
+			attachment = {element = .CenterTop, parent = .CenterBottom},
+			attachTo = .Parent,
+			pointerCaptureMode = .Capture,
+		},
+		backgroundColor = background,
+		cornerRadius = clay.CornerRadiusAll(10),
+	},
+	) {
+		if !open && !clay.Hovered() && .LEFT in ctx.mouse_released {
+			res += {.CANCEL}
+			return
+		}
+
+		if clay.Hovered() do ctx.hovered_widget = id
+
+		for option, idx in options {
+			if clay.UI()(
+			{
+				id = clay.ID(option),
+				layout = {
+					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+					padding = clay.PaddingAll(8),
+					childAlignment = {x = .Left, y = .Center},
+				},
+				backgroundColor = clay.Hovered() ? background * 1.2 : background,
+				cornerRadius = clay.CornerRadiusAll(8),
+			},
+			) {
+				if clay.Hovered() do ctx.hovered_widget = id
+
+				UI_textlabel(option, {textColor = color, fontSize = text_size})
+
+				UI_horz_spacer(ctx, 8)
+
+				if selection_icon_id, ok := selection_icon_id.?; ok && idx == selected^ {
+					UI_icon(ctx, selection_icon_id, {int(text_size), int(text_size)}, color)
+				}
+
+				if clay.Hovered() && .LEFT in ctx.mouse_pressed {
+					selected^ = idx
+					res += {.CHANGE}
+				}
+			}
+		}
+	}
+	return
+}
+
+UI_horz_spacer :: proc(ctx: ^UI_Context, size: c.float) {
+	if clay.UI()({layout = {sizing = {clay.SizingFixed(size), clay.SizingGrow({})}}}) {}
+}
+
+UI_vert_spacer :: proc(ctx: ^UI_Context, size: c.float) {
+	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFixed(size)}}}) {}
 }

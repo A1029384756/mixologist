@@ -164,7 +164,7 @@ sink_destroy :: proc(sink: ^Sink) {
 
 sink_set_volume :: proc(sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	proxy_volume := volume_falloff(volume, mixologist.config.volume_falloff)
+	proxy_volume := volume_falloff(volume, mixologist.config.settings.volume_falloff)
 	proxy_set_volume(sink.loopback_node.proxy, proxy_volume, len(sink.loopback_node.ports))
 }
 

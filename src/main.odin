@@ -34,7 +34,11 @@ Mixologist :: struct {
 }
 
 Config :: struct {
-	rules:           [dynamic]string,
+	rules:    [dynamic]string,
+	settings: Settings,
+}
+
+Settings :: struct {
 	volume_falloff:  Volume_Falloff,
 	start_minimized: bool,
 }
@@ -87,6 +91,7 @@ Event :: union {
 	Rule_Remove,
 	Rule_Update,
 	Volume,
+	Settings,
 }
 Rule_Add :: distinct string
 Rule_Remove :: distinct string
@@ -220,7 +225,7 @@ main :: proc() {
 	}
 
 	if .Gui in mixologist.statuses {
-		gui_init(&mixologist.gui, mixologist.config.start_minimized)
+		gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
 	}
 
 	for (.Exit not_in mixologist.statuses) {
@@ -347,6 +352,10 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 			sink_set_volume(&mixologist.daemon.default_sink, def_vol)
 			sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
+		case Settings:
+			log.debugf("settings changed: %v", event)
+			mixologist.config.settings = event
+			mixologist_config_write(mixologist)
 		}
 		mixologist.gui.ui_ctx.statuses += {.DIRTY}
 	}
