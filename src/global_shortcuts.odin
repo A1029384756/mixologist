@@ -195,7 +195,10 @@ GlobalShortcuts_CreateSession :: proc(
 			dbus.message_iter_next(&signal_args)
 			dbus.message_iter_recurse(&signal_args, &results)
 
-			handle_iter := Dict_GetKey(&results, "session_handle")
+			handle_iter, handle_found := Dict_GetKey(&results, "session_handle")
+			if !handle_found {
+				log.error("could not get session handle")
+			}
 			dbus.message_iter_get_basic(&handle_iter, &session_handle)
 			gs.session_handle = strings.clone_from_cstring(session_handle, allocator)
 			return nil
@@ -450,8 +453,17 @@ _GlobalShortcuts_DeserializeShortcuts :: proc(
 		metadata_dict: dbus.MessageIter
 		dbus.message_iter_recurse(&shortcut_struct, &metadata_dict)
 
-		description_iter := Dict_GetKey(&metadata_dict, "description")
-		trigger_description_iter := Dict_GetKey(&metadata_dict, "trigger_description")
+		description_iter, description_found := Dict_GetKey(&metadata_dict, "description")
+		if !description_found {
+			log.panic("could not get description")
+		}
+		trigger_description_iter, trigger_description_found := Dict_GetKey(
+			&metadata_dict,
+			"trigger_description",
+		)
+		if !trigger_description_found {
+			log.panic("could not get trigger description")
+		}
 
 		description_cstr, trigger_description_cstr: cstring
 		dbus.message_iter_get_basic(&description_iter, &description_cstr)
@@ -469,7 +481,7 @@ _is_sandboxed :: proc() -> bool {
 	return os2.exists("/.flatpak-info")
 }
 
-Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> dbus.MessageIter {
+Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> (dbus.MessageIter, bool) {
 	for dbus.message_iter_get_arg_type(dict_iter) == .DICT_ENTRY {
 		key_iter, val_iter: dbus.MessageIter
 		key: cstring
@@ -479,14 +491,17 @@ Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> dbus.MessageI
 		dbus.message_iter_next(&key_iter)
 		dbus.message_iter_recurse(&key_iter, &val_iter)
 
+		log.debugf("message key: %v", key)
+
 		if key == get {
-			return val_iter
+			return val_iter, true
 		}
 
 		dbus.message_iter_next(dict_iter)
 	}
 
-	log.panicf("could not get key: %v", get)
+	log.errorf("could not get key: %v", get)
+	return {}, false
 }
 
 _dict_append_entry :: proc(
@@ -519,11 +534,18 @@ GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
 		dbus.message_iter_init(msg, &signal_args)
 		dbus.message_iter_get_basic(&signal_args, &response_context.response_code)
 
+		log.debugf("response code: %v", response_context.response_code)
+		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&signal_args))
 		dbus.message_iter_next(&signal_args)
 		dbus.message_iter_recurse(&signal_args, &results)
 
-		shortcuts_iter := Dict_GetKey(&results, "shortcuts")
-		if dbus.message_iter_get_arg_type(&shortcuts_iter) == .ARRAY {
+		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&signal_args))
+		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&results))
+		shortcuts_iter, shortcuts_found := Dict_GetKey(&results, "shortcuts")
+		if !shortcuts_found {
+			response_context.completed = true
+			return .NOT_YET_HANDLED
+		} else if dbus.message_iter_get_arg_type(&shortcuts_iter) == .ARRAY {
 			response_context.shortcuts = _GlobalShortcuts_DeserializeShortcuts(
 				&shortcuts_iter,
 				response_context.allocator,
@@ -539,6 +561,7 @@ GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
 		return .HANDLED
 	}
 
+	response_context.completed = true
 	return .NOT_YET_HANDLED
 }
 
@@ -605,5 +628,6 @@ _GlobalShortcuts_dbus_wait_for_response :: proc(
 		}
 	}
 
+	log.debugf("dbus response received")
 	return true
 }
