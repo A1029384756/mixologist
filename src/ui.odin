@@ -5,7 +5,10 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
-@(require) import "core:fmt"
+
+
+@(require)
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
@@ -1772,12 +1775,14 @@ UI__dropdown_options :: proc(
 			return
 		}
 
+		id = clay.ID_LOCAL(#procedure)
 		if clay.Hovered() do ctx.hovered_widget = id
 
 		for option, idx in options {
+			option_id := clay.ID(option)
 			if clay.UI()(
 			{
-				id = clay.ID(option),
+				id = option_id,
 				layout = {
 					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
 					padding = clay.PaddingAll(8),
@@ -1787,7 +1792,7 @@ UI__dropdown_options :: proc(
 				cornerRadius = clay.CornerRadiusAll(8),
 			},
 			) {
-				if clay.Hovered() do ctx.hovered_widget = id
+				if clay.Hovered() do ctx.hovered_widget = option_id
 
 				UI_textlabel(option, {textColor = color, fontSize = text_size})
 
