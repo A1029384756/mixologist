@@ -13,17 +13,18 @@ GUI_Context_Status :: enum u8 {
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
 GUI_Context :: struct {
-	ui_ctx:          UI_Context,
+	ui_ctx:            UI_Context,
 	// rule modification
-	active_line_buf: [1024]u8,
-	active_line_len: int,
-	active_line:     int,
+	active_line_buf:   [1024]u8,
+	active_line_len:   int,
+	active_line:       int,
 	// rule creation
-	new_rule_buf:    [1024]u8,
-	new_rule_len:    int,
-	rule_scrollbar:  UI_Scrollbar_Data,
+	new_rule_buf:      [1024]u8,
+	new_rule_len:      int,
+	rule_scrollbar:    UI_Scrollbar_Data,
+	program_scrollbar: UI_Scrollbar_Data,
 	// config state
-	statuses:        GUI_Context_Statuses,
+	statuses:          GUI_Context_Statuses,
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
@@ -456,107 +457,177 @@ rule_add_line :: proc(
 ) {
 	ctx := cast(^GUI_Context)ctx
 
-	if clay.UI()(
-	{
-		layout = {
-			sizing = {clay.SizingFit({}), clay.SizingFit({})},
-			childAlignment = {y = .Center},
-			layoutDirection = .TopToBottom,
-			padding = clay.PaddingAll(16),
-			childGap = 16,
-		},
-		backgroundColor = BASE,
-		cornerRadius = clay.CornerRadiusAll(10),
-	},
-	) {
-		if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFit({})}}}) {
-			UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
-			UI_spacer(&ctx.ui_ctx)
-			close_res, _ := UI_button(
-				&ctx.ui_ctx,
-				{UI_IconConfig{9, 20, TEXT}},
-				{},
-				clay.CornerRadiusAll(max(f32)),
-				SURFACE_2,
-				SURFACE_1,
-				SURFACE_0,
-				2,
-			)
-
-			if .RELEASE in close_res {
-				res += {.CANCEL}
-			}
-		}
-
-		placeholder_str := "New rule..."
-		tb_res, tb_id := UI_textbox(
-			&ctx.ui_ctx,
-			ctx.new_rule_buf[:],
-			&ctx.new_rule_len,
-			placeholder_str,
-			{
-				layout = {
-					sizing = {clay.SizingFixed(240), clay.SizingFixed(32)},
-					padding = clay.PaddingAll(5),
-				},
-				backgroundColor = SURFACE_1,
-				cornerRadius = clay.CornerRadiusAll(5),
-			},
-			{color = MAUVE, width = {2, 2, 2, 2, 2}},
-			{textColor = TEXT, fontSize = 16},
-		)
-
-		UI_widget_focus(ui_ctx, tb_id)
-		if .ADDING_NEW in ctx.statuses {
-			tb_res += {.FOCUS}
-			ctx.statuses -= {.ADDING_NEW}
-		}
-
-		if .FOCUS in tb_res {
-			ctx.new_rule_len = 0
-		}
-
-		if .SUBMIT in tb_res {
-			if ctx.new_rule_len > 0 {
-				append(
-					&mixologist.events,
-					Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
-				)
-				ctx.new_rule_len = 0
-				ctx.statuses += {.RULES}
-				res += {.SUBMIT}
-			}
-		}
-
+	if clay.UI()({layout = {padding = clay.PaddingAll(16)}}) {
 		if clay.UI()(
 		{
 			layout = {
-				childAlignment = {x = .Center},
-				sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+				sizing = {clay.SizingFit({}), clay.SizingFit({})},
+				childAlignment = {y = .Center},
+				layoutDirection = .TopToBottom,
+				padding = clay.PaddingAll(16),
+				childGap = 16,
 			},
+			backgroundColor = BASE,
+			cornerRadius = clay.CornerRadiusAll(10),
 		},
 		) {
-			button_res, _ := UI_button(
-				&ctx.ui_ctx,
-				{UI_TextConfig{text = "Add Rule", size = 16, color = TEXT}},
-				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
-				clay.CornerRadiusAll(32),
-				SURFACE_2,
-				SURFACE_1,
-				SURFACE_0,
-				12,
-				ctx.new_rule_len > 0,
-			)
+			if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFit({})}}}) {
+				UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
+				UI_spacer(&ctx.ui_ctx)
+				close_res, _ := UI_button(
+					&ctx.ui_ctx,
+					{UI_IconConfig{9, 20, TEXT}},
+					{},
+					clay.CornerRadiusAll(max(f32)),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					2,
+				)
 
-			if .RELEASE in button_res {
-				if ctx.new_rule_len > 0 {
-					append(
-						&mixologist.events,
-						Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
-					)
+				if .RELEASE in close_res {
+					res += {.CANCEL}
+				}
+			}
+
+			UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
+			if clay.UI()(
+			{
+				id = clay.ID("open_programs"),
+				layout = {
+					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+					childAlignment = {x = .Left, y = .Center},
+					layoutDirection = .TopToBottom,
+					padding = clay.PaddingAll(8),
+				},
+				backgroundColor = SURFACE_0,
+				cornerRadius = clay.CornerRadiusAll(10),
+				clip = {vertical = true, childOffset = clay.GetScrollOffset()},
+			},
+			) {
+				programs := []string {
+					"Chromium",
+					"Zen",
+					"Elden Ring: Nightreign",
+					"Dolphin",
+					"Oh Brother, Where Art Thou? - Jellyfin",
+				}
+				for program, idx in programs {
+					if clay.UI()(
+					{
+						layout = {
+							sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+							padding = clay.PaddingAll(16),
+							childAlignment = {x = .Left, y = .Center},
+						},
+					},
+					) {
+						UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+						UI_spacer(&ctx.ui_ctx)
+						UI_horz_spacer(&ctx.ui_ctx, 24)
+						UI_button(
+							&ctx.ui_ctx,
+							{UI_IconConfig{5, 24, TEXT}},
+							{},
+							clay.CornerRadiusAll(max(f32)),
+							OVERLAY_0,
+							SURFACE_2,
+							SURFACE_1,
+							2,
+						)
+					}
+					if idx != len(programs) - 1 {
+						list_separator(SURFACE_1)
+					}
+				}
+
+				UI_scrollbar(
+					&ctx.ui_ctx,
+					clay.GetScrollContainerData(clay.ID("open_programs")),
+					&ctx.program_scrollbar,
+					8,
+					SURFACE_1,
+					SURFACE_2,
+					OVERLAY_0,
+					OVERLAY_1,
+				)
+			}
+
+			UI_textlabel("Custom Rule", {textColor = TEXT, fontSize = 16})
+			if clay.UI()(
+			{
+				layout = {
+					childAlignment = {x = .Center},
+					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+				},
+			},
+			) {
+				if .ADDING_NEW in ctx.statuses {
+					ctx.statuses -= {.ADDING_NEW}
 					ctx.new_rule_len = 0
-					ctx.statuses += {.RULES}
-					res += {.SUBMIT}
+				}
+
+				placeholder_str := "New rule..."
+				tb_res, tb_id := UI_textbox(
+					&ctx.ui_ctx,
+					ctx.new_rule_buf[:],
+					&ctx.new_rule_len,
+					ctx.new_rule_len == 0 ? placeholder_str : string(ctx.new_rule_buf[:ctx.new_rule_len]),
+					{
+						layout = {
+							sizing = {clay.SizingGrow({}), clay.SizingFixed(32)},
+							padding = clay.PaddingAll(5),
+						},
+						backgroundColor = SURFACE_1,
+						cornerRadius = clay.CornerRadiusAll(5),
+					},
+					{color = MAUVE, width = {2, 2, 2, 2, 2}},
+					{textColor = TEXT, fontSize = 16},
+				)
+
+				if .SUBMIT in tb_res {
+					if ctx.new_rule_len > 0 {
+						append(
+							&mixologist.events,
+							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
+						)
+						ctx.new_rule_len = 0
+						ctx.statuses += {.RULES}
+						res += {.SUBMIT}
+					}
+				}
+			}
+
+			if clay.UI()(
+			{
+				layout = {
+					childAlignment = {x = .Center},
+					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+				},
+			},
+			) {
+				button_res, _ := UI_button(
+					&ctx.ui_ctx,
+					{UI_TextConfig{text = "Add Rule", size = 16, color = TEXT}},
+					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					clay.CornerRadiusAll(32),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					12,
+					ctx.new_rule_len > 0,
+				)
+
+				if .RELEASE in button_res {
+					if ctx.new_rule_len > 0 {
+						append(
+							&mixologist.events,
+							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
+						)
+						ctx.new_rule_len = 0
+						ctx.statuses += {.RULES}
+						res += {.SUBMIT}
+					}
 				}
 			}
 		}

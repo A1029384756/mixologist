@@ -7,8 +7,7 @@ import "core:c"
 import sa "core:container/small_array"
 
 
-@(require)
-import "core:fmt"
+@(require)import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
