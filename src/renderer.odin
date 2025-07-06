@@ -179,14 +179,26 @@ Renderer_draw :: proc(
 			config := cmd.renderData.rectangle
 			color := f32_color(config.backgroundColor)
 			cr := clamp_corners(config.cornerRadius, bounds)
-			append(
-				&commands,
-				Quad {
-					pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
-					corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
-					color = color,
-				},
-			)
+			widget_data := transmute(UI_Data_Flags)cmd.userData
+			if .SHADOW in widget_data {
+				append(
+					&commands,
+					Shadow {
+						pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
+						corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
+						color = color,
+					},
+				)
+			} else {
+				append(
+					&commands,
+					Quad {
+						pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
+						corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
+						color = color,
+					},
+				)
+			}
 		case .Border:
 			config := cmd.renderData.border
 			color := f32_color(config.color)
@@ -273,6 +285,8 @@ Renderer_draw :: proc(
 				append(&instances, Instance{text_pos = cmd.pos, type = 1})
 			case Quad:
 				append(&instances, Instance{quad = cmd, type = 0})
+			case Shadow:
+				append(&instances, Instance{quad = Quad(cmd), type = 3})
 			}
 		}
 
@@ -431,7 +445,7 @@ Renderer_draw :: proc(
 		text_vertex_offset: i32
 
 		for command in commands {
-			switch cmd in command {
+			#partial switch cmd in command {
 			case ScissorStart:
 				sdl.SetGPUScissor(render_pass, cmd)
 			case ScissorEnd:
@@ -480,6 +494,9 @@ Renderer_draw :: proc(
 			case Quad:
 				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
 				instance_offset += 1
+			case Shadow:
+				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
+				instance_offset += 1
 			}
 		}
 	}
@@ -502,6 +519,7 @@ Command :: union {
 	Text,
 	Quad,
 	Image,
+	Shadow,
 	ScissorStart,
 	ScissorEnd,
 }
@@ -522,6 +540,8 @@ Text :: struct {
 	pos:   [2]f32,
 	color: [4]f32,
 }
+
+Shadow :: distinct Quad
 
 Quad :: struct #packed {
 	pos_scale:    [4]f32,

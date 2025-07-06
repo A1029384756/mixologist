@@ -699,7 +699,7 @@ dropdown_row :: proc(
 		UI_textlabel(label.text, {textColor = label.color, fontSize = label.size})
 		UI_spacer(&ctx.ui_ctx)
 
-		res, _ = UI_dropdown(&ctx.ui_ctx, options, selected, TEXT, BASE, 16, 8, 5)
+		res, _ = UI_dropdown(&ctx.ui_ctx, options, selected, TEXT, SURFACE_0, 16, 8, 5)
 	}
 	return
 }

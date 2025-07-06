@@ -7,8 +7,7 @@ import "core:c"
 import sa "core:container/small_array"
 
 
-@(require)
-import "core:fmt"
+@(require)import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
@@ -98,6 +97,11 @@ UI_Control_Key :: enum {
 	D,
 }
 UI_Control_Keys :: bit_set[UI_Control_Key]
+
+UI_Data_Flag :: enum {
+	SHADOW,
+}
+UI_Data_Flags :: bit_set[UI_Data_Flag;uintptr]
 
 UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
 UI_EVENT_DELAY :: 33 * time.Millisecond
@@ -1773,7 +1777,7 @@ UI__dropdown_options :: proc(
 		dropdown_bounding_box := dropdown_data.boundingBox
 
 		center_height := bounding_box.height / 2 + bounding_box.y
-		bottom_dist := ctx.window_size.y - center_height
+		bottom_dist := ctx.window_size.y - center_height - 15
 
 		if dropdown_bounding_box.height > bottom_dist {
 			open_up = true
@@ -1785,51 +1789,66 @@ UI__dropdown_options :: proc(
 	if clay.UI()(
 	{
 		id = dropdown_id,
-		layout = {
-			childAlignment = {x = .Left, y = .Center},
-			layoutDirection = .TopToBottom,
-			padding = clay.PaddingAll(4),
+		floating = {
+			attachment = attachment,
+			attachTo = .Parent,
+			pointerCaptureMode = .Capture,
+			offset = {0, open_up ? -4 : 4},
+			expand = {4, 4},
 		},
-		floating = {attachment = attachment, attachTo = .Parent, pointerCaptureMode = .Capture},
-		backgroundColor = background,
-		cornerRadius = clay.CornerRadiusAll(10),
+		backgroundColor = {0, 0, 0, 255},
+		cornerRadius = clay.CornerRadiusAll(14),
+		userData = transmute(rawptr)UI_Data_Flags{.SHADOW},
 	},
 	) {
-		if !open && !clay.Hovered() && .LEFT in ctx.mouse_released {
-			res += {.CANCEL}
-			return
-		}
-
-		id = clay.ID_LOCAL(#procedure)
-		if clay.Hovered() do ctx.hovered_widget = id
-
-		for option, idx in options {
-			option_id := clay.ID(option)
-			if clay.UI()(
-			{
-				id = option_id,
-				layout = {
-					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-					padding = clay.PaddingAll(8),
-					childAlignment = {x = .Left, y = .Center},
-				},
-				backgroundColor = clay.Hovered() ? background * 1.2 : background,
-				cornerRadius = clay.CornerRadiusAll(8),
+		if clay.UI()(
+		{
+			layout = {
+				childAlignment = {x = .Left, y = .Center},
+				layoutDirection = .TopToBottom,
+				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				padding = clay.PaddingAll(4),
 			},
-			) {
-				if clay.Hovered() do ctx.hovered_widget = option_id
+			backgroundColor = background,
+			cornerRadius = clay.CornerRadiusAll(10),
+		},
+		) {
+			if !open && !clay.Hovered() && .LEFT in ctx.mouse_released {
+				res += {.CANCEL}
+				return
+			}
 
-				UI_textlabel(option, {textColor = color, fontSize = text_size})
+			id = clay.ID_LOCAL(#procedure)
+			if clay.Hovered() do ctx.hovered_widget = id
 
-				UI_horz_spacer(ctx, 8)
+			for option, idx in options {
+				option_id := clay.ID(option)
+				if clay.UI()(
+				{
+					id = option_id,
+					layout = {
+						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+						padding = clay.PaddingAll(8),
+						childAlignment = {x = .Left, y = .Center},
+					},
+					backgroundColor = clay.Hovered() ? background * 1.2 : background,
+					cornerRadius = clay.CornerRadiusAll(8),
+				},
+				) {
+					if clay.Hovered() do ctx.hovered_widget = option_id
 
-				if selection_icon_id, ok := selection_icon_id.?; ok && idx == selected^ {
-					UI_icon(ctx, selection_icon_id, {int(text_size), int(text_size)}, color)
-				}
+					UI_textlabel(option, {textColor = color, fontSize = text_size})
 
-				if clay.Hovered() && .LEFT in ctx.mouse_pressed {
-					selected^ = idx
-					res += {.CHANGE}
+					UI_horz_spacer(ctx, 8)
+
+					if selection_icon_id, ok := selection_icon_id.?; ok && idx == selected^ {
+						UI_icon(ctx, selection_icon_id, {int(text_size), int(text_size)}, color)
+					}
+
+					if clay.Hovered() && .LEFT in ctx.mouse_pressed {
+						selected^ = idx
+						res += {.CHANGE}
+					}
 				}
 			}
 		}

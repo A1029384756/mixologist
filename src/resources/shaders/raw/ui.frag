@@ -13,6 +13,7 @@ layout(location = 0) out vec4 o_color;
 layout(set = 2, binding = 0) uniform sampler2D atlas;
 
 const float AA_THRESHOLD = 1.0;
+const float SHADOW_SOFTNESS = 10.0;
 
 float rounded_box(vec2 p, vec2 b, in vec4 r) {
     r.xy = (p.x > 0.0) ? r.xy : r.zw;
@@ -32,17 +33,32 @@ void main() {
             }
 
             float alpha = 1.0 - smoothstep(-AA_THRESHOLD, AA_THRESHOLD, d);
-            float border_blend = 1.0 - smoothstep(0.0, AA_THRESHOLD * 2.0, abs(d) - i_border_width - AA_THRESHOLD);
-            vec4 border_mixed = mix(i_color, i_border_color, border_blend);
-            vec3 color = (i_border_width == 0.0) ? i_color.rgb : border_mixed.rgb;
+            vec4 border_mixed;
+            if (i_border_width == 0.0) {
+                border_mixed = i_color;
+            } else {
+                border_mixed = mix(i_color, i_border_color, 1.0 - smoothstep(0.0, AA_THRESHOLD * 2.0, abs(d) - i_border_width - AA_THRESHOLD));
+            }
 
-            o_color = vec4(color, border_mixed.a * alpha);
+            o_color = vec4(border_mixed.rgb, border_mixed.a * alpha);
         }
     } else if (i_type == 1.0) { // text
         vec4 texture_color = texture(atlas, i_uv);
         o_color = vec4(i_color.rgb, i_color.a * texture_color.a);
-    } else { // texture
+    } else if (i_type == 2.0) { // texture
         vec4 texture_color = texture(atlas, i_uv);
         o_color = i_color * texture_color.a;
+    } else if (i_type == 3.0) { // shadow
+        if (i_corners == vec4(0.0)) {
+            o_color = i_color;
+        } else {
+            float d = rounded_box(gl_FragCoord.xy - i_center_scale.xy, i_center_scale.zw / 2, i_corners);
+            if (d > AA_THRESHOLD) {
+                discard;
+            }
+            d += 8.0;
+            float alpha = 1 - smoothstep(-SHADOW_SOFTNESS, SHADOW_SOFTNESS, d);
+            o_color = vec4(i_color.rgb, i_color.a * alpha);
+        }
     }
 }
