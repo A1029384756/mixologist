@@ -8,30 +8,35 @@ import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
 import "core:log"
-@(require) import "core:mem"
+
+
+@(require)import "core:mem"
 import "core:os/os2"
+import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import "core:time"
 
 Mixologist :: struct {
 	// state
-	statuses:   Statuses,
-	events:     [dynamic]Event,
+	statuses:    Statuses,
+	events:      [dynamic]Event,
 	// inotify
-	fd:         linux.Fd,
-	wd:         linux.Wd,
-	buf:        [EVENT_BUF_LEN]u8,
+	fd:          linux.Fd,
+	wd:          linux.Wd,
+	buf:         [EVENT_BUF_LEN]u8,
 	// ipc
-	ipc:        IPC_Server_Context,
+	ipc:         IPC_Server_Context,
 	// subapp states
-	daemon:     Daemon_Context,
-	gui:        GUI_Context,
-	shortcuts:  GlobalShortcuts_Session,
+	daemon:      Daemon_Context,
+	gui:         GUI_Context,
+	shortcuts:   GlobalShortcuts_Session,
 	// config
-	config_dir: string,
-	config:     Config,
-	volume:     f32,
+	config_dir:  string,
+	cache_dir:   string,
+	volume_file: string,
+	config:      Config,
+	volume:      f32,
 }
 
 Config :: struct {
@@ -42,6 +47,7 @@ Config :: struct {
 Settings :: struct {
 	volume_falloff:  Volume_Falloff,
 	start_minimized: bool,
+	remember_volume: bool,
 }
 
 Shortcut :: enum {
@@ -109,6 +115,17 @@ mixologist: Mixologist
 cli: CLI_State
 
 main :: proc() {
+	// set up data file locations
+	{
+		mixologist.cache_dir =
+			os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
+		mixologist.volume_file =
+			os2.join_path(
+				{mixologist.cache_dir, "mixologist.volume"},
+				context.allocator,
+			) or_else log.panic("could not create volume path")
+	}
+
 	when ODIN_DEBUG {
 		context.logger = log.create_console_logger(common.get_log_level())
 		defer log.destroy_console_logger(context.logger)
@@ -124,12 +141,11 @@ main :: proc() {
 			}
 		}
 	} else {
-		cache_dir :=
-			os2.user_cache_dir(context.allocator) or_else panic("could not get user cache dir")
 		log_path :=
-			os2.join_path({cache_dir, "mixologist.log"}, context.allocator) or_else panic(
-				"could not create log path",
-			)
+			os2.join_path(
+				{mixologist.cache_dir, "mixologist.log"},
+				context.allocator,
+			) or_else log.panic("could not create log path")
 
 		open_flags := os2.File_Flags{.Write, .Create}
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
@@ -145,7 +161,7 @@ main :: proc() {
 			}
 		}
 
-		log_file := os2.open(log_path, open_flags) or_else panic("could not access log file")
+		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
 		context.logger = create_file_logger(log_file, common.get_log_level())
 		defer destroy_file_logger(context.logger)
 	}
@@ -230,6 +246,10 @@ main :: proc() {
 
 	// config loading
 	mixologist_config_load(&mixologist)
+
+	if mixologist.config.settings.remember_volume {
+		mixologist_read_volume_file(&mixologist)
+	}
 
 	// init app state
 	if .Daemon in mixologist.statuses {
@@ -364,6 +384,7 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 			sink_set_volume(&mixologist.daemon.default_sink, def_vol)
 			sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
+			mixologist_write_volume_file(mixologist)
 		case Settings:
 			log.debugf("settings changed: %v", event)
 			mixologist.config.settings = event
@@ -529,4 +550,29 @@ mixologist_globalshortcuts_handler :: proc "c" (
 		return .HANDLED
 	}
 	return .NOT_YET_HANDLED
+}
+
+mixologist_read_volume_file :: proc(mixologist: ^Mixologist) {
+	if os2.exists(mixologist.volume_file) {
+		volume_bytes, volume_err := os2.read_entire_file(mixologist.volume_file, context.allocator)
+		if volume_err != nil {
+			log.errorf("could not read volume file: %s", volume_err)
+		} else {
+			volume, volume_parse_ok := strconv.parse_f32(string(volume_bytes))
+			if !volume_parse_ok {
+				log.errorf("could not parse volume")
+			} else {
+				mixologist.volume = volume
+			}
+		}
+	}
+}
+
+mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
+	volume_buf: [312]byte
+	volume_string := fmt.bprintf(volume_buf[:], "%f", mixologist.volume)
+	err := os2.write_entire_file(mixologist.volume_file, transmute([]u8)volume_string)
+	if err != nil {
+		log.errorf("could not write volume file: %s", err)
+	}
 }

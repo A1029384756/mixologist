@@ -622,8 +622,18 @@ settings_menu :: proc(
 				{text = "Minimize on Start", color = TEXT, size = 16},
 				&settings.start_minimized,
 			)
-
 			if .RELEASE in res {
+				append(&mixologist.events, settings)
+			}
+
+			list_separator(SURFACE_1)
+
+			remember_res, _ := switch_row(
+				ctx,
+				{text = "Remember Volume", color = TEXT, size = 16},
+				&settings.remember_volume,
+			)
+			if .RELEASE in remember_res {
 				append(&mixologist.events, settings)
 			}
 
