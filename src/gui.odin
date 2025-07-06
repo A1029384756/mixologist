@@ -639,6 +639,7 @@ settings_menu :: proc(
 
 			if .CHANGE in dropdown_res {
 				append(&mixologist.events, settings)
+				append(&mixologist.events, mixologist.volume)
 			}
 		}
 	}
