@@ -572,7 +572,7 @@ rule_add_line :: proc(
 								}
 							}
 						}
-						if idx != len(mixologist.programs) - 1 - found_count {
+						if idx < len(mixologist.programs) - 1 - found_count {
 							list_separator(SURFACE_1)
 						}
 					}

@@ -97,6 +97,7 @@ node_destroy :: proc(node: ^Node) {
 	for channel in node.ports {
 		delete(channel)
 	}
+	log.info("destroying node: %v", node.name)
 	node_idx, found := slice.linear_search(mixologist.programs[:], node.name)
 	if found do unordered_remove(&mixologist.programs, node_idx)
 
