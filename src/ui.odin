@@ -1331,21 +1331,21 @@ UI__textbox :: proc(
 							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					} else { 	// selection box
+						x_offset := f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)
+						selection_width := abs(head_size.width - tail_size.width)
+
 						if clay.UI()(
 						{
 							floating = {
 								attachment = {element = .LeftCenter, parent = .LeftCenter},
-								offset = {
-									min(head_size.width, tail_size.width) +
-									c.float(ctx.textbox_offset),
-									0,
-								},
+								offset = {x_offset, 0},
 								pointerCaptureMode = .Passthrough,
 								attachTo = .Parent,
+								clipTo = .AttachedParent,
 							},
 							layout = {
 								sizing = {
-									clay.SizingFixed(abs(head_size.width - tail_size.width)),
+									clay.SizingFixed(selection_width),
 									clay.SizingFixed(boundingbox.height - 6),
 								},
 							},
