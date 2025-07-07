@@ -1614,8 +1614,14 @@ UI__switch :: proc(
 	return
 }
 
-UI_spacer :: proc(ctx: ^UI_Context) -> (res: UI_WidgetResults, id: clay.ElementId) {
-	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
+UI_spacer :: proc(
+	ctx: ^UI_Context,
+	horz_constraints: clay.SizingConstraintsMinMax = {},
+) -> (
+	res: UI_WidgetResults,
+	id: clay.ElementId,
+) {
+	if clay.UI()({layout = {sizing = {clay.SizingGrow(horz_constraints), clay.SizingGrow({})}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 		if clay.UI()({id = local_id}) {
