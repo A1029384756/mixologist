@@ -8,9 +8,7 @@ import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
 import "core:log"
-
-
-@(require)import "core:mem"
+@(require) import "core:mem"
 import "core:os/os2"
 import "core:strconv"
 import "core:strings"
@@ -21,6 +19,7 @@ Mixologist :: struct {
 	// state
 	statuses:    Statuses,
 	events:      [dynamic]Event,
+	programs:    [dynamic]string,
 	// inotify
 	fd:          linux.Fd,
 	wd:          linux.Wd,

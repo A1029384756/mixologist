@@ -239,6 +239,7 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
+		append(&mixologist.programs, name_str)
 		node_init(&node, proxy, props, name_str, ctx.allocator)
 		if daemon_rule_matches(ctx, string(application_name)) {
 			ctx.aux_sink.associated_nodes[id] = node

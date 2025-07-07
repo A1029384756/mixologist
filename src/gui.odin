@@ -1,6 +1,8 @@
 package mixologist
 
 import "./clay"
+import "core:log"
+import "core:slice"
 import "core:strings"
 
 GUI_Context_Status :: enum u8 {
@@ -18,7 +20,9 @@ GUI_Context :: struct {
 	active_line_buf:   [1024]u8,
 	active_line_len:   int,
 	active_line:       int,
-	// rule creation
+	// rule addition
+	selected_programs: [dynamic]string,
+	// custom rule creation
 	new_rule_buf:      [1024]u8,
 	new_rule_len:      int,
 	rule_scrollbar:    UI_Scrollbar_Data,
@@ -269,6 +273,7 @@ rules_label :: proc(ctx: ^GUI_Context) {
 			&ctx.ui_ctx,
 			{
 				UI_IconConfig{id = 6, size = 16, color = TEXT},
+				UI_HorzSpacerConfig{size = 4},
 				UI_TextConfig{text = "Add Rule", size = 16, color = TEXT},
 			},
 			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
@@ -456,6 +461,11 @@ rule_add_line :: proc(
 	id: clay.ElementId,
 ) {
 	ctx := cast(^GUI_Context)ctx
+	if .ADDING_NEW in ctx.statuses {
+		ctx.statuses -= {.ADDING_NEW}
+		ctx.new_rule_len = 0
+		clear(&ctx.selected_programs)
+	}
 
 	if clay.UI()({layout = {padding = clay.PaddingAll(16)}}) {
 		if clay.UI()(
@@ -493,64 +503,84 @@ rule_add_line :: proc(
 			UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
 			if clay.UI()(
 			{
-				id = clay.ID("open_programs"),
 				layout = {
 					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-					childAlignment = {x = .Left, y = .Center},
-					layoutDirection = .TopToBottom,
+					layoutDirection = .LeftToRight,
 					padding = clay.PaddingAll(8),
 				},
 				backgroundColor = SURFACE_0,
 				cornerRadius = clay.CornerRadiusAll(10),
-				clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 			},
 			) {
-				programs := []string {
-					"Chromium",
-					"Zen",
-					"Elden Ring: Nightreign",
-					"Dolphin",
-					"Oh Brother, Where Art Thou? - Jellyfin",
-				}
-				for program, idx in programs {
-					if clay.UI()(
-					{
-						layout = {
-							sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-							padding = clay.PaddingAll(16),
-							childAlignment = {x = .Left, y = .Center},
-						},
+				if clay.UI()(
+				{
+					id = clay.ID("open_programs"),
+					layout = {
+						layoutDirection = .TopToBottom,
+						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
 					},
-					) {
-						UI_textlabel(program, {textColor = TEXT, fontSize = 16})
-						UI_spacer(&ctx.ui_ctx)
-						UI_horz_spacer(&ctx.ui_ctx, 24)
-						UI_button(
-							&ctx.ui_ctx,
-							{UI_IconConfig{5, 24, TEXT}},
-							{},
-							clay.CornerRadiusAll(max(f32)),
-							OVERLAY_0,
-							SURFACE_2,
-							SURFACE_1,
-							2,
+					clip = {vertical = true, childOffset = clay.GetScrollOffset()},
+				},
+				) {
+					for program, idx in mixologist.programs {
+						if slice.contains(mixologist.config.rules[:], program) do continue
+
+						selection_idx, selected := slice.linear_search(
+							ctx.selected_programs[:],
+							program,
 						)
-					}
-					if idx != len(programs) - 1 {
-						list_separator(SURFACE_1)
+
+						if clay.UI()(
+						{
+							layout = {
+								sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+								padding = clay.PaddingAll(8),
+								childAlignment = {x = .Left, y = .Center},
+							},
+						},
+						) {
+							UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+							UI_spacer(&ctx.ui_ctx)
+							UI_horz_spacer(&ctx.ui_ctx, 24)
+							add_program_res, _ := UI_button(
+								&ctx.ui_ctx,
+								{UI_IconConfig{5, 24, selected ? MAUVE : TEXT}},
+								{},
+								clay.CornerRadiusAll(max(f32)),
+								OVERLAY_0,
+								SURFACE_2,
+								SURFACE_1,
+								2,
+							)
+
+							if .RELEASE in add_program_res {
+								if selected {
+									unordered_remove(&ctx.selected_programs, selection_idx)
+								} else {
+									append(&ctx.selected_programs, program)
+								}
+							}
+						}
+						if idx != len(mixologist.programs) - 1 {
+							list_separator(SURFACE_1)
+						}
 					}
 				}
 
-				UI_scrollbar(
-					&ctx.ui_ctx,
-					clay.GetScrollContainerData(clay.ID("open_programs")),
-					&ctx.program_scrollbar,
-					8,
-					SURFACE_1,
-					SURFACE_2,
-					OVERLAY_0,
-					OVERLAY_1,
-				)
+				UI_horz_spacer(&ctx.ui_ctx, 8)
+
+				if clay.UI()({layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}}) {
+					UI_scrollbar(
+						&ctx.ui_ctx,
+						clay.GetScrollContainerData(clay.ID("open_programs")),
+						&ctx.program_scrollbar,
+						8,
+						0,
+						SURFACE_2,
+						OVERLAY_0,
+						OVERLAY_1,
+					)
+				}
 			}
 
 			UI_textlabel("Custom Rule", {textColor = TEXT, fontSize = 16})
@@ -562,11 +592,6 @@ rule_add_line :: proc(
 				},
 			},
 			) {
-				if .ADDING_NEW in ctx.statuses {
-					ctx.statuses -= {.ADDING_NEW}
-					ctx.new_rule_len = 0
-				}
-
 				placeholder_str := "New rule..."
 				tb_res, tb_id := UI_textbox(
 					&ctx.ui_ctx,
@@ -606,16 +631,23 @@ rule_add_line :: proc(
 				},
 			},
 			) {
+				rules_to_add := len(ctx.selected_programs) + int(ctx.new_rule_len > 0)
 				button_res, _ := UI_button(
 					&ctx.ui_ctx,
-					{UI_TextConfig{text = "Add Rule", size = 16, color = TEXT}},
+					{
+						UI_TextConfig {
+							text = rules_to_add > 1 ? "Add Rules" : "Add Rule",
+							size = 16,
+							color = TEXT,
+						},
+					},
 					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
 					clay.CornerRadiusAll(32),
 					SURFACE_2,
 					SURFACE_1,
 					SURFACE_0,
 					12,
-					ctx.new_rule_len > 0,
+					rules_to_add > 0,
 				)
 
 				if .RELEASE in button_res {
@@ -625,6 +657,13 @@ rule_add_line :: proc(
 							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
 						)
 						ctx.new_rule_len = 0
+						ctx.statuses += {.RULES}
+						res += {.SUBMIT}
+					}
+					if len(ctx.selected_programs) > 0 {
+						for program in ctx.selected_programs {
+							append(&mixologist.events, Rule_Add(strings.clone(string(program))))
+						}
 						ctx.statuses += {.RULES}
 						res += {.SUBMIT}
 					}

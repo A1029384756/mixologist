@@ -7,7 +7,7 @@ import "core:c"
 import sa "core:container/small_array"
 
 
-@(require)import "core:fmt"
+@(require) import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
@@ -825,6 +825,16 @@ UI_slider :: proc(
 UI_ElementConfig :: union {
 	UI_TextConfig,
 	UI_IconConfig,
+	UI_HorzSpacerConfig,
+	UI_VertSpacerConfig,
+}
+
+UI_HorzSpacerConfig :: struct {
+	size: c.float,
+}
+
+UI_VertSpacerConfig :: struct {
+	size: c.float,
 }
 
 UI_TextConfig :: struct {
@@ -1547,6 +1557,10 @@ UI__button :: proc(
 						{textColor = element.color, fontSize = element.size},
 					)
 					clay.TextDynamic(element.text, clay_textconfig)
+				case UI_HorzSpacerConfig:
+					UI_horz_spacer(ctx, element.size)
+				case UI_VertSpacerConfig:
+					UI_vert_spacer(ctx, element.size)
 				}
 			}
 		}
