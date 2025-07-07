@@ -27,6 +27,7 @@ Mixologist can be installed via the latest
 ### Building from Source
 Dependencies:
 - [Odin](https://odin-lang.org)
+- `libdbus`
 - `libpipewire`
 - `sdl3`
 - `sdl3_ttf`
@@ -81,20 +82,32 @@ This is currently a JSON file of the following structure:
 ```json
 {
 	"rules": [
-		"Chromium.*"
+		"Chromium"
 	],
-    "start_minimized": false
+	"settings": {
+		"volume_falloff": 1,
+		"start_minimized": true,
+		"remember_volume": true
+	}
 }
 ```
-This represent the set of programs you wish to isolate.
-The config file is hot-reloaded and can be modified by
-`mixologist`, the GUI or just editing it with your favorite
-text editor.
+The rules represent the set of programs you wish to isolate.
+The config file is hot-reloaded and can be modified by the 
+GUI or just editing it with your favorite text editor.
+
+Volume falloff controls the curve used to set sink volumes
+and is one of the following:
+- Linear (default) -> 0
+- Quadratic -> 1
+- Power -> 2
+- Cubic -> 3
+
+Set the corrsponding *numeric* value in the config file.
 
 ## Planned Features
 - [x] GUI
 - [x] Flatpak distribution (GUI-only)
-- [ ] Proper settings menu
+- [x] Proper settings menu
 - [ ] Revamped theming system
 - [ ] Improved Packaging for:
     - Debian
