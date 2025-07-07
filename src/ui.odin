@@ -857,6 +857,7 @@ UI_button :: proc(
 	color, hover_color, press_color: clay.Color,
 	padding: u16,
 	enabled := true,
+	border_config: clay.BorderElementConfig = {},
 ) -> (
 	res: UI_WidgetResults,
 	id: clay.ElementId,
@@ -865,6 +866,7 @@ UI_button :: proc(
 		ctx,
 		elements,
 		layout,
+		border_config,
 		corner_radius,
 		enabled ? color : color * {0.65, 0.65, 0.65, 1},
 		enabled ? hover_color : color * {0.65, 0.65, 0.65, 1},
@@ -1515,6 +1517,7 @@ UI__button :: proc(
 	ctx: ^UI_Context,
 	elements: []UI_ElementConfig,
 	layout: clay.LayoutConfig,
+	border: clay.BorderElementConfig,
 	corner_radius: clay.CornerRadius,
 	color, hover_color, press_color: clay.Color,
 	padding: u16,
@@ -1546,6 +1549,7 @@ UI__button :: proc(
 			},
 			backgroundColor = selected_color,
 			cornerRadius = corner_radius,
+			border = border,
 		},
 		) {
 			for element in elements {

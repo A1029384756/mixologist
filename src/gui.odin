@@ -539,19 +539,22 @@ rule_add_line :: proc(
 							},
 						},
 						) {
-							UI_textlabel(program, {textColor = TEXT, fontSize = 16})
-							UI_spacer(&ctx.ui_ctx)
-							UI_horz_spacer(&ctx.ui_ctx, 24)
 							add_program_res, _ := UI_button(
 								&ctx.ui_ctx,
-								{UI_IconConfig{5, 24, selected ? MAUVE : TEXT}},
-								{},
-								clay.CornerRadiusAll(max(f32)),
-								OVERLAY_0,
-								SURFACE_2,
-								SURFACE_1,
+								selected ? {UI_IconConfig{5, 16, TEXT}} : {},
+								{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
+								clay.CornerRadiusAll(8),
+								selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
+								selected ? MAUVE * {1, 1, 1, 0.6} : SURFACE_2,
+								selected ? MAUVE * {1, 1, 1, 0.7} : SURFACE_1,
 								2,
+								border_config = {
+									width = {2, 2, 2, 2, 2},
+									color = selected ? MAUVE : SURFACE_2,
+								},
 							)
+							UI_horz_spacer(&ctx.ui_ctx, 24)
+							UI_textlabel(program, {textColor = TEXT, fontSize = 16})
 
 							if .RELEASE in add_program_res {
 								if selected {

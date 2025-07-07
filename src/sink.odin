@@ -7,6 +7,7 @@ import "core:log"
 import "core:math"
 import "core:mem/virtual"
 import "core:os/os2"
+import "core:slice"
 import "core:strings"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
@@ -92,6 +93,9 @@ node_destroy :: proc(node: ^Node) {
 	for channel in node.ports {
 		delete(channel)
 	}
+	node_idx, found := slice.linear_search(mixologist.programs[:], node.name)
+	if found do unordered_remove(&mixologist.programs, node_idx)
+
 	pw.proxy_destroy(node.proxy)
 	delete(node.name)
 }
