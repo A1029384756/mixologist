@@ -1826,6 +1826,7 @@ UI__dropdown_options :: proc(
 				layoutDirection = .TopToBottom,
 				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
 				padding = clay.PaddingAll(4),
+				childGap = 2,
 			},
 			backgroundColor = background,
 			cornerRadius = clay.CornerRadiusAll(10),
@@ -1836,11 +1837,10 @@ UI__dropdown_options :: proc(
 				return
 			}
 
-			id = clay.ID_LOCAL(#procedure)
-			if clay.Hovered() do ctx.hovered_widget = id
+			if clay.Hovered() do ctx.hovered_widget = dropdown_id
 
 			for option, idx in options {
-				option_id := clay.ID(option)
+				option_id := clay.ID(option, u32(idx))
 				if clay.UI()(
 				{
 					id = option_id,
