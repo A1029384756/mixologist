@@ -1,7 +1,6 @@
 package mixologist
 
 import "./clay"
-import "core:log"
 import "core:slice"
 import "core:strings"
 
@@ -596,7 +595,7 @@ rule_add_line :: proc(
 			},
 			) {
 				placeholder_str := "New rule..."
-				tb_res, tb_id := UI_textbox(
+				tb_res, _ := UI_textbox(
 					&ctx.ui_ctx,
 					ctx.new_rule_buf[:],
 					&ctx.new_rule_len,
