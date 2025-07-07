@@ -87,6 +87,10 @@ node_init :: proc(
 	node.props = props
 	node.ports = make(map[string]u32, DEFAULT_MAP_CAPACITY, allocator)
 	node.name = name
+
+	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
+		append(&mixologist.programs, node.name)
+	}
 }
 
 node_destroy :: proc(node: ^Node) {

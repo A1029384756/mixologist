@@ -521,8 +521,17 @@ rule_add_line :: proc(
 					clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 				},
 				) {
+					found_count := 0
+					for program in mixologist.programs {
+						if slice.contains(mixologist.config.rules[:], program) {
+							found_count += 1
+						}
+					}
+
 					for program, idx in mixologist.programs {
-						if slice.contains(mixologist.config.rules[:], program) do continue
+						if slice.contains(mixologist.config.rules[:], program) {
+							continue
+						}
 
 						selection_idx, selected := slice.linear_search(
 							ctx.selected_programs[:],
@@ -563,7 +572,7 @@ rule_add_line :: proc(
 								}
 							}
 						}
-						if idx != len(mixologist.programs) - 1 {
+						if idx != len(mixologist.programs) - 1 - found_count {
 							list_separator(SURFACE_1)
 						}
 					}
