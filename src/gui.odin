@@ -466,11 +466,18 @@ rule_add_menu :: proc(
 		clear(&ctx.selected_programs)
 	}
 
-	if clay.UI()({layout = {padding = clay.PaddingAll(16)}}) {
+	if clay.UI()(
+	{
+		layout = {
+			padding = clay.PaddingAll(16),
+			sizing = {clay.SizingPercent(0.7), clay.SizingFit({})},
+		},
+	},
+	) {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingFit({}), clay.SizingFit({})},
+				sizing = {clay.SizingGrow({}), clay.SizingFit({})},
 				childAlignment = {y = .Center},
 				layoutDirection = .TopToBottom,
 				padding = clay.PaddingAll(16),
