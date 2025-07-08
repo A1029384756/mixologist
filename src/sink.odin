@@ -7,6 +7,7 @@ import "core:log"
 import "core:math"
 import "core:mem/virtual"
 import "core:os/os2"
+import "core:slice"
 import "core:strings"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
@@ -86,12 +87,20 @@ node_init :: proc(
 	node.props = props
 	node.ports = make(map[string]u32, DEFAULT_MAP_CAPACITY, allocator)
 	node.name = name
+
+	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
+		append(&mixologist.programs, node.name)
+	}
 }
 
 node_destroy :: proc(node: ^Node) {
 	for channel in node.ports {
 		delete(channel)
 	}
+	log.info("destroying node: %v", node.name)
+	node_idx, found := slice.linear_search(mixologist.programs[:], node.name)
+	if found do unordered_remove(&mixologist.programs, node_idx)
+
 	pw.proxy_destroy(node.proxy)
 	delete(node.name)
 }
@@ -164,7 +173,7 @@ sink_destroy :: proc(sink: ^Sink) {
 
 sink_set_volume :: proc(sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	proxy_volume := volume_falloff(volume, mixologist.config.volume_falloff)
+	proxy_volume := volume_falloff(volume, mixologist.config.settings.volume_falloff)
 	proxy_set_volume(sink.loopback_node.proxy, proxy_volume, len(sink.loopback_node.ports))
 }
 

@@ -2232,17 +2232,37 @@ void Clay__SizeContainersAlongAxis(bool xAxis) {
             Clay_LayoutElementHashMapItem *parentItem = Clay__GetHashMapItem(floatingElementConfig->parentId);
             if (parentItem && parentItem != &Clay_LayoutElementHashMapItem_DEFAULT) {
                 Clay_LayoutElement *parentLayoutElement = parentItem->layoutElement;
-                if (rootElement->layoutConfig->sizing.width.type == CLAY__SIZING_TYPE_GROW) {
-                    rootElement->dimensions.width = parentLayoutElement->dimensions.width;
+                switch (rootElement->layoutConfig->sizing.width.type) {
+                    case CLAY__SIZING_TYPE_GROW: {
+                        rootElement->dimensions.width = parentLayoutElement->dimensions.width;
+                        break;
+                    }
+                    case CLAY__SIZING_TYPE_PERCENT: {
+                        rootElement->dimensions.width = parentLayoutElement->dimensions.width * rootElement->layoutConfig->sizing.width.size.percent;
+                        break;
+                    }
+                    default: break;
                 }
-                if (rootElement->layoutConfig->sizing.height.type == CLAY__SIZING_TYPE_GROW) {
-                    rootElement->dimensions.height = parentLayoutElement->dimensions.height;
+                switch (rootElement->layoutConfig->sizing.height.type) {
+                    case CLAY__SIZING_TYPE_GROW: {
+                        rootElement->dimensions.height = parentLayoutElement->dimensions.height;
+                        break;
+                    }
+                    case CLAY__SIZING_TYPE_PERCENT: {
+                        rootElement->dimensions.height = parentLayoutElement->dimensions.height * rootElement->layoutConfig->sizing.height.size.percent;
+                        break;
+                    }
+                    default: break;
                 }
             }
         }
 
-        rootElement->dimensions.width = CLAY__MIN(CLAY__MAX(rootElement->dimensions.width, rootElement->layoutConfig->sizing.width.size.minMax.min), rootElement->layoutConfig->sizing.width.size.minMax.max);
-        rootElement->dimensions.height = CLAY__MIN(CLAY__MAX(rootElement->dimensions.height, rootElement->layoutConfig->sizing.height.size.minMax.min), rootElement->layoutConfig->sizing.height.size.minMax.max);
+        if (rootElement->layoutConfig->sizing.width.type != CLAY__SIZING_TYPE_PERCENT) {
+            rootElement->dimensions.width = CLAY__MIN(CLAY__MAX(rootElement->dimensions.width, rootElement->layoutConfig->sizing.width.size.minMax.min), rootElement->layoutConfig->sizing.width.size.minMax.max);
+        }
+        if (rootElement->layoutConfig->sizing.height.type != CLAY__SIZING_TYPE_PERCENT) {
+            rootElement->dimensions.height = CLAY__MIN(CLAY__MAX(rootElement->dimensions.height, rootElement->layoutConfig->sizing.height.size.minMax.min), rootElement->layoutConfig->sizing.height.size.minMax.max);
+        }
 
         for (int32_t i = 0; i < bfsBuffer.length; ++i) {
             int32_t parentIndex = Clay__int32_tArray_GetValue(&bfsBuffer, i);
@@ -3613,7 +3633,16 @@ void Clay__RenderDebugView(void) {
                             CLAY({ .id = CLAY_ID("Clay__DebugViewElementInfoAspectRatioBody"), .layout = { .padding = attributeConfigPadding, .childGap = 8, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
                                 CLAY_TEXT(CLAY_STRING("Aspect Ratio"), infoTitleConfig);
                                 // Aspect Ratio
-                                CLAY_TEXT(Clay__IntToString(aspectRatioConfig->aspectRatio), infoTextConfig);
+                                CLAY({ .id = CLAY_ID("Clay__DebugViewElementInfoAspectRatio") }) {
+                                    CLAY_TEXT(Clay__IntToString(aspectRatioConfig->aspectRatio), infoTextConfig);
+                                    CLAY_TEXT(CLAY_STRING("."), infoTextConfig);
+                                    float frac = aspectRatioConfig->aspectRatio - (int)(aspectRatioConfig->aspectRatio);
+                                    frac *= 100;
+                                    if ((int)frac < 10) {
+                                        CLAY_TEXT(CLAY_STRING("0"), infoTextConfig);
+                                    }
+                                    CLAY_TEXT(Clay__IntToString(frac), infoTextConfig);
+                                }
                             }
                             break;
                         }
