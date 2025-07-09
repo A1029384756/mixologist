@@ -480,6 +480,8 @@ UI_tick :: proc(
 			sdl.ReleaseGPUFence(ctx.device, fence)
 		}
 		ctx.prev_event_time = time.tick_now()
+	} else {
+		time.sleep(ctx.prev_frametime)
 	}
 
 	when ODIN_DEBUG {

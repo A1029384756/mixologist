@@ -7,7 +7,6 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
-import "core:sys/linux"
 import "core:sys/posix"
 import "core:text/match"
 
