@@ -495,5 +495,5 @@ daemon_set_volumes :: proc(ctx: ^Daemon_Context, volumes: [2]f32) {
 	log.debugf("setting pipewire volumes: %v", volumes)
 	volumes_ptr := new([2]f32, context.allocator)
 	volumes_ptr^ = volumes
-	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, volumes_ptr, 0, false, volumes_ptr)
+	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
 }
