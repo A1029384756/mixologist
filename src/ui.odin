@@ -493,6 +493,8 @@ UI_tick :: proc(
 				UI_DEBUG_PREV_TIME = time.now()
 			}
 		}
+	} else {
+		time.sleep(time.Millisecond / 10)
 	}
 
 	ctx.prev_frame_time = time.now()

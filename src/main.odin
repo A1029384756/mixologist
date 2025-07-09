@@ -10,32 +10,38 @@ import "core:fmt"
 import "core:log"
 @(require) import "core:mem"
 import "core:os/os2"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:sys/linux"
+import "core:thread"
 import "core:time"
 
 Mixologist :: struct {
 	// state
-	statuses:    Statuses,
-	events:      [dynamic]Event,
-	programs:    [dynamic]string,
+	statuses:      Statuses,
+	events:        [dynamic]Event,
+	programs:      [dynamic]string,
+	event_mutex:   sync.Mutex,
 	// inotify
-	fd:          linux.Fd,
-	wd:          linux.Wd,
-	buf:         [EVENT_BUF_LEN]u8,
+	fd:            linux.Fd,
+	wd:            linux.Wd,
+	buf:           [EVENT_BUF_LEN]u8,
 	// ipc
-	ipc:         IPC_Server_Context,
+	ipc:           IPC_Server_Context,
 	// subapp states
-	daemon:      Daemon_Context,
-	gui:         GUI_Context,
-	shortcuts:   GlobalShortcuts_Session,
+	daemon:        Daemon_Context,
+	daemon_thread: ^thread.Thread,
+	gui:           GUI_Context,
+	gui_thread:    ^thread.Thread,
+	shortcuts:     GlobalShortcuts_Session,
 	// config
-	config_dir:  string,
-	cache_dir:   string,
-	volume_file: string,
-	config:      Config,
-	volume:      f32,
+	config_dir:    string,
+	cache_dir:     string,
+	volume_file:   string,
+	config:        Config,
+	volume:        f32,
 }
 
 Config :: struct {
@@ -93,14 +99,20 @@ Status :: enum {
 }
 
 Event :: union {
+	Exit,
 	Rule_Add,
 	Rule_Remove,
 	Rule_Update,
+	Program_Add,
+	Program_Remove,
 	Volume,
 	Settings,
 }
+Exit :: struct {}
 Rule_Add :: distinct string
 Rule_Remove :: distinct string
+Program_Add :: distinct string
+Program_Remove :: distinct string
 Rule_Update :: struct {
 	prev: string,
 	cur:  string,
@@ -252,11 +264,14 @@ main :: proc() {
 
 	// init app state
 	if .Daemon in mixologist.statuses {
-		daemon_init(&mixologist.daemon)
+		mixologist.daemon_thread = thread.create_and_start_with_poly_data(
+			&mixologist.daemon,
+			daemon_proc,
+		)
 	}
 
 	if .Gui in mixologist.statuses {
-		gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
+		mixologist.gui_thread = thread.create_and_start_with_poly_data(&mixologist.gui, gui_proc)
 	}
 
 	for (.Exit not_in mixologist.statuses) {
@@ -291,33 +306,16 @@ main :: proc() {
 			Portals_Tick(mixologist.shortcuts.conn)
 			mixologist_process_events(&mixologist)
 		}
-
-		if .Daemon in mixologist.statuses {
-			daemon_tick(&mixologist.daemon)
-			mixologist_process_events(&mixologist)
-			if daemon_should_exit(&mixologist.daemon) {
-				mixologist.statuses += {.Exit}
-			}
-		}
-
-		if .Gui in mixologist.statuses {
-			gui_tick(&mixologist.gui)
-			if UI_should_exit(&mixologist.gui.ui_ctx) {
-				mixologist.statuses += {.Exit}
-			}
-		} else {
-			time.sleep(time.Millisecond / 2)
-		}
-
+		time.sleep(time.Millisecond / 10)
 		free_all(context.temp_allocator)
 	}
 
 	if .Daemon in mixologist.statuses {
-		daemon_deinit(&mixologist.daemon)
+		thread.join(mixologist.daemon_thread)
 	}
 
 	if .Gui in mixologist.statuses {
-		gui_deinit(&mixologist.gui)
+		thread.join(mixologist.gui_thread)
 	}
 
 	if .GlobalShortcuts in mixologist.statuses {
@@ -388,10 +386,31 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 			log.debugf("settings changed: %v", event)
 			mixologist.config.settings = event
 			mixologist_config_write(mixologist)
+		case Program_Add:
+			log.infof("adding program %s", event)
+			append(&mixologist.programs, string(event))
+		case Program_Remove:
+			log.infof("removing program %s", event)
+			node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
+			if found {
+				delete(mixologist.programs[node_idx])
+				unordered_remove(&mixologist.programs, node_idx)
+			}
+		case Exit:
+			mixologist.statuses += {.Exit}
+			mixologist.gui.ui_ctx.statuses += {.APP_EXIT}
+			mixologist.daemon.should_exit = true
+			break
 		}
 		mixologist.gui.ui_ctx.statuses += {.DIRTY}
 	}
 	clear(&mixologist.events)
+}
+
+mixologist_event_send :: proc(event: Event) {
+	if sync.mutex_guard(&mixologist.event_mutex) {
+		append(&mixologist.events, event)
+	}
 }
 
 mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
@@ -412,12 +431,12 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 				IPC_Server_send(&mixologist.ipc, sender, vol)
 			case .Set:
 				log.debugf("setting volume %v: socket %v", msg.val, sender)
-				append(&mixologist.events, msg.val)
+				mixologist_event_send(msg.val)
 				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			case .Shift:
 				log.debugf("shifting volume %v: socket %v", msg.val, sender)
 				vol := mixologist.volume + msg.val
-				append(&mixologist.events, vol)
+				mixologist_event_send(vol)
 				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			case .Subscribe:
 				log.debugf("subscribing volume: socket %v", sender)
@@ -432,11 +451,11 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			switch msg.act {
 			case .Add:
 				log.infof("adding program %s", msg.val)
-				append(&mixologist.events, Rule_Add(msg.val))
+				mixologist_event_send(Rule_Add(msg.val))
 			// [TODO] implement program subscriptions
 			case .Remove:
 				log.infof("removing program %s", msg.val)
-				append(&mixologist.events, Rule_Remove(msg.val))
+				mixologist_event_send(Rule_Remove(msg.val))
 			// [TODO] implement program subscriptions
 			case .Subscribe:
 				IPC_Server_add_program_subscriber(&mixologist.ipc, sender)
@@ -535,16 +554,16 @@ mixologist_globalshortcuts_handler :: proc "c" (
 		switch shortcut_id {
 		case .RAISE:
 			vol := mixologist.volume + 0.1
-			append(&mixologist.events, vol)
+			mixologist_event_send(vol)
 		case .LOWER:
 			vol := mixologist.volume - 0.1
-			append(&mixologist.events, vol)
+			mixologist_event_send(vol)
 		case .MAX:
-			append(&mixologist.events, 1)
+			mixologist_event_send(1)
 		case .MIN:
-			append(&mixologist.events, -1)
+			mixologist_event_send(-1)
 		case .RESET:
-			append(&mixologist.events, 0)
+			mixologist_event_send(0)
 		}
 		return .HANDLED
 	}

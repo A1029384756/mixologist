@@ -37,6 +37,16 @@ Daemon_Context :: struct {
 	should_exit:       bool,
 }
 
+daemon_proc :: proc(ctx: ^Daemon_Context) {
+	daemon_init(&mixologist.daemon)
+	for !daemon_should_exit(&mixologist.daemon) {
+		daemon_tick(&mixologist.daemon)
+		free_all(context.temp_allocator)
+	}
+	daemon_deinit(&mixologist.daemon)
+	mixologist_event_send(Exit{})
+}
+
 daemon_init :: proc(ctx: ^Daemon_Context) {
 	if virtual.arena_init_growing(&ctx.arena) != nil {
 		panic("Couldn't initialize arena")
@@ -93,7 +103,7 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 daemon_tick :: proc(ctx: ^Daemon_Context) {
 	// this is a no-op but here for the future
 	time: linux.Time_Spec
-	pw.thread_loop_get_time(ctx.main_loop, &time, 1e4)
+	pw.thread_loop_get_time(ctx.main_loop, &time, 1e6)
 	pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
 }
 

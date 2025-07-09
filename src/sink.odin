@@ -7,7 +7,6 @@ import "core:log"
 import "core:math"
 import "core:mem/virtual"
 import "core:os/os2"
-import "core:slice"
 import "core:strings"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
@@ -89,7 +88,7 @@ node_init :: proc(
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		append(&mixologist.programs, node.name)
+		mixologist_event_send(Program_Add(strings.clone(node.name)))
 	}
 }
 
@@ -98,8 +97,7 @@ node_destroy :: proc(node: ^Node) {
 		delete(channel)
 	}
 	log.info("destroying node: %v", node.name)
-	node_idx, found := slice.linear_search(mixologist.programs[:], node.name)
-	if found do unordered_remove(&mixologist.programs, node_idx)
+	mixologist_event_send(Program_Remove(node.name))
 
 	pw.proxy_destroy(node.proxy)
 	delete(node.name)
