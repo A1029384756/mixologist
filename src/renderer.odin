@@ -9,7 +9,9 @@ import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
+@(thread_local)
 pipeline: Pipeline
+@(thread_local)
 commands: [dynamic]Command
 
 Pipeline_Status :: enum {
@@ -588,10 +590,10 @@ ortho_rh :: proc(
 	far: f32,
 ) -> matrix[4, 4]f32 {
 	return matrix[4, 4]f32{
-		2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left), 
-		0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom), 
-		0.0, 0.0, -2.0 / (far - near), -(far + near) / (far - near), 
-		0.0, 0.0, 0.0, 1.0, 
+		2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left),
+		0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom),
+		0.0, 0.0, -2.0 / (far - near), -(far + near) / (far - near),
+		0.0, 0.0, 0.0, 1.0,
 	}
 }
 

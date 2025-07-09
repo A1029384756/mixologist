@@ -1,6 +1,7 @@
 package mixologist
 
 import "./clay"
+import "core:log"
 import "core:slice"
 import "core:strings"
 
@@ -31,13 +32,15 @@ GUI_Context :: struct {
 }
 
 gui_proc :: proc(ctx: ^GUI_Context) {
+	log.info("gui starting")
 	gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
-	for !UI_should_exit(&mixologist.gui.ui_ctx) {
+	for !(UI_should_exit(&mixologist.gui.ui_ctx) || mixologist_should_exit()) {
 		gui_tick(&mixologist.gui)
 		free_all(context.temp_allocator)
 	}
 	gui_deinit(&mixologist.gui)
-	mixologist_event_send(Exit{})
+	log.info("gui exiting")
+	mixologist_signal_exit()
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
@@ -80,7 +83,6 @@ UI_create_layout :: proc(
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
 	layout := create_layout(mgst_ctx)
-	mixologist_process_events(&mixologist)
 	return layout
 }
 

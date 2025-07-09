@@ -28,6 +28,7 @@ Mixologist :: struct {
 	fd:            linux.Fd,
 	wd:            linux.Wd,
 	buf:           [EVENT_BUF_LEN]u8,
+	watch_path:    cstring,
 	// ipc
 	ipc:           IPC_Server_Context,
 	// subapp states
@@ -42,6 +43,8 @@ Mixologist :: struct {
 	volume_file:   string,
 	config:        Config,
 	volume:        f32,
+	// atomic
+	exit:          bool,
 }
 
 Config :: struct {
@@ -95,11 +98,9 @@ Status :: enum {
 	GlobalShortcuts,
 	Daemon,
 	Gui,
-	Exit,
 }
 
 Event :: union {
-	Exit,
 	Rule_Add,
 	Rule_Remove,
 	Rule_Update,
@@ -108,7 +109,6 @@ Event :: union {
 	Volume,
 	Settings,
 }
-Exit :: struct {}
 Rule_Add :: distinct string
 Rule_Remove :: distinct string
 Program_Add :: distinct string
@@ -148,7 +148,9 @@ main :: proc() {
 
 		defer {
 			for _, leak in track.allocation_map {
-				fmt.printf("%v leaked %m\n", leak.location, leak.size)
+				if strings.contains(leak.location.file_path, "mixologist") {
+					log.warnf("%v leaked %m\n", leak.location, leak.size)
+				}
 			}
 		}
 	} else {
@@ -197,9 +199,10 @@ main :: proc() {
 		in_err: linux.Errno
 		mixologist.fd, in_err = linux.inotify_init1({.NONBLOCK})
 		assert(in_err == nil)
+		mixologist.watch_path = strings.clone_to_cstring(mixologist.config_dir)
 		mixologist.wd, in_err = linux.inotify_add_watch(
 			mixologist.fd,
-			strings.clone_to_cstring(mixologist.config_dir),
+			mixologist.watch_path,
 			{.CREATE, .DELETE, .MODIFY} + linux.IN_MOVE,
 		)
 		assert(in_err == nil)
@@ -267,14 +270,19 @@ main :: proc() {
 		mixologist.daemon_thread = thread.create_and_start_with_poly_data(
 			&mixologist.daemon,
 			daemon_proc,
+			context,
 		)
 	}
 
 	if .Gui in mixologist.statuses {
-		mixologist.gui_thread = thread.create_and_start_with_poly_data(&mixologist.gui, gui_proc)
+		mixologist.gui_thread = thread.create_and_start_with_poly_data(
+			&mixologist.gui,
+			gui_proc,
+			context,
+		)
 	}
 
-	for (.Exit not_in mixologist.statuses) {
+	for !mixologist_should_exit() {
 		// hot-reload
 		{
 			length, read_err := linux.read(mixologist.fd, mixologist.buf[:])
@@ -304,9 +312,9 @@ main :: proc() {
 
 		if .GlobalShortcuts in mixologist.statuses {
 			Portals_Tick(mixologist.shortcuts.conn)
-			mixologist_process_events(&mixologist)
 		}
-		time.sleep(time.Millisecond / 10)
+		mixologist_process_events(&mixologist)
+		time.sleep(time.Millisecond)
 		free_all(context.temp_allocator)
 	}
 
@@ -318,6 +326,8 @@ main :: proc() {
 		thread.join(mixologist.gui_thread)
 	}
 
+	mixologist_process_events(&mixologist)
+
 	if .GlobalShortcuts in mixologist.statuses {
 		GlobalShortcuts_CloseSession(&mixologist.shortcuts)
 		GlobalShortcuts_Deinit(&mixologist.shortcuts)
@@ -328,83 +338,91 @@ main :: proc() {
 		err := linux.inotify_rm_watch(mixologist.fd, mixologist.wd)
 		assert(err == nil)
 	}
+
+	// clean up allocated memory
+	{
+		delete(mixologist.watch_path)
+		delete(mixologist.events)
+		for program in mixologist.programs {
+			delete(program)
+		}
+		delete(mixologist.programs)
+	}
 }
 
 mixologist_process_events :: proc(mixologist: ^Mixologist) {
-	for event in mixologist.events {
-		switch event in event {
-		case Rule_Add:
-			log.debugf("adding rule: %v", event)
-			daemon_add_program(&mixologist.daemon, string(event))
-			append(&mixologist.config.rules, string(event))
-			mixologist_config_write(mixologist)
-		case Rule_Remove:
-			log.debugf("removing rule: %v", event)
-			daemon_remove_program(&mixologist.daemon, string(event))
-			#reverse for rule, idx in mixologist.config.rules {
-				if rule == string(event) {
-					delete(rule)
-					ordered_remove(&mixologist.config.rules, idx)
-					break
-				}
-			}
-			mixologist_config_write(mixologist)
-		case Rule_Update:
-			if len(event.cur) == 0 {
-				log.debugf("updating to zero-length rule: %v", event.prev)
-				daemon_remove_program(&mixologist.daemon, event.prev)
-				for rule, idx in mixologist.config.rules {
-					if rule == event.prev {
+	if sync.mutex_guard(&mixologist.event_mutex) {
+		for event in mixologist.events {
+			switch event in event {
+			case Rule_Add:
+				log.debugf("adding rule: %v", event)
+				daemon_add_program(&mixologist.daemon, string(event))
+				append(&mixologist.config.rules, string(event))
+				mixologist_config_write(mixologist)
+			case Rule_Remove:
+				log.debugf("removing rule: %v", event)
+				daemon_remove_program(&mixologist.daemon, string(event))
+				#reverse for rule, idx in mixologist.config.rules {
+					if rule == string(event) {
 						delete(rule)
-						delete(event.cur)
 						ordered_remove(&mixologist.config.rules, idx)
 						break
 					}
 				}
-			} else {
-				log.debugf("updating rule: %v -> %v", event.prev, event.cur)
-				daemon_remove_program(&mixologist.daemon, event.prev)
-				daemon_add_program(&mixologist.daemon, event.cur)
-				for &rule in mixologist.config.rules {
-					if rule == event.prev {
-						delete(rule)
-						rule = event.cur
-						break
+				mixologist_config_write(mixologist)
+			case Rule_Update:
+				if len(event.cur) == 0 {
+					log.debugf("updating to zero-length rule: %v", event.prev)
+					daemon_remove_program(&mixologist.daemon, event.prev)
+					for rule, idx in mixologist.config.rules {
+						if rule == event.prev {
+							delete(rule)
+							delete(event.cur)
+							ordered_remove(&mixologist.config.rules, idx)
+							break
+						}
+					}
+				} else {
+					log.debugf("updating rule: %v -> %v", event.prev, event.cur)
+					daemon_remove_program(&mixologist.daemon, event.prev)
+					daemon_add_program(&mixologist.daemon, event.cur)
+					for &rule in mixologist.config.rules {
+						if rule == event.prev {
+							delete(rule)
+							rule = event.cur
+							break
+						}
 					}
 				}
+				mixologist_config_write(mixologist)
+			case Volume:
+				log.debugf("setting volume: %v", event)
+				mixologist.volume = event
+				mixologist.volume = clamp(mixologist.volume, -1, 1)
+				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
+				volumes := [2]f32{def_vol, aux_vol}
+				daemon_set_volumes(&mixologist.daemon, volumes)
+				mixologist_write_volume_file(mixologist)
+			case Settings:
+				log.debugf("settings changed: %v", event)
+				mixologist.config.settings = event
+				mixologist_config_write(mixologist)
+			case Program_Add:
+				log.infof("adding program %s", event)
+				append(&mixologist.programs, string(event))
+			case Program_Remove:
+				log.infof("removing program %s", event)
+				node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
+				if found {
+					delete(mixologist.programs[node_idx])
+					unordered_remove(&mixologist.programs, node_idx)
+				}
+				delete(string(event))
 			}
-			mixologist_config_write(mixologist)
-		case Volume:
-			log.debugf("setting volume: %v", event)
-			mixologist.volume = event
-			mixologist.volume = clamp(mixologist.volume, -1, 1)
-			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
-			sink_set_volume(&mixologist.daemon.default_sink, def_vol)
-			sink_set_volume(&mixologist.daemon.aux_sink, aux_vol)
-			mixologist_write_volume_file(mixologist)
-		case Settings:
-			log.debugf("settings changed: %v", event)
-			mixologist.config.settings = event
-			mixologist_config_write(mixologist)
-		case Program_Add:
-			log.infof("adding program %s", event)
-			append(&mixologist.programs, string(event))
-		case Program_Remove:
-			log.infof("removing program %s", event)
-			node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
-			if found {
-				delete(mixologist.programs[node_idx])
-				unordered_remove(&mixologist.programs, node_idx)
-			}
-		case Exit:
-			mixologist.statuses += {.Exit}
-			mixologist.gui.ui_ctx.statuses += {.APP_EXIT}
-			mixologist.daemon.should_exit = true
-			break
+			mixologist.gui.ui_ctx.statuses += {.DIRTY}
 		}
-		mixologist.gui.ui_ctx.statuses += {.DIRTY}
+		clear(&mixologist.events)
 	}
-	clear(&mixologist.events)
 }
 
 mixologist_event_send :: proc(event: Event) {
@@ -445,8 +463,8 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			}
 
 			default, aux := daemon_sink_volumes(mixologist.volume)
-			sink_set_volume(&mixologist.daemon.default_sink, default)
-			sink_set_volume(&mixologist.daemon.aux_sink, aux)
+			volumes := [2]f32{default, aux}
+			daemon_set_volumes(&mixologist.daemon, volumes)
 		case common.Program:
 			switch msg.act {
 			case .Add:
@@ -593,4 +611,12 @@ mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
 	if err != nil {
 		log.errorf("could not write volume file: %s", err)
 	}
+}
+
+mixologist_should_exit :: proc() -> bool {
+	return sync.atomic_load(&mixologist.exit)
+}
+
+mixologist_signal_exit :: proc "contextless" () {
+	sync.atomic_store(&mixologist.exit, true)
 }
