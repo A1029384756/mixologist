@@ -153,6 +153,7 @@ global_add :: proc "c" (
 ) {
 	ctx := cast(^Daemon_Context)data
 	context = ctx.pw_odin_ctx
+	log.infof("global_add called on id: %d", id)
 
 	switch type {
 	case "PipeWire:Interface:Node":
@@ -163,6 +164,7 @@ global_add :: proc "c" (
 		link_handler(ctx, id, version, props)
 	}
 
+	rebuild_connections(ctx)
 	free_all(context.temp_allocator)
 }
 
@@ -343,7 +345,6 @@ port_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 			log.logf(.Info, "output port %d registered to sink %d", id, idx)
 		}
 	}
-	rebuild_connections(ctx)
 }
 
 link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict) {
@@ -546,11 +547,10 @@ daemon_invoke_set_volume :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	volumes := cast(^[2]f32)user_data
-	daemon_ctx := mixologist.daemon
-	context = daemon_ctx.pw_odin_ctx
+	context = mixologist.daemon.pw_odin_ctx
 	log.debugf("volume callback executed: %v", volumes)
-	sink_set_volume(&daemon_ctx.default_sink, volumes[0])
-	sink_set_volume(&daemon_ctx.aux_sink, volumes[1])
+	sink_set_volume(&mixologist.daemon.default_sink, volumes[0])
+	sink_set_volume(&mixologist.daemon.aux_sink, volumes[1])
 	free(volumes)
 	return 0
 }
