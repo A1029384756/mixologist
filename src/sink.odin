@@ -1,13 +1,11 @@
 package mixologist
 
 import pw "../pipewire"
-import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
 import "core:os/os2"
-import "core:slice"
 import "core:strings"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
@@ -83,26 +81,27 @@ node_init :: proc(
 	name: string,
 	allocator := context.allocator,
 ) {
+	log.infof("initializing node: %v", name)
 	node.proxy = proxy
 	node.props = props
 	node.ports = make(map[string]u32, DEFAULT_MAP_CAPACITY, allocator)
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		append(&mixologist.programs, node.name)
+		mixologist_event_send(Program_Add(strings.clone(node.name, allocator)))
 	}
 }
 
-node_destroy :: proc(node: ^Node) {
+node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 	for channel in node.ports {
 		delete(channel)
 	}
-	log.info("destroying node: %v", node.name)
-	node_idx, found := slice.linear_search(mixologist.programs[:], node.name)
-	if found do unordered_remove(&mixologist.programs, node_idx)
+	delete(node.ports)
+	log.infof("destroying node: %v", node.name)
+	mixologist_event_send(Program_Remove(strings.clone(node.name, allocator)))
 
 	pw.proxy_destroy(node.proxy)
-	delete(node.name)
+	delete(node.name, allocator)
 }
 
 sink_init :: proc(
@@ -167,6 +166,10 @@ sink_init :: proc(
 }
 
 sink_destroy :: proc(sink: ^Sink) {
+	for &link in sink.links {
+		link_destroy(&link)
+	}
+	node_destroy(&sink.loopback_node)
 	pw.properties_free(sink.device.capture_props)
 	pw.properties_free(sink.device.playback_props)
 }
@@ -199,7 +202,7 @@ volume_falloff :: proc(volume: f32, falloff: Volume_Falloff) -> f32 {
 }
 
 module_destroy :: proc "c" (data: rawptr) {
-	context = runtime.default_context()
+	context = mixologist.daemon.pw_odin_ctx
 	sink := transmute(^Sink)data
 	pw.spa_hook_remove(&sink.device.module_listener)
 	for _, &node in sink.associated_nodes {

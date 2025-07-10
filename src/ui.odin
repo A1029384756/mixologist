@@ -51,9 +51,10 @@ UI_Context :: struct {
 	// sdl3
 	window:              ^sdl.Window,
 	window_size:         [2]c.float,
-	start_time:          time.Time,
-	prev_frame_time:     time.Time,
-	prev_event_time:     time.Time,
+	start_time:          time.Tick,
+	prev_frame_time:     time.Tick,
+	prev_frametime:      time.Duration,
+	prev_event_time:     time.Tick,
 	scaling:             c.float,
 	tray:                ^sdl.Tray,
 	tray_menu:           ^sdl.TrayMenu,
@@ -106,7 +107,7 @@ UI_Data_Flags :: bit_set[UI_Data_Flag;uintptr]
 UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
 UI_EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
-UI_DEBUG_PREV_TIME: time.Time
+UI_DEBUG_PREV_TIME: time.Tick
 
 UI_Context_Status :: enum {
 	DIRTY,
@@ -117,6 +118,8 @@ UI_Context_Status :: enum {
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
 	WINDOW_CLOSED,
+	WINDOW_MINIMIZED,
+	WINDOW_JUST_SHOWN,
 	APP_EXIT,
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
@@ -203,7 +206,7 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	ctx.textbox_state.set_clipboard = UI__set_clipboard
 	ctx.textbox_state.get_clipboard = UI__get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
-	ctx.start_time = time.now()
+	ctx.start_time = time.tick_now()
 
 	min_mem := c.size_t(clay.MinMemorySize())
 	ctx.clay_memory = make([]u8, min_mem)
@@ -272,8 +275,11 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	)
 
 	clay.SetMeasureTextFunction(UI__measure_text, ctx)
-	ctx.prev_event_time = time.now()
-	ctx.prev_frame_time = time.now()
+	ctx.prev_event_time = time.tick_now()
+	ctx.prev_frame_time = time.tick_now()
+
+	// reasonable 60fps default for initial redraw rate
+	ctx.prev_frametime = 16 * time.Millisecond
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
@@ -300,6 +306,7 @@ UI_tick :: proc(
 	) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
+	frame_start := time.tick_now()
 	// input reset
 	{
 		strings.builder_reset(&ctx.textbox_input)
@@ -316,10 +323,12 @@ UI_tick :: proc(
 		#partial switch event.type {
 		case .QUIT:
 			ctx.statuses += {.APP_EXIT}
+		case .WINDOW_MINIMIZED:
+			ctx.statuses += {.WINDOW_MINIMIZED}
+		case .WINDOW_RESTORED:
+			ctx.statuses -= {.WINDOW_MINIMIZED}
 		case .WINDOW_CLOSE_REQUESTED:
-			ctx.statuses += {.WINDOW_CLOSED}
-			sdl.SetTrayEntryLabel(ctx.toggle_entry, "Open")
-			sdl.HideWindow(ctx.window)
+			UI_toggle_window(ctx, ctx.toggle_entry)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.statuses += {.EVENT}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
@@ -388,7 +397,8 @@ UI_tick :: proc(
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
-	if .WINDOW_CLOSED in ctx.statuses {
+	if .WINDOW_CLOSED in ctx.statuses || .WINDOW_MINIMIZED in ctx.statuses {
+		time.sleep(16 * time.Millisecond)
 		return
 	}
 
@@ -442,13 +452,13 @@ UI_tick :: proc(
 	clay.UpdateScrollContainers(
 		false,
 		ctx.scroll_delta * 5,
-		c.float(time.since(ctx.prev_frame_time) / time.Second),
+		c.float(time.tick_since(ctx.prev_frame_time) / time.Second),
 	)
 	render_commands := ui_create_layout(ctx, userdata)
 
 	when ODIN_DEBUG {
 		layout_time := time.since(layout_start)
-		render_start := time.now()
+		render_start := time.tick_now()
 	}
 
 	if ctx.hovered_widget != ctx.prev_hovered_widget do ctx.statuses += {.EVENT}
@@ -461,6 +471,13 @@ UI_tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
+	if .WINDOW_JUST_SHOWN in ctx.statuses {
+		ctx.statuses -= {.WINDOW_JUST_SHOWN}
+		ctx.statuses += {.DIRTY}
+		_ = sdl.WaitForGPUSwapchain(ctx.device, ctx.window)
+		_ = sdl.WaitForGPUIdle(ctx.device)
+		return
+	}
 	if .DIRTY in ctx.statuses {
 		ctx.statuses -= {.DIRTY}
 		ctx.statuses += {.EVENT}
@@ -469,19 +486,26 @@ UI_tick :: proc(
 		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
 		Renderer_draw(ctx, cmd_buffer, &render_commands)
 		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
+		if fence == nil {
+			log.error("fence is nil")
+			return
+		}
+
 		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
 		sdl.ReleaseGPUFence(ctx.device, fence)
-		ctx.prev_event_time = time.now()
+		ctx.prev_event_time = time.tick_now()
+	} else {
+		time.sleep(ctx.prev_frametime)
 	}
 
 	when ODIN_DEBUG {
 		ctx.statuses += {.DIRTY}
-		render_time := time.since(render_start)
+		render_time := time.tick_since(render_start)
 		if clay.IsDebugModeEnabled() {
-			if time.since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
+			if time.tick_since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
 				fmt.printfln(
 					"FPS: %.2f",
-					1 / time.duration_seconds(time.since(ctx.prev_frame_time)),
+					1 / time.duration_seconds(time.tick_since(ctx.prev_frame_time)),
 				)
 				fmt.println("Layout time:", layout_time)
 				fmt.println("Render time:", render_time)
@@ -490,17 +514,18 @@ UI_tick :: proc(
 				fmt.println("Mouse scroll:", ctx.scroll_delta)
 				fmt.println("Display scale:", ctx.scaling)
 				fmt.println("Statuses:", ctx.statuses)
-				UI_DEBUG_PREV_TIME = time.now()
+				UI_DEBUG_PREV_TIME = time.tick_now()
 			}
 		}
 	}
 
-	ctx.prev_frame_time = time.now()
+	ctx.prev_frame_time = time.tick_now()
+	ctx.prev_frametime = time.tick_since(frame_start)
 }
 
 UI_open_window :: proc(ctx: ^UI_Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
-	ctx.statuses += {.DIRTY}
+	ctx.statuses += {.WINDOW_JUST_SHOWN}
 	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
@@ -698,7 +723,7 @@ UI_scrollbar :: proc(
 		active = true
 	}
 	if active && .LEFT in ctx.mouse_down {
-		if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+		if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 		res += {.CHANGE}
 
 		data := clay.GetElementData(id)
@@ -818,7 +843,7 @@ UI_slider :: proc(
 		}
 	}
 
-	if .CHANGE in res && time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+	if .CHANGE in res && time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 	return
 }
 
@@ -1320,7 +1345,7 @@ UI__textbox :: proc(
 									1,
 									1,
 									((math.sin(
-												c.float(time.since(ctx.start_time)) /
+												c.float(time.tick_since(ctx.start_time)) /
 												c.float(250 * time.Millisecond),
 											)) +
 										1) /
@@ -1328,7 +1353,7 @@ UI__textbox :: proc(
 								},
 						},
 						) {
-							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+							if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					} else { 	// selection box
 						x_offset := f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)
@@ -1352,7 +1377,7 @@ UI__textbox :: proc(
 							backgroundColor = text_config.textColor * {1, 1, 1, 0.25},
 						},
 						) {
-							if time.since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+							if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
 

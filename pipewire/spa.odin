@@ -28,6 +28,22 @@ spa_support :: struct {
 	data: rawptr,
 }
 
+spa_system :: struct {
+	iface: spa_interface,
+}
+
+spa_loop :: struct {
+	iface: spa_interface,
+}
+
+spa_loop_control :: struct {
+	iface: spa_interface,
+}
+
+spa_loop_utils :: struct {
+	iface: spa_interface,
+}
+
 spa_hook :: struct {
 	link:    spa_list,
 	cb:      spa_callbacks,
@@ -61,6 +77,15 @@ spa_command :: struct {
 spa_command_body :: struct {
 	body: spa_pod_object_body,
 }
+
+spa_invoke_func_t :: #type proc "c" (
+	loop: ^loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32
 
 spa_prop_info :: enum u32 {
 	SPA_PROP_INFO_START,

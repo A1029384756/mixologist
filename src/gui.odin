@@ -1,6 +1,7 @@
 package mixologist
 
 import "./clay"
+import "core:log"
 import "core:slice"
 import "core:strings"
 
@@ -28,6 +29,18 @@ GUI_Context :: struct {
 	program_scrollbar: UI_Scrollbar_Data,
 	// config state
 	statuses:          GUI_Context_Statuses,
+}
+
+gui_proc :: proc(ctx: ^GUI_Context) {
+	log.info("gui starting")
+	gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
+	for !(UI_should_exit(&mixologist.gui.ui_ctx) || mixologist_should_exit()) {
+		gui_tick(&mixologist.gui)
+		free_all(context.temp_allocator)
+	}
+	gui_deinit(&mixologist.gui)
+	log.info("gui exiting")
+	mixologist_signal_exit()
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
@@ -70,7 +83,6 @@ UI_create_layout :: proc(
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
 	layout := create_layout(mgst_ctx)
-	mixologist_process_events(&mixologist)
 	return layout
 }
 
@@ -209,7 +221,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 			)
 
 			if .CHANGE in slider_res {
-				append(&mixologist.events, Volume(vol))
+				mixologist_event_send(vol)
 				ctx.statuses += {.VOLUME}
 			}
 
@@ -349,7 +361,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 						5,
 					)
 					if .RELEASE in delete_res {
-						append(&mixologist.events, Rule_Remove(rule))
+						mixologist_event_send(Rule_Remove(rule))
 						ctx.statuses += {.RULES}
 					}
 				}
@@ -682,7 +694,7 @@ rule_add_menu :: proc(
 					}
 					if len(ctx.selected_programs) > 0 {
 						for program in ctx.selected_programs {
-							append(&mixologist.events, Rule_Add(strings.clone(string(program))))
+							mixologist_event_send(Rule_Add(strings.clone(string(program))))
 						}
 						ctx.statuses += {.RULES}
 						res += {.SUBMIT}
@@ -753,7 +765,7 @@ settings_menu :: proc(
 				&settings.start_minimized,
 			)
 			if .RELEASE in res {
-				append(&mixologist.events, settings)
+				mixologist_event_send(settings)
 			}
 
 			list_separator(SURFACE_1)
@@ -764,7 +776,7 @@ settings_menu :: proc(
 				&settings.remember_volume,
 			)
 			if .RELEASE in remember_res {
-				append(&mixologist.events, settings)
+				mixologist_event_send(settings)
 			}
 
 			list_separator(SURFACE_1)
@@ -778,8 +790,8 @@ settings_menu :: proc(
 			)
 
 			if .CHANGE in dropdown_res {
-				append(&mixologist.events, settings)
-				append(&mixologist.events, mixologist.volume)
+				mixologist_event_send(settings)
+				mixologist_event_send(mixologist.volume)
 			}
 		}
 	}
