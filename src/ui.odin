@@ -118,6 +118,8 @@ UI_Context_Status :: enum {
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
 	WINDOW_CLOSED,
+	WINDOW_MINIMIZED,
+	WINDOW_JUST_SHOWN,
 	APP_EXIT,
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
@@ -321,6 +323,10 @@ UI_tick :: proc(
 		#partial switch event.type {
 		case .QUIT:
 			ctx.statuses += {.APP_EXIT}
+		case .WINDOW_MINIMIZED:
+			ctx.statuses += {.WINDOW_MINIMIZED}
+		case .WINDOW_RESTORED:
+			ctx.statuses -= {.WINDOW_MINIMIZED}
 		case .WINDOW_CLOSE_REQUESTED:
 			UI_toggle_window(ctx, ctx.toggle_entry)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
@@ -391,7 +397,7 @@ UI_tick :: proc(
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
-	if .WINDOW_CLOSED in ctx.statuses {
+	if .WINDOW_CLOSED in ctx.statuses || .WINDOW_MINIMIZED in ctx.statuses {
 		time.sleep(16 * time.Millisecond)
 		return
 	}
@@ -465,6 +471,13 @@ UI_tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
+	if .WINDOW_JUST_SHOWN in ctx.statuses {
+		ctx.statuses -= {.WINDOW_JUST_SHOWN}
+		ctx.statuses += {.DIRTY}
+		_ = sdl.WaitForGPUSwapchain(ctx.device, ctx.window)
+		_ = sdl.WaitForGPUIdle(ctx.device)
+		return
+	}
 	if .DIRTY in ctx.statuses {
 		ctx.statuses -= {.DIRTY}
 		ctx.statuses += {.EVENT}
@@ -475,10 +488,11 @@ UI_tick :: proc(
 		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
 		if fence == nil {
 			log.error("fence is nil")
-		} else {
-			_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
-			sdl.ReleaseGPUFence(ctx.device, fence)
+			return
 		}
+
+		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
+		sdl.ReleaseGPUFence(ctx.device, fence)
 		ctx.prev_event_time = time.tick_now()
 	} else {
 		time.sleep(ctx.prev_frametime)
@@ -511,7 +525,7 @@ UI_tick :: proc(
 
 UI_open_window :: proc(ctx: ^UI_Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
-	ctx.statuses += {.DIRTY}
+	ctx.statuses += {.WINDOW_JUST_SHOWN}
 	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)

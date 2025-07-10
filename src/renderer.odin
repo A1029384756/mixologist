@@ -399,7 +399,14 @@ Renderer_draw :: proc(
 	// render
 	swapchain_texture: ^sdl.GPUTexture
 	w, h: u32
-	_ = sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, ctx.window, &swapchain_texture, &w, &h)
+	if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, ctx.window, &swapchain_texture, &w, &h) {
+		log.error("failed to acquire swapchain texture")
+		return
+	}
+	if swapchain_texture == nil {
+		log.error("swapchain texture is nil")
+		return
+	}
 
 	if swapchain_texture != nil {
 		render_pass := sdl.BeginGPURenderPass(
