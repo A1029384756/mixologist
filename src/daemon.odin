@@ -426,8 +426,8 @@ daemon_sink_volumes :: proc(vol: f32) -> (def, aux: f32) {
 	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
 }
 
-daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
-	log.logf(.Info, "adding program %s", program)
+_daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
+	log.debugf("internal adding program %s", program)
 	for id, node in ctx.default_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
 		k, v := delete_key(&ctx.default_sink.associated_nodes, id)
@@ -449,8 +449,8 @@ daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
 	}
 }
 
-daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
-	log.logf(.Info, "removing program %s", program)
+_daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
+	log.debugf("internal removing program %s", program)
 	for id, node in ctx.aux_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
 		k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
@@ -470,6 +470,42 @@ daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 			}
 		}
 	}
+}
+
+daemon_invoke_add_program :: proc "c" (
+	loop: ^pw.loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32 {
+	program := cast(^string)user_data
+	daemon_ctx := mixologist.daemon
+	context = daemon_ctx.pw_odin_ctx
+	log.debugf("invoke adding program %s", program^)
+	_daemon_add_program(&daemon_ctx, program^)
+	delete(program^)
+	free(program)
+	return 0
+}
+
+daemon_invoke_remove_program :: proc "c" (
+	loop: ^pw.loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32 {
+	program := cast(^string)user_data
+	daemon_ctx := mixologist.daemon
+	context = daemon_ctx.pw_odin_ctx
+	log.debugf("invoke removing program %s", program^)
+	_daemon_remove_program(&daemon_ctx, program^)
+	delete(program^)
+	free(program)
+	return 0
 }
 
 daemon_invoke_set_volume :: proc "c" (
@@ -495,6 +531,24 @@ daemon_set_volumes :: proc(ctx: ^Daemon_Context, volumes: [2]f32) {
 	volumes_ptr := new([2]f32, context.allocator)
 	volumes_ptr^ = volumes
 	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
+}
+
+daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
+	assert(len(program) != 0)
+	log.debugf("adding program %s", program)
+	program := strings.clone(program)
+	program_ptr := new(string)
+	program_ptr^ = program
+	pw.loop_invoke(ctx.loop, daemon_invoke_add_program, 0, nil, 0, false, program_ptr)
+}
+
+daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
+	assert(len(program) != 0)
+	log.debugf("removing program %s", program)
+	program := strings.clone(program)
+	program_ptr := new(string)
+	program_ptr^ = program
+	pw.loop_invoke(ctx.loop, daemon_invoke_remove_program, 0, nil, 0, false, program_ptr)
 }
 
 daemon_signal_stop :: proc(ctx: ^Daemon_Context) {

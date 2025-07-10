@@ -29,6 +29,7 @@ Mixologist :: struct {
 	wd:            linux.Wd,
 	buf:           [EVENT_BUF_LEN]u8,
 	watch_path:    cstring,
+	last_event:    time.Tick,
 	// ipc
 	ipc:           IPC_Server_Context,
 	// subapp states
@@ -92,6 +93,7 @@ shortcut_from_str :: proc(input: string) -> Shortcut {
 }
 
 CONFIG_FILENAME :: "mixologist.json"
+CONFIG_FILE_DEBOUNCE :: 250 * time.Millisecond
 
 Statuses :: bit_set[Status]
 Status :: enum {
@@ -282,30 +284,8 @@ main :: proc() {
 		)
 	}
 
+	mixologist.last_event = time.tick_now()
 	for !mixologist_should_exit() {
-		// hot-reload
-		{
-			length, read_err := linux.read(mixologist.fd, mixologist.buf[:])
-			assert(read_err == nil || read_err == .EAGAIN)
-
-			config_modified := false
-			for i := 0; i < length; {
-				event := cast(^linux.Inotify_Event)&mixologist.buf[i]
-
-				if inotify_event_name(event) == CONFIG_FILENAME {
-					config_modified = true
-					break
-				}
-
-				i += EVENT_SIZE + int(event.len)
-			}
-
-			if config_modified {
-				mixologist_config_reload(&mixologist)
-				mixologist.gui.ui_ctx.statuses += {.DIRTY}
-			}
-		}
-
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
@@ -511,6 +491,7 @@ mixologist_config_load :: proc(mixologist: ^Mixologist) {
 			delete(rule)
 			ordered_remove(&mixologist.config.rules, idx)
 		} else {
+			log.debugf("loading rule: %v", rule)
 			daemon_add_program(&mixologist.daemon, rule)
 		}
 	}
@@ -544,11 +525,6 @@ mixologist_config_write :: proc(mixologist: ^Mixologist) {
 	if write_err != nil {
 		log.errorf("could not write to file: %v, err: %v", config_path, write_err)
 	}
-}
-
-mixologist_config_reload :: proc(mixologist: ^Mixologist) {
-	mixologist_config_clear(mixologist)
-	mixologist_config_load(mixologist)
 }
 
 mixologist_globalshortcuts_handler :: proc "c" (
