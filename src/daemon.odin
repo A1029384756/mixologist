@@ -163,13 +163,13 @@ global_add :: proc "c" (
 		link_handler(ctx, id, version, props)
 	}
 
-	rebuild_connections(ctx)
 	free_all(context.temp_allocator)
 }
 
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	ctx := cast(^Daemon_Context)data
 	context = ctx.pw_odin_ctx
+	log.debugf("global_destroy called on id: %d", id)
 
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
@@ -201,6 +201,7 @@ check_name :: proc(name: string, checks: []string) -> bool {
 }
 
 node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, props: ^pw.spa_dict) {
+	log.debugf("node handler called")
 	node_name := pw.spa_dict_get(props, "node.name")
 	log.logf(.Debug, "Attempting to add node name %s", node_name)
 	if node_name == "output.mixologist-default" {
@@ -209,19 +210,19 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		name_str := strings.clone_from_cstring(node_name)
 		node_init(&node, proxy, props, name_str)
 		ctx.default_sink.loopback_node = node
-		log.logf(.Info, "registered default node with id %d", id)
+		log.infof("registered default node with id %d", id)
 	} else if node_name == "output.mixologist-aux" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
 		node_init(&node, proxy, props, name_str)
 		ctx.aux_sink.loopback_node = node
-		log.logf(.Info, "registered aux node with id %d", id)
+		log.infof("registered aux node with id %d", id)
 	} else {
 		application_name := pw.spa_dict_get(props, "application.name")
 		media_class := pw.spa_dict_get(props, "media.class")
 		if application_name == nil && media_class == nil {
-			log.logf(.Info, "could not find application name for node with id %d", id)
+			log.infof("could not find application name for node with id %d", id)
 			return
 		}
 		if media_class == "Audio/Source/Virtual" {
@@ -241,11 +242,21 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		node_init(&node, proxy, props, name_str)
 		if daemon_rule_matches(ctx, string(application_name)) {
 			ctx.aux_sink.associated_nodes[id] = node
+			log.infof(
+				"Registered application node of id %d and name %s to aux sink",
+				id,
+				application_name,
+			)
 		} else {
 			ctx.default_sink.associated_nodes[id] = node
+			log.infof(
+				"Registered application node of id %d and name %s to default sink",
+				id,
+				application_name,
+			)
 		}
-		log.logf(.Info, "Registered application node of id %d and name %s", id, application_name)
 	}
+	rebuild_connections(ctx)
 }
 
 daemon_rule_matches :: proc(ctx: ^Daemon_Context, rule: string) -> bool {
@@ -260,6 +271,7 @@ daemon_rule_matches :: proc(ctx: ^Daemon_Context, rule: string) -> bool {
 }
 
 port_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict) {
+	log.debugf("port handler called")
 	path := pw.spa_dict_get(props, "object.path")
 	assert(path != nil)
 	cstr_channel := pw.spa_dict_get(props, "audio.channel")
@@ -331,9 +343,11 @@ port_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 			log.logf(.Info, "output port %d registered to sink %d", id, idx)
 		}
 	}
+	rebuild_connections(ctx)
 }
 
 link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict) {
+	log.debugf("link handler called")
 	src_node, _ := spa_dict_get_u32(props, "link.output.node")
 	src_port, _ := spa_dict_get_u32(props, "link.output.port")
 	dest_port, _ := spa_dict_get_u32(props, "link.input.port")
@@ -355,6 +369,7 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 	for sink, idx in sinks {
 		associated_node, node_exists := sink.associated_nodes[src_node]
 		if !node_exists {
+			log.debugf("node %d does not exist for sink %v", src_node, sink.loopback_node.name)
 			for _, &link in ctx.device_inputs {
 				if link.src == src_port {
 					link.dest = dest_port
@@ -364,8 +379,7 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 			continue
 		}
 
-		log.logf(
-			.Debug,
+		log.debugf(
 			"found source from %d group from node %d with id %d, prospective ports: %d -> %d",
 			idx,
 			src_node,
@@ -390,12 +404,13 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 		} else {
 			for &link in sink.links {
 				if link.src == src_port && link.dest == dest_port {
-					log.logf(.Info, "setting link id %d", id)
+					log.infof("setting link id %d", id)
 					link.id = id
 				}
 			}
 		}
 	}
+	rebuild_connections(ctx)
 }
 
 rebuild_connections :: proc(ctx: ^Daemon_Context) {
@@ -410,7 +425,7 @@ rebuild_connections :: proc(ctx: ^Daemon_Context) {
 
 				for &link in sink.links {
 					if link.src == n_port && link.dest == 0 {
-						log.logf(.Info, "connecting link %d -> %d", n_port, lb_port)
+						log.infof("connecting link %d -> %d", n_port, lb_port)
 						link.dest = lb_port
 						link_connect(&link, ctx.core)
 					}
@@ -430,15 +445,23 @@ _daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
 	log.debugf("internal adding program %s", program)
 	for id, node in ctx.default_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
-		k, v := delete_key(&ctx.default_sink.associated_nodes, id)
-		ctx.aux_sink.associated_nodes[k] = v
+
+		log.debugf("found addition candidate %v with id %v", node.name, id)
+		delete_key(&ctx.default_sink.associated_nodes, id)
+		map_insert(&ctx.aux_sink.associated_nodes, id, node)
+		log.debugf(
+			"node %v moved to aux sink with key %v",
+			ctx.aux_sink.associated_nodes[id].name,
+			id,
+		)
 
 		#reverse for &link, idx in ctx.default_sink.links {
-			for _, src_id in v.ports {
+			for _, src_id in node.ports {
 				if src_id == link.src {
 					pw.registry_destroy(ctx.registry, link.id)
 
 					link_clone := link
+					// reconnect link to trigger link handler
 					link_connect(&link_clone, ctx.core)
 
 					append(&ctx.aux_sink.links, link_clone)
@@ -453,15 +476,22 @@ _daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 	log.debugf("internal removing program %s", program)
 	for id, node in ctx.aux_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
-		k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
-		ctx.default_sink.associated_nodes[k] = v
+		log.debugf("found removal candidate %v with id %v", node.name, id)
+		delete_key(&ctx.aux_sink.associated_nodes, id)
+		map_insert(&ctx.default_sink.associated_nodes, id, node)
+		log.debugf(
+			"node %v moved to default sink with key %v",
+			ctx.default_sink.associated_nodes[id].name,
+			id,
+		)
 
 		#reverse for &link, idx in ctx.aux_sink.links {
-			for _, src_id in v.ports {
+			for _, src_id in node.ports {
 				if src_id == link.src {
 					pw.registry_destroy(ctx.registry, link.id)
 
 					link_clone := link
+					// reconnect link to trigger link handler
 					link_connect(&link_clone, ctx.core)
 
 					append(&ctx.default_sink.links, link_clone)
@@ -469,6 +499,7 @@ _daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 				}
 			}
 		}
+		break
 	}
 }
 
@@ -481,10 +512,9 @@ daemon_invoke_add_program :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	program := cast(^string)user_data
-	daemon_ctx := mixologist.daemon
-	context = daemon_ctx.pw_odin_ctx
+	context = mixologist.daemon.pw_odin_ctx
 	log.debugf("invoke adding program %s", program^)
-	_daemon_add_program(&daemon_ctx, program^)
+	_daemon_add_program(&mixologist.daemon, program^)
 	delete(program^)
 	free(program)
 	return 0
@@ -499,10 +529,9 @@ daemon_invoke_remove_program :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	program := cast(^string)user_data
-	daemon_ctx := mixologist.daemon
-	context = daemon_ctx.pw_odin_ctx
+	context = mixologist.daemon.pw_odin_ctx
 	log.debugf("invoke removing program %s", program^)
-	_daemon_remove_program(&daemon_ctx, program^)
+	_daemon_remove_program(&mixologist.daemon, program^)
 	delete(program^)
 	free(program)
 	return 0

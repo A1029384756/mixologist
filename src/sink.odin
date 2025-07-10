@@ -50,16 +50,6 @@ Sink :: struct {
 	volume:           f32,
 }
 
-link_init :: proc(
-	link: ^Link,
-	core: ^pw.core,
-	src, dest: u32,
-	temp_allocator := context.temp_allocator,
-) {
-	link.proxy, link.props = pw_link_create(core, dest, src, temp_allocator = temp_allocator)
-	link.src, link.dest = src, dest
-}
-
 link_connect :: proc(link: ^Link, core: ^pw.core, temp_allocator := context.temp_allocator) {
 	log.debugf("connecting link %d -> %d", link.src, link.dest)
 	link.proxy, link.props = pw_link_create(

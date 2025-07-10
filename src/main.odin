@@ -328,6 +328,10 @@ main :: proc() {
 			delete(program)
 		}
 		delete(mixologist.programs)
+		for rule in mixologist.config.rules {
+			delete(rule)
+		}
+		delete(mixologist.config.rules)
 	}
 }
 
