@@ -21,6 +21,19 @@ build-options:
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
 modules:
   - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
+  - name: pipewire
+    buildsystem: meson
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/pipewire/pipewire.git
+        tag: "1.4"
+    config-opts:
+      - "-Dsystemd=disabled"
+      - "-Dudev=disabled"
+      - "-Dalsa=disabled"
+      - "-Ddocs=disabled"
+      - "-Dtests=disabled"
+      - "-Dsession-managers=[]"
   - name: SDL3
     buildsystem: cmake-ninja
     builddir: true
