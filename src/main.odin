@@ -261,7 +261,7 @@ main :: proc() {
 	}
 
 	// config loading
-	mixologist_config_load(&mixologist)
+	mixologist_config_read(&mixologist)
 
 	if mixologist.config.settings.remember_volume {
 		mixologist_read_volume_file(&mixologist)
@@ -469,7 +469,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 	}
 }
 
-mixologist_config_load :: proc(mixologist: ^Mixologist) {
+mixologist_config_read :: proc(mixologist: ^Mixologist) {
 	config_path, _ := os2.join_path(
 		{mixologist.config_dir, CONFIG_FILENAME},
 		context.temp_allocator,
@@ -485,25 +485,6 @@ mixologist_config_load :: proc(mixologist: ^Mixologist) {
 		log.errorf("could not unmarshal config file: %v", json_err)
 		return
 	}
-
-	#reverse for rule, idx in mixologist.config.rules {
-		if len(rule) == 0 {
-			delete(rule)
-			ordered_remove(&mixologist.config.rules, idx)
-		} else {
-			log.debugf("loading rule: %v", rule)
-			daemon_add_program(&mixologist.daemon, rule)
-		}
-	}
-}
-
-mixologist_config_clear :: proc(mixologist: ^Mixologist) {
-	for rule in mixologist.config.rules {
-		daemon_remove_program(&mixologist.daemon, rule)
-		delete(rule)
-	}
-	delete(mixologist.config.rules)
-	mixologist.config.rules = [dynamic]string{}
 }
 
 mixologist_config_write :: proc(mixologist: ^Mixologist) {

@@ -61,6 +61,7 @@ link_init :: proc(
 }
 
 link_connect :: proc(link: ^Link, core: ^pw.core, temp_allocator := context.temp_allocator) {
+	log.debugf("connecting link %d -> %d", link.src, link.dest)
 	link.proxy, link.props = pw_link_create(
 		core,
 		link.src,
@@ -97,6 +98,8 @@ node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 		delete(channel)
 	}
 	delete(node.ports)
+	if node.proxy == nil do return
+
 	log.infof("destroying node: %v", node.name)
 	mixologist_event_send(Program_Remove(strings.clone(node.name, allocator)))
 
