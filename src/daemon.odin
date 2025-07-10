@@ -7,6 +7,7 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
 import "core:text/match"
 
@@ -15,7 +16,7 @@ Daemon_Context :: struct {
 	config_file:       string,
 	cache_file:        string,
 	// pipewire required state
-	main_loop:         ^pw.main_loop,
+	main_loop:         ^pw.thread_loop,
 	loop:              ^pw.loop,
 	core:              ^pw.core,
 	pw_context:        ^pw.pw_context,
@@ -34,15 +35,6 @@ Daemon_Context :: struct {
 	allocator:         mem.Allocator,
 	// control flow/ipc state
 	should_exit:       bool,
-}
-
-daemon_proc :: proc(ctx: ^Daemon_Context) {
-	log.info("daemon starting")
-	daemon_init(&mixologist.daemon)
-	pw.main_loop_run(ctx.main_loop)
-	daemon_deinit(&mixologist.daemon)
-	log.info("daemon exiting")
-	mixologist_should_exit()
 }
 
 daemon_init :: proc(ctx: ^Daemon_Context) {
@@ -67,9 +59,10 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 			pw.get_client_name(),
 		)
 
-		ctx.main_loop = pw.main_loop_new(nil)
+		ctx.main_loop = pw.thread_loop_new("main", nil)
 
-		ctx.loop = pw.main_loop_get_loop(ctx.main_loop)
+		pw.thread_loop_lock(ctx.main_loop)
+		ctx.loop = pw.thread_loop_get_loop(ctx.main_loop)
 
 		// required for flatpak volume control
 		ctx.pw_context_props = pw.properties_new(nil, nil)
@@ -93,10 +86,21 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 	}
 
 	setup_exit_handlers(ctx)
+	pw.thread_loop_start(ctx.main_loop)
 }
 
 
+daemon_tick :: proc(ctx: ^Daemon_Context) {
+	// this is a no-op but here for the future
+	time: linux.Time_Spec
+	pw.thread_loop_get_time(ctx.main_loop, &time, 1e4)
+	pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
+}
+
 daemon_deinit :: proc(ctx: ^Daemon_Context) {
+	pw.thread_loop_unlock(ctx.main_loop)
+	pw.thread_loop_stop(ctx.main_loop)
+
 	// pipewire cleanup
 	{
 		reset_links(ctx)
@@ -105,13 +109,10 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
 		pw.core_disconnect(ctx.core)
 		pw.context_destroy(ctx.pw_context)
-		pw.main_loop_destroy(ctx.main_loop)
+		pw.thread_loop_destroy(ctx.main_loop)
 		pw.deinit()
 	}
 
-	for input in ctx.device_inputs {
-		delete(input)
-	}
 	free_all(ctx.allocator)
 }
 
@@ -133,8 +134,8 @@ do_quit_with_data :: proc "c" (signum: posix.Signal, data: rawptr) {
 		ctx = cast(^Daemon_Context)data
 		return
 	}
-	pw.main_loop_quit(ctx.main_loop)
-	mixologist_signal_exit()
+	pw.thread_loop_signal(ctx.main_loop, false)
+	ctx.should_exit = true
 }
 
 registry_events := pw.registry_events {
@@ -207,14 +208,14 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		ctx.default_sink.loopback_node = node
 		log.logf(.Info, "registered default node with id %d", id)
 	} else if node_name == "output.mixologist-aux" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		ctx.aux_sink.loopback_node = node
 		log.logf(.Info, "registered aux node with id %d", id)
 	} else {
@@ -228,7 +229,7 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 			node: Node
 			name_str := strings.clone_from_cstring(node_name)
-			node_init(&node, proxy, props, name_str)
+			node_init(&node, proxy, props, name_str, ctx.allocator)
 			ctx.passthrough_nodes[id] = node
 			return
 		} else if media_class != "Stream/Output/Audio" {
@@ -238,7 +239,7 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str)
+		node_init(&node, proxy, props, name_str, ctx.allocator)
 		if daemon_rule_matches(ctx, string(application_name)) {
 			ctx.aux_sink.associated_nodes[id] = node
 		} else {
@@ -470,35 +471,4 @@ daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 			}
 		}
 	}
-}
-
-daemon_invoke_set_volume :: proc "c" (
-	loop: ^pw.loop,
-	async: bool,
-	seq: u32,
-	data: rawptr,
-	size: uint,
-	user_data: rawptr,
-) -> i32 {
-	volumes := cast(^[2]f32)user_data
-	daemon_ctx := mixologist.daemon
-	context = daemon_ctx.pw_odin_ctx
-	log.debugf("volume callback executed: %v", volumes)
-	sink_set_volume(&daemon_ctx.default_sink, volumes[0])
-	sink_set_volume(&daemon_ctx.aux_sink, volumes[1])
-	free(volumes)
-	return 0
-}
-
-daemon_set_volumes :: proc(ctx: ^Daemon_Context, volumes: [2]f32) {
-	log.debugf("setting pipewire volumes: %v", volumes)
-	volumes_ptr := new([2]f32, context.allocator)
-	volumes_ptr^ = volumes
-	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
-}
-
-daemon_signal_stop :: proc(ctx: ^Daemon_Context) {
-	log.info("daemon signaling stop")
-	pw.main_loop_quit(ctx.main_loop)
-	ctx.should_exit = true
 }
