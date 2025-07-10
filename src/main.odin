@@ -319,6 +319,7 @@ main :: proc() {
 	}
 
 	if .Daemon in mixologist.statuses {
+		daemon_signal_stop(&mixologist.daemon)
 		thread.join(mixologist.daemon_thread)
 	}
 

@@ -496,3 +496,9 @@ daemon_set_volumes :: proc(ctx: ^Daemon_Context, volumes: [2]f32) {
 	volumes_ptr^ = volumes
 	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
 }
+
+daemon_signal_stop :: proc(ctx: ^Daemon_Context) {
+	log.info("daemon signaling stop")
+	pw.main_loop_quit(ctx.main_loop)
+	ctx.should_exit = true
+}
