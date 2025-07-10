@@ -40,10 +40,10 @@ thread_loop :: struct {
 thread_loop_events :: struct {} // [TODO] fill out fields
 
 loop :: struct {
-	system:  ^spa_system,
-	loop:    ^spa_loop,
-	control: ^spa_loop_control,
-	utils:   ^spa_loop_utils,
+	system:  rawptr,
+	loop:    rawptr,
+	control: rawptr,
+	utils:   rawptr,
 	name:    cstring,
 }
 

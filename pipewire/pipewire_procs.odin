@@ -42,11 +42,6 @@ foreign pipewire {
 	thread_loop_accept :: proc(loop: ^thread_loop) ---
 	thread_loop_in_thread :: proc(loop: ^thread_loop) -> bool ---
 
-	loop_new :: proc(props: ^spa_dict) -> ^loop ---
-	loop_destroy :: proc(loop: ^loop) ---
-	loop_set_name :: proc(loop: ^loop, name: cstring) ---
-	loop_invoke :: proc(object: ^loop, func: spa_invoke_func_t, seq: u32, data: rawptr, size: uint, block: bool, user_data: rawptr) -> i32 ---
-
 	context_new :: proc(main_loop: ^loop, props: ^properties, user_data_size: uint) -> ^pw_context ---
 	context_destroy :: proc(ctx: ^pw_context) ---
 	context_load_module :: proc(ctx: ^pw_context, name: cstring, args: cstring, properties: ^properties) -> ^impl_module ---
