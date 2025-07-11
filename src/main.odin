@@ -88,7 +88,6 @@ shortcut_from_str :: proc(input: string) -> Shortcut {
 }
 
 CONFIG_FILENAME :: "mixologist.json"
-CONFIG_FILE_DEBOUNCE :: 250 * time.Millisecond
 
 Statuses :: bit_set[Status]
 Status :: enum {
