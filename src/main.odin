@@ -25,12 +25,6 @@ Mixologist :: struct {
 	programs:      [dynamic]string,
 	event_mutex:   sync.Mutex,
 	program_mutex: sync.Mutex,
-	// inotify
-	fd:            linux.Fd,
-	wd:            linux.Wd,
-	buf:           [EVENT_BUF_LEN]u8,
-	watch_path:    cstring,
-	last_event:    time.Tick,
 	// ipc
 	ipc:           IPC_Server_Context,
 	// subapp states
@@ -193,23 +187,6 @@ main :: proc() {
 		return
 	}
 
-	// set up inotify
-	{
-		base_dir, _ := os2.user_config_dir(context.allocator)
-		mixologist.config_dir, _ = os2.join_path({base_dir, "mixologist"}, context.allocator)
-		if !os2.exists(mixologist.config_dir) do os2.make_directory(mixologist.config_dir)
-
-		in_err: linux.Errno
-		mixologist.fd, in_err = linux.inotify_init1({.NONBLOCK})
-		assert(in_err == nil)
-		mixologist.watch_path = strings.clone_to_cstring(mixologist.config_dir)
-		mixologist.wd, in_err = linux.inotify_add_watch(
-			mixologist.fd,
-			mixologist.watch_path,
-			{.CREATE, .DELETE, .MODIFY} + linux.IN_MOVE,
-		)
-		assert(in_err == nil)
-	}
 	ipc_start_err := IPC_Server_init(&mixologist.ipc)
 	if ipc_start_err != nil {
 		fmt.println("detected active mixologist instance, sending wake command")
@@ -285,7 +262,6 @@ main :: proc() {
 		)
 	}
 
-	mixologist.last_event = time.tick_now()
 	for !mixologist_should_exit() {
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
@@ -315,15 +291,8 @@ main :: proc() {
 		GlobalShortcuts_Deinit(&mixologist.shortcuts)
 	}
 
-	// clean up inotify
-	{
-		err := linux.inotify_rm_watch(mixologist.fd, mixologist.wd)
-		assert(err == nil)
-	}
-
 	// clean up allocated memory
 	{
-		delete(mixologist.watch_path)
 		delete(mixologist.events)
 		for program in mixologist.programs {
 			delete(program)
