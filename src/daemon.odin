@@ -258,7 +258,6 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 			)
 		}
 	}
-	rebuild_connections(ctx)
 }
 
 daemon_rule_matches :: proc(ctx: ^Daemon_Context, rule: string) -> bool {
@@ -411,7 +410,6 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 			}
 		}
 	}
-	rebuild_connections(ctx)
 }
 
 rebuild_connections :: proc(ctx: ^Daemon_Context) {
