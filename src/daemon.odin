@@ -498,7 +498,6 @@ _daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 				}
 			}
 		}
-		break
 	}
 }
 

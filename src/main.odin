@@ -124,6 +124,14 @@ cli: CLI_State
 main :: proc() {
 	// set up data file locations
 	{
+		user_config_dir :=
+			os2.user_config_dir(context.allocator) or_else log.panic(
+				"could not get user config dir",
+			)
+		mixologist.config_dir =
+			os2.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
+				"could not create config path",
+			)
 		mixologist.cache_dir =
 			os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
 		mixologist.volume_file =
@@ -366,6 +374,7 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 				if sync.mutex_guard(&mixologist.program_mutex) {
 					append(&mixologist.programs, string(event))
 				}
+				gui_program_add(&mixologist.gui, string(event))
 			case Program_Remove:
 				log.infof("removing program %s", event)
 				if sync.mutex_guard(&mixologist.program_mutex) {
@@ -375,6 +384,7 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 						unordered_remove(&mixologist.programs, node_idx)
 					}
 				}
+				gui_program_remove(&mixologist.gui, string(event))
 				delete(string(event))
 			}
 			mixologist.gui.ui_ctx.statuses += {.DIRTY}

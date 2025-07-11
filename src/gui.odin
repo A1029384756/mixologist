@@ -22,6 +22,8 @@ GUI_Context :: struct {
 	active_line_len:   int,
 	active_line:       int,
 	// rule addition
+	programs:          [dynamic]string,
+	programs_mutex:    sync.Mutex,
 	selected_programs: [dynamic]string,
 	// custom rule creation
 	new_rule_buf:      [1024]u8,
@@ -80,6 +82,31 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 		delete(program)
 	}
 	delete(ctx.selected_programs)
+	for program in ctx.programs {
+		delete(program)
+	}
+	delete(ctx.programs)
+}
+
+gui_program_add :: proc(ctx: ^GUI_Context, program: string) {
+	if sync.mutex_guard(&ctx.programs_mutex) {
+		for existing_program in ctx.programs {
+			if program == existing_program {
+				return
+			}
+		}
+		append(&ctx.programs, strings.clone(program))
+	}
+}
+
+gui_program_remove :: proc(ctx: ^GUI_Context, program: string) {
+	if sync.mutex_guard(&ctx.programs_mutex) {
+		node_idx, found := slice.linear_search(ctx.programs[:], program)
+		if found {
+			delete(ctx.programs[node_idx])
+			unordered_remove(&ctx.programs, node_idx)
+		}
+	}
 }
 
 UI_create_layout :: proc(
@@ -527,14 +554,14 @@ rule_add_menu :: proc(
 			}
 
 			found_count := 0
-			if sync.mutex_guard(&mixologist.program_mutex) {
-				for program in mixologist.programs {
+			if sync.mutex_guard(&ctx.programs_mutex) {
+				for program in ctx.programs {
 					if slice.contains(mixologist.config.rules[:], program) {
 						found_count += 1
 					}
 				}
 
-				if len(mixologist.programs) > 0 && found_count != len(mixologist.programs) {
+				if len(ctx.programs) > 0 && found_count != len(ctx.programs) {
 					UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
 					if clay.UI()(
 					{
@@ -557,7 +584,7 @@ rule_add_menu :: proc(
 							clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 						},
 						) {
-							for program, idx in mixologist.programs {
+							for program, idx in ctx.programs {
 								if slice.contains(mixologist.config.rules[:], program) {
 									continue
 								}
@@ -602,7 +629,7 @@ rule_add_menu :: proc(
 										}
 									}
 								}
-								if idx < len(mixologist.programs) - 1 - found_count {
+								if idx < len(ctx.programs) - 1 - found_count {
 									list_separator(SURFACE_1)
 								}
 							}
