@@ -24,6 +24,7 @@ Mixologist :: struct {
 	events:        [dynamic]Event,
 	programs:      [dynamic]string,
 	event_mutex:   sync.Mutex,
+	program_mutex: sync.Mutex,
 	// inotify
 	fd:            linux.Fd,
 	wd:            linux.Wd,
@@ -394,13 +395,17 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 				mixologist_config_write(mixologist)
 			case Program_Add:
 				log.infof("adding program %s", event)
-				append(&mixologist.programs, string(event))
+				if sync.mutex_guard(&mixologist.program_mutex) {
+					append(&mixologist.programs, string(event))
+				}
 			case Program_Remove:
 				log.infof("removing program %s", event)
-				node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
-				if found {
-					delete(mixologist.programs[node_idx])
-					unordered_remove(&mixologist.programs, node_idx)
+				if sync.mutex_guard(&mixologist.program_mutex) {
+					node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
+					if found {
+						delete(mixologist.programs[node_idx])
+						unordered_remove(&mixologist.programs, node_idx)
+					}
 				}
 				delete(string(event))
 			}

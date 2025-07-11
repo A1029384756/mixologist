@@ -4,6 +4,7 @@ import "./clay"
 import "core:log"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 
 GUI_Context_Status :: enum u8 {
 	ADDING_NEW,
@@ -75,6 +76,10 @@ gui_tick :: proc(ctx: ^GUI_Context) {
 
 gui_deinit :: proc(ctx: ^GUI_Context) {
 	UI_deinit(&ctx.ui_ctx)
+	for program in ctx.selected_programs {
+		delete(program)
+	}
+	delete(ctx.selected_programs)
 }
 
 UI_create_layout :: proc(
@@ -475,6 +480,9 @@ rule_add_menu :: proc(
 	if .ADDING_NEW in ctx.statuses {
 		ctx.statuses -= {.ADDING_NEW}
 		ctx.new_rule_len = 0
+		for program in ctx.selected_programs {
+			delete(program)
+		}
 		clear(&ctx.selected_programs)
 	}
 
@@ -519,98 +527,103 @@ rule_add_menu :: proc(
 			}
 
 			found_count := 0
-			for program in mixologist.programs {
-				if slice.contains(mixologist.config.rules[:], program) {
-					found_count += 1
+			if sync.mutex_guard(&mixologist.program_mutex) {
+				for program in mixologist.programs {
+					if slice.contains(mixologist.config.rules[:], program) {
+						found_count += 1
+					}
 				}
-			}
 
-			if len(mixologist.programs) > 0 && found_count != len(mixologist.programs) {
-				UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
-				if clay.UI()(
-				{
-					layout = {
-						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-						layoutDirection = .LeftToRight,
-						padding = clay.PaddingAll(8),
-					},
-					backgroundColor = SURFACE_0,
-					cornerRadius = clay.CornerRadiusAll(10),
-				},
-				) {
+				if len(mixologist.programs) > 0 && found_count != len(mixologist.programs) {
+					UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
 					if clay.UI()(
 					{
-						id = clay.ID("open_programs"),
 						layout = {
-							layoutDirection = .TopToBottom,
 							sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+							layoutDirection = .LeftToRight,
+							padding = clay.PaddingAll(8),
 						},
-						clip = {vertical = true, childOffset = clay.GetScrollOffset()},
+						backgroundColor = SURFACE_0,
+						cornerRadius = clay.CornerRadiusAll(10),
 					},
 					) {
-						for program, idx in mixologist.programs {
-							if slice.contains(mixologist.config.rules[:], program) {
-								continue
-							}
-
-							selection_idx, selected := slice.linear_search(
-								ctx.selected_programs[:],
-								program,
-							)
-
-							if clay.UI()(
-							{
-								layout = {
-									sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-									padding = clay.PaddingAll(8),
-									childAlignment = {x = .Left, y = .Center},
-								},
+						if clay.UI()(
+						{
+							id = clay.ID("open_programs"),
+							layout = {
+								layoutDirection = .TopToBottom,
+								sizing = {clay.SizingGrow({}), clay.SizingFit({})},
 							},
-							) {
-								add_program_res, _ := UI_button(
-									&ctx.ui_ctx,
-									selected ? {UI_IconConfig{5, 16, TEXT}} : {},
-									{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
-									clay.CornerRadiusAll(8),
-									selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
-									selected ? MAUVE * {1, 1, 1, 0.6} : SURFACE_2,
-									selected ? MAUVE * {1, 1, 1, 0.7} : SURFACE_1,
-									2,
-									border_config = {
-										width = {2, 2, 2, 2, 2},
-										color = selected ? MAUVE : SURFACE_2,
-									},
-								)
-								UI_horz_spacer(&ctx.ui_ctx, 24)
-								UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+							clip = {vertical = true, childOffset = clay.GetScrollOffset()},
+						},
+						) {
+							for program, idx in mixologist.programs {
+								if slice.contains(mixologist.config.rules[:], program) {
+									continue
+								}
 
-								if .RELEASE in add_program_res {
-									if selected {
-										unordered_remove(&ctx.selected_programs, selection_idx)
-									} else {
-										append(&ctx.selected_programs, program)
+								selection_idx, selected := slice.linear_search(
+									ctx.selected_programs[:],
+									program,
+								)
+
+								if clay.UI()(
+								{
+									layout = {
+										sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+										padding = clay.PaddingAll(8),
+										childAlignment = {x = .Left, y = .Center},
+									},
+								},
+								) {
+									add_program_res, _ := UI_button(
+										&ctx.ui_ctx,
+										selected ? {UI_IconConfig{5, 16, TEXT}} : {},
+										{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
+										clay.CornerRadiusAll(8),
+										selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
+										selected ? MAUVE * {1, 1, 1, 0.6} : SURFACE_2,
+										selected ? MAUVE * {1, 1, 1, 0.7} : SURFACE_1,
+										2,
+										border_config = {
+											width = {2, 2, 2, 2, 2},
+											color = selected ? MAUVE : SURFACE_2,
+										},
+									)
+									UI_horz_spacer(&ctx.ui_ctx, 24)
+									UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+
+									if .RELEASE in add_program_res {
+										if selected {
+											delete(ctx.selected_programs[selection_idx])
+											unordered_remove(&ctx.selected_programs, selection_idx)
+										} else {
+											append(&ctx.selected_programs, strings.clone(program))
+										}
 									}
 								}
-							}
-							if idx < len(mixologist.programs) - 1 - found_count {
-								list_separator(SURFACE_1)
+								if idx < len(mixologist.programs) - 1 - found_count {
+									list_separator(SURFACE_1)
+								}
 							}
 						}
-					}
 
-					UI_horz_spacer(&ctx.ui_ctx, 8)
+						UI_horz_spacer(&ctx.ui_ctx, 8)
 
-					if clay.UI()({layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}}) {
-						UI_scrollbar(
-							&ctx.ui_ctx,
-							clay.GetScrollContainerData(clay.ID("open_programs")),
-							&ctx.program_scrollbar,
-							8,
-							0,
-							SURFACE_2,
-							OVERLAY_0,
-							OVERLAY_1,
-						)
+						if clay.UI()(
+						{layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}},
+						) {
+							UI_scrollbar(
+								&ctx.ui_ctx,
+								clay.GetScrollContainerData(clay.ID("open_programs")),
+								&ctx.program_scrollbar,
+								8,
+								0,
+								SURFACE_2,
+								OVERLAY_0,
+								OVERLAY_1,
+							)
+						}
 					}
 				}
 			}
