@@ -178,7 +178,9 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 								cornerRadius = clay.CornerRadiusAll(10),
 							},
 							) {
-								for rule, i in mixologist.config.rules do rule_line(ctx, rule, i + 1, len(mixologist.config.rules))
+								if sync.mutex_guard(&mixologist.config_mutex) {
+									for rule, i in mixologist.config.rules do rule_line(ctx, rule, i + 1, len(mixologist.config.rules))
+								}
 							}
 						}
 					}
@@ -556,8 +558,10 @@ rule_add_menu :: proc(
 			found_count := 0
 			if sync.mutex_guard(&ctx.programs_mutex) {
 				for program in ctx.programs {
-					if slice.contains(mixologist.config.rules[:], program) {
-						found_count += 1
+					if sync.mutex_guard(&mixologist.config_mutex) {
+						if slice.contains(mixologist.config.rules[:], program) {
+							found_count += 1
+						}
 					}
 				}
 
@@ -585,8 +589,10 @@ rule_add_menu :: proc(
 						},
 						) {
 							for program, idx in ctx.programs {
-								if slice.contains(mixologist.config.rules[:], program) {
-									continue
+								if sync.mutex_guard(&mixologist.config_mutex) {
+									if slice.contains(mixologist.config.rules[:], program) {
+										continue
+									}
 								}
 
 								selection_idx, selected := slice.linear_search(
