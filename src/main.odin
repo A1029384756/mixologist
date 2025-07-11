@@ -296,6 +296,8 @@ main :: proc() {
 		GlobalShortcuts_Deinit(&mixologist.shortcuts)
 	}
 
+	IPC_Server_deinit(&mixologist.ipc)
+
 	// clean up allocated memory
 	{
 		for event in mixologist.events {
