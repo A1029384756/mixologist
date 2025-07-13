@@ -1,7 +1,7 @@
 package mixologist
 
-import "./clay"
-import "core:fmt"
+@(require) import "./clay"
+@(require) import "core:fmt"
 
 when ODIN_DEBUG {
 	memory_debug_modal :: proc(ctx: ^GUI_Context) {
