@@ -367,8 +367,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 		)
 
 		if .SUBMIT in tb_res {
-			append(
-				&mixologist.events,
+			mixologist_event_send(
 				Rule_Update {
 					rule,
 					strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
@@ -430,8 +429,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 					)
 
 					if .RELEASE in apply_res {
-						append(
-							&mixologist.events,
+						mixologist_event_send(
 							Rule_Update {
 								rule,
 								strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
@@ -690,8 +688,7 @@ rule_add_menu :: proc(
 
 				if .SUBMIT in tb_res {
 					if ctx.new_rule_len > 0 {
-						append(
-							&mixologist.events,
+						mixologist_event_send(
 							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
 						)
 						ctx.new_rule_len = 0
@@ -730,8 +727,7 @@ rule_add_menu :: proc(
 
 				if .RELEASE in button_res {
 					if ctx.new_rule_len > 0 {
-						append(
-							&mixologist.events,
+						mixologist_event_send(
 							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
 						)
 						ctx.new_rule_len = 0
