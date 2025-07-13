@@ -12,6 +12,7 @@ GUI_Context_Status :: enum u8 {
 	SETTINGS,
 	RULES,
 	VOLUME,
+	DEBUGGING,
 }
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
@@ -193,6 +194,9 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 	}
 	rule_add_modal(ctx)
 	settings_modal(ctx)
+	when ODIN_DEBUG {
+		memory_debug_modal(ctx)
+	}
 
 	return clay.EndLayout()
 }

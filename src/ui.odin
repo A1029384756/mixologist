@@ -96,6 +96,7 @@ UI_Control_Key :: enum {
 	C,
 	V,
 	D,
+	M,
 }
 UI_Control_Keys :: bit_set[UI_Control_Key]
 
@@ -391,6 +392,8 @@ UI_tick :: proc(
 				fn(ctx, .V)
 			case .D:
 				fn(ctx, .D)
+			case .M:
+				fn(ctx, .M)
 			}
 		}
 	}

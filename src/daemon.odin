@@ -5,6 +5,7 @@ import "base:runtime"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
@@ -188,6 +189,18 @@ global_destroy :: proc "c" (data: rawptr, id: u32) {
 				}
 			}
 		}
+	}
+
+	passthrough_node, passthrough_node_exists := &ctx.passthrough_nodes[id]
+	if passthrough_node_exists {
+		delete_key(&ctx.passthrough_nodes, id)
+		for _, port in passthrough_node.ports {
+			if slice.contains(ctx.passthrough_ports[:], port) {
+				unordered_remove(&ctx.passthrough_ports, port)
+			}
+		}
+		node_destroy(passthrough_node)
+		delete_key(&ctx.passthrough_nodes, id)
 	}
 }
 

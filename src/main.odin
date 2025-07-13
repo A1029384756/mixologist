@@ -122,6 +122,10 @@ EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
 mixologist: Mixologist
 cli: CLI_State
 
+when ODIN_DEBUG {
+	track: mem.Tracking_Allocator
+}
+
 main :: proc() {
 	// set up data file locations
 	{
@@ -146,7 +150,6 @@ main :: proc() {
 		context.logger = log.create_console_logger(common.get_log_level())
 		defer log.destroy_console_logger(context.logger)
 
-		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
 		defer mem.tracking_allocator_destroy(&track)
 		context.allocator = mem.tracking_allocator(&track)
