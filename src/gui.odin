@@ -64,6 +64,7 @@ gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 
 gui_tick :: proc(ctx: ^GUI_Context) {
 	UI_tick(&ctx.ui_ctx, UI_create_layout, ctx)
+	mixologist_process_events(&mixologist)
 
 	if !UI_window_closed(&ctx.ui_ctx) {
 		if .VOLUME in ctx.statuses {
