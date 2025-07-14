@@ -7,7 +7,7 @@ import "core:c"
 import sa "core:container/small_array"
 
 
-@(require)import "core:fmt"
+@(require) import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
@@ -228,6 +228,7 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	)
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
+	sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 	ctx.window = sdl.CreateWindow(
 		"Mixologist",
 		800,
