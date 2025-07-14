@@ -2,6 +2,7 @@ package mixologist
 
 @(require) import "./clay"
 @(require) import "core:fmt"
+@(require) import "core:math/rand"
 
 when ODIN_DEBUG {
 	memory_debug_modal :: proc(ctx: ^GUI_Context) {
@@ -55,6 +56,30 @@ when ODIN_DEBUG {
 				fmt.tprintf("Total Frees: %v", track.total_free_count),
 				{textColor = TEXT, fontSize = 16},
 			)
+			id := clay.ID_LOCAL("memory_debug_list")
+			if clay.UI()({id = id, layout = {sizing = {width = clay.SizingGrow()}}}) {
+				data := clay.GetElementData(id)
+				if !data.found do return
+
+				bounding_box := data.boundingBox
+				for ptr, entry in track.allocation_map {
+					color := clay.Color {
+						rand.float32_range(10, 230),
+						rand.float32_range(10, 230),
+						rand.float32_range(10, 230),
+						235,
+					}
+					entry_width := bounding_box.width / f32(len(track.allocation_map))
+					fmt.println(entry_width, ptr)
+					if clay.UI()(
+					{
+						layout = {sizing = {clay.SizingFixed(entry_width), clay.SizingFixed(24)}},
+						backgroundColor = color,
+					},
+					) {
+					}
+				}
+			}
 		}
 		return
 	}
