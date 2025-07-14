@@ -406,6 +406,8 @@ UI_tick :: proc(
 				fn(ctx, .ESCAPE)
 			case .BACKSPACE:
 				fn(ctx, .BACKSPACE)
+			case .DELETE:
+				fn(ctx, .DELETE)
 			case .LEFT:
 				fn(ctx, .LEFT)
 			case .RIGHT:
