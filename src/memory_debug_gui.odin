@@ -53,7 +53,6 @@ when ODIN_DEBUG {
 			floating = {
 				attachment = {element = .CenterCenter, parent = .CenterCenter},
 				attachTo = .Root,
-				offset = {16, 16},
 			},
 			backgroundColor = {0, 0, 0, 255},
 			cornerRadius = clay.CornerRadiusAll(10),
