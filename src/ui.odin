@@ -7,7 +7,7 @@ import "core:c"
 import sa "core:container/small_array"
 
 
-@(require) import "core:fmt"
+@(require)import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
@@ -245,7 +245,6 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
 	ctx.device = sdl.CreateGPUDeviceWithProperties(device_props)
-
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
 	Renderer_init(ctx)
 
@@ -288,6 +287,7 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 
 	// reasonable 60fps default for initial redraw rate
 	ctx.prev_frametime = 16 * time.Millisecond
+	ctx.statuses += {.WINDOW_JUST_SHOWN}
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
