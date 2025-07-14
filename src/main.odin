@@ -144,7 +144,10 @@ main :: proc() {
 	}
 
 	when ODIN_DEBUG {
-		context.logger = log.create_console_logger(common.get_log_level())
+		context.logger = log.create_console_logger(
+			common.get_log_level(),
+			log.Default_Console_Logger_Opts + {.Thread_Id},
+		)
 		defer log.destroy_console_logger(context.logger)
 
 		mem.tracking_allocator_init(&track, context.allocator)
@@ -180,7 +183,11 @@ main :: proc() {
 		}
 
 		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
-		context.logger = create_file_logger(log_file, common.get_log_level())
+		context.logger = create_file_logger(
+			log_file,
+			common.get_log_level(),
+			log.Default_File_Logger_Opts + {.Thread_Id},
+		)
 		defer destroy_file_logger(context.logger)
 	}
 
