@@ -2,20 +2,27 @@ package mixologist
 
 @(require) import "./clay"
 @(require) import "core:fmt"
+@(require) import "core:math"
 @(require) import "core:math/rand"
 
 when ODIN_DEBUG {
+	MemEntry :: struct {
+		log_size: f32,
+		color:    clay.Color,
+	}
+
+
 	@(thread_local)
-	memory_colors: map[rawptr]clay.Color
+	memory: map[rawptr]MemEntry
 
 	@(init)
 	debug_menu_init :: proc() {
-		memory_colors = make(map[rawptr]clay.Color, 1e3)
+		memory = make(map[rawptr]MemEntry, 1e3)
 	}
 
 	@(fini)
 	debug_menu_fini :: proc() {
-		delete(memory_colors)
+		delete(memory)
 	}
 
 	memory_debug_modal :: proc(ctx: ^GUI_Context) {
@@ -37,7 +44,7 @@ when ODIN_DEBUG {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingFit({}), clay.SizingFit({})},
+				sizing = {clay.SizingPercent(0.8), clay.SizingFit({})},
 				childAlignment = {x = .Center, y = .Center},
 				layoutDirection = .TopToBottom,
 				padding = clay.PaddingAll(16),
@@ -79,27 +86,50 @@ when ODIN_DEBUG {
 				if !data.found do return
 
 				bounding_box := data.boundingBox
+
+				total_log_size: f32
 				for ptr, entry in track.allocation_map {
-					_, color, just_inserted, _ := map_entry(&memory_colors, ptr)
+					_, mem_entry, just_inserted, _ := map_entry(&memory, ptr)
 					if just_inserted {
-						color^ = clay.Color {
+						mem_entry.color = clay.Color {
 							rand.float32_range(10, 230),
 							rand.float32_range(10, 230),
 							rand.float32_range(10, 230),
 							235,
 						}
 					}
-					entry_width := bounding_box.width / f32(len(track.allocation_map))
+
+					mem_entry.log_size = math.log10(f32(entry.size))
+					total_log_size += mem_entry.log_size
+				}
+
+				for ptr, entry in track.allocation_map {
+					mem_entry := memory[ptr]
+					entry_width := (mem_entry.log_size / total_log_size) * bounding_box.width
 					if clay.UI()(
 					{
 						layout = {sizing = {clay.SizingFixed(entry_width), clay.SizingFixed(24)}},
 						border = clay.Hovered() ? {color = ROSEWATER, width = clay.BorderAll(1)} : {},
-						backgroundColor = color^ * (clay.Hovered() ? 1.2 : 1),
+						backgroundColor = mem_entry.color * (clay.Hovered() ? 1.2 : 1),
 					},
 					) {
 						if clay.Hovered() {
+							info_id := clay.ID("memory_debug_list_info")
+							info_info := clay.GetElementData(info_id)
+
+							info_bounding_box := info_info.boundingBox
+							max_x := info_bounding_box.width + info_bounding_box.x
+							min_x := info_bounding_box.x
+							x_offset: f32
+							if max_x > ctx.ui_ctx.window_size.x {
+								x_offset = -(max_x - ctx.ui_ctx.window_size.x) - 4
+							} else if min_x < 0 {
+								x_offset = -min_x + 4
+							}
+
 							if clay.UI()(
 							{
+								id = info_id,
 								layout = {
 									layoutDirection = .TopToBottom,
 									childAlignment = {x = .Center},
@@ -108,8 +138,8 @@ when ODIN_DEBUG {
 								floating = {
 									attachment = {element = .CenterTop, parent = .CenterBottom},
 									attachTo = .Parent,
-									pointerCaptureMode = .Capture,
-									offset = {0, 4},
+									pointerCaptureMode = .Passthrough,
+									offset = {x_offset, 4},
 								},
 								backgroundColor = clay.Color{35, 35, 35, 255},
 							},
