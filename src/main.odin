@@ -116,9 +116,6 @@ Rule_Update :: struct {
 }
 Volume :: f32
 
-EVENT_SIZE :: size_of(linux.Inotify_Event)
-EVENT_BUF_LEN :: 1024 * (EVENT_SIZE + 16)
-
 mixologist: Mixologist
 cli: CLI_State
 
