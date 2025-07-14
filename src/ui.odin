@@ -226,10 +226,10 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 		},
 		nil,
 	)
+	sdl.SetHint(sdl.HINT_VIDEO_ALLOW_SCREENSAVER, "1")
+	sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
-	sdl.EnableScreenSaver()
-	sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 	ctx.window = sdl.CreateWindow(
 		"Mixologist",
 		800,
