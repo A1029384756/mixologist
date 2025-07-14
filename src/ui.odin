@@ -5,7 +5,7 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
-@(require) import "core:fmt"
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/rand"
@@ -63,7 +63,7 @@ UI_Context :: struct {
 	exit_entry:          ^sdl.TrayEntry,
 	// renderer
 	device:              ^sdl.GPUDevice,
-	using memory_debug:  UI_Memory_Debug_Data,
+	memory_debug:        UI_Memory_Debug_Data,
 }
 
 when ODIN_DEBUG {
@@ -2008,7 +2008,7 @@ when ODIN_DEBUG {
 
 				total_log_size: f32
 				for ptr, entry in tracking_allocator.allocation_map {
-					_, mem_entry, just_inserted, _ := map_entry(&ctx.memory, ptr)
+					_, mem_entry, just_inserted, _ := map_entry(&ctx.memory_debug.memory, ptr)
 					if just_inserted {
 						mem_entry.color = clay.Color {
 							rand.float32_range(10, 230),
@@ -2023,7 +2023,7 @@ when ODIN_DEBUG {
 				}
 
 				for ptr, entry in tracking_allocator.allocation_map {
-					mem_entry := ctx.memory[ptr]
+					mem_entry := ctx.memory_debug.memory[ptr]
 					entry_width := (mem_entry.log_size / total_log_size) * bounding_box.width
 					if clay.UI()(
 					{
