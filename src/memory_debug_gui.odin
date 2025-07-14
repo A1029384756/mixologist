@@ -79,11 +79,9 @@ when ODIN_DEBUG {
 				fmt.tprintf("Δ Frees: %v", track.total_allocation_count - track.total_free_count),
 				{textColor = TEXT, fontSize = 16},
 			)
-			id := clay.ID_LOCAL("memory_debug_list")
-			if clay.UI()({id = id, layout = {sizing = {width = clay.SizingGrow()}}}) {
+			id := clay.ID("memory_debug_list")
+			if clay.UI()({id = id, layout = {sizing = {width = clay.SizingPercent(1)}}}) {
 				data := clay.GetElementData(id)
-				if !data.found do return
-
 				bounding_box := data.boundingBox
 
 				total_log_size: f32
