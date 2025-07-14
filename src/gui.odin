@@ -195,7 +195,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 	rule_add_modal(ctx)
 	settings_modal(ctx)
 	when ODIN_DEBUG {
-		memory_debug_modal(ctx)
+		UI_memory_debug(&ctx.ui_ctx, track)
 	}
 
 	return clay.EndLayout()

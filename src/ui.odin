@@ -5,11 +5,11 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:c"
 import sa "core:container/small_array"
-
-
 @(require) import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:math/rand"
+import "core:mem"
 import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
@@ -63,6 +63,20 @@ UI_Context :: struct {
 	exit_entry:          ^sdl.TrayEntry,
 	// renderer
 	device:              ^sdl.GPUDevice,
+	using memory_debug:  UI_Memory_Debug_Data,
+}
+
+when ODIN_DEBUG {
+	MemEntry :: struct {
+		log_size: f32,
+		color:    clay.Color,
+	}
+
+	UI_Memory_Debug_Data :: struct {
+		memory: map[rawptr]MemEntry,
+	}
+} else {
+	UI_Memory_Debug_Data :: struct {}
 }
 
 UI_Scrollbar_Data :: struct {
@@ -122,6 +136,7 @@ UI_Context_Status :: enum {
 	WINDOW_MINIMIZED,
 	WINDOW_JUST_SHOWN,
 	APP_EXIT,
+	MEMORY_DEBUG,
 }
 UI_Context_Statuses :: bit_set[UI_Context_Status]
 
@@ -290,9 +305,17 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	// reasonable 60fps default for initial redraw rate
 	ctx.prev_frametime = 16 * time.Millisecond
 	ctx.statuses += {.WINDOW_JUST_SHOWN}
+
+	when ODIN_DEBUG {
+		ctx.memory_debug.memory = make(map[rawptr]MemEntry, 1e3)
+	}
 }
 
 UI_deinit :: proc(ctx: ^UI_Context) {
+	when ODIN_DEBUG {
+		delete(ctx.memory_debug.memory)
+	}
+
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
 
@@ -1923,4 +1946,141 @@ UI_horz_spacer :: proc(ctx: ^UI_Context, size: c.float) {
 
 UI_vert_spacer :: proc(ctx: ^UI_Context, size: c.float) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFixed(size)}}}) {}
+}
+
+when ODIN_DEBUG {
+	UI_memory_debug :: proc(ctx: ^UI_Context, tracking_allocator: mem.Tracking_Allocator) {
+		if .M in ctx.keys_pressed && .CTRL in ctx.keys_down {
+			if .MEMORY_DEBUG in ctx.statuses {
+				ctx.statuses -= {.MEMORY_DEBUG}
+			} else {
+				ctx.statuses += {.MEMORY_DEBUG}
+			}
+		}
+		if .MEMORY_DEBUG not_in ctx.statuses do return
+
+		if clay.UI()(
+		{
+			layout = {
+				sizing = {clay.SizingPercent(0.8), clay.SizingFit({})},
+				childAlignment = {x = .Center, y = .Center},
+				layoutDirection = .TopToBottom,
+				padding = clay.PaddingAll(16),
+				childGap = 16,
+			},
+			floating = {
+				attachment = {element = .CenterCenter, parent = .CenterCenter},
+				attachTo = .Root,
+			},
+			backgroundColor = {0, 0, 0, 255},
+			cornerRadius = clay.CornerRadiusAll(10),
+		},
+		) {
+			UI_textlabel("Memory Debug", {textColor = 255, fontSize = 20})
+			UI_textlabel(
+				fmt.tprintf("Peak Allocation: %v", tracking_allocator.peak_memory_allocated),
+				{textColor = 255, fontSize = 16},
+			)
+			UI_textlabel(
+				fmt.tprintf("Current Allocation: %v", tracking_allocator.current_memory_allocated),
+				{textColor = 255, fontSize = 16},
+			)
+			UI_textlabel(
+				fmt.tprintf("Total Allocations: %v", tracking_allocator.total_allocation_count),
+				{textColor = 255, fontSize = 16},
+			)
+			UI_textlabel(
+				fmt.tprintf("Total Frees: %v", tracking_allocator.total_free_count),
+				{textColor = 255, fontSize = 16},
+			)
+			UI_textlabel(
+				fmt.tprintf(
+					"Δ Frees: %v",
+					tracking_allocator.total_allocation_count -
+					tracking_allocator.total_free_count,
+				),
+				{textColor = 255, fontSize = 16},
+			)
+			id := clay.ID("memory_debug_list")
+			if clay.UI()({id = id, layout = {sizing = {width = clay.SizingPercent(1)}}}) {
+				data := clay.GetElementData(id)
+				bounding_box := data.boundingBox
+
+				total_log_size: f32
+				for ptr, entry in tracking_allocator.allocation_map {
+					_, mem_entry, just_inserted, _ := map_entry(&ctx.memory, ptr)
+					if just_inserted {
+						mem_entry.color = clay.Color {
+							rand.float32_range(10, 230),
+							rand.float32_range(10, 230),
+							rand.float32_range(10, 230),
+							235,
+						}
+					}
+
+					mem_entry.log_size = math.log10(f32(entry.size))
+					total_log_size += mem_entry.log_size
+				}
+
+				for ptr, entry in tracking_allocator.allocation_map {
+					mem_entry := ctx.memory[ptr]
+					entry_width := (mem_entry.log_size / total_log_size) * bounding_box.width
+					if clay.UI()(
+					{
+						layout = {sizing = {clay.SizingFixed(entry_width), clay.SizingFixed(24)}},
+						border = clay.Hovered() ? {color = 255, width = clay.BorderAll(1)} : {},
+						backgroundColor = mem_entry.color * (clay.Hovered() ? 1.2 : 1),
+					},
+					) {
+						if clay.Hovered() {
+							info_id := clay.ID("memory_debug_list_info")
+							info_info := clay.GetElementData(info_id)
+
+							info_bounding_box := info_info.boundingBox
+							max_x := info_bounding_box.width + info_bounding_box.x
+							min_x := info_bounding_box.x
+							x_offset: f32
+							if max_x > ctx.window_size.x {
+								x_offset = -(max_x - ctx.window_size.x) - 4
+							} else if min_x < 0 {
+								x_offset = -min_x + 4
+							}
+
+							if clay.UI()(
+							{
+								id = info_id,
+								layout = {
+									layoutDirection = .TopToBottom,
+									childAlignment = {x = .Center},
+									padding = clay.PaddingAll(4),
+								},
+								floating = {
+									attachment = {element = .CenterTop, parent = .CenterBottom},
+									attachTo = .Parent,
+									pointerCaptureMode = .Passthrough,
+									offset = {x_offset, 4},
+								},
+								backgroundColor = clay.Color{35, 35, 35, 255},
+							},
+							) {
+								UI_textlabel(
+									fmt.tprintf("%v", ptr),
+									{textColor = 255, fontSize = 16},
+								)
+								UI_textlabel(
+									fmt.tprintf("Size: %v", entry.size),
+									{textColor = 255, fontSize = 16},
+								)
+								UI_textlabel(
+									fmt.tprintf("%v", entry.location),
+									{textColor = 255, fontSize = 16},
+								)
+							}
+						}
+					}
+				}
+			}
+		}
+		return
+	}
 }
