@@ -47,13 +47,9 @@ daemon_proc :: proc(ctx: ^Daemon_Context) {
 }
 
 daemon_init :: proc(ctx: ^Daemon_Context) {
-	if virtual.arena_init_growing(&ctx.arena) != nil {
-		panic("Couldn't initialize arena")
-	}
-	ctx.allocator = virtual.arena_allocator(&ctx.arena)
-	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
-	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY, ctx.allocator)
-	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY, ctx.allocator)
+	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY)
+	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY)
+	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY)
 	ctx.pw_odin_ctx = context
 
 	// initialize pipewire
@@ -113,7 +109,9 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 	for input in ctx.device_inputs {
 		delete(input)
 	}
-	free_all(ctx.allocator)
+	delete(ctx.device_inputs)
+	delete(ctx.passthrough_nodes)
+	delete(ctx.passthrough_ports)
 }
 
 daemon_should_exit :: proc(ctx: ^Daemon_Context) -> bool {
