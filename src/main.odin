@@ -14,6 +14,7 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
+import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
 import "core:time"
@@ -22,9 +23,7 @@ Mixologist :: struct {
 	// state
 	statuses:      Statuses,
 	events:        [dynamic]Event,
-	programs:      [dynamic]string,
 	event_mutex:   sync.Mutex,
-	program_mutex: sync.Mutex,
 	config_mutex:  sync.Mutex,
 	// ipc
 	ipc:           IPC_Server_Context,
@@ -260,6 +259,11 @@ main :: proc() {
 		mixologist_read_volume_file(&mixologist)
 	}
 
+	// start event channels
+	if .Gui in mixologist.statuses {
+		mixologist.gui.events, _ = chan.create(chan.Chan(Event), context.allocator)
+	}
+
 	// init app state
 	if .Daemon in mixologist.statuses {
 		mixologist.daemon_thread = thread.create_and_start_with_poly_data(
@@ -285,7 +289,7 @@ main :: proc() {
 		if .GlobalShortcuts in mixologist.statuses {
 			Portals_Tick(mixologist.shortcuts.conn)
 		}
-		mixologist_process_events(&mixologist)
+		mixologist_event_process(&mixologist)
 		time.sleep(time.Millisecond)
 		free_all(context.temp_allocator)
 	}
@@ -317,10 +321,6 @@ main :: proc() {
 			}
 		}
 		delete(mixologist.events)
-		for program in mixologist.programs {
-			delete(program)
-		}
-		delete(mixologist.programs)
 		for rule in mixologist.config.rules {
 			delete(rule)
 		}
@@ -328,10 +328,10 @@ main :: proc() {
 	}
 }
 
-mixologist_process_events :: proc(mixologist: ^Mixologist) {
+mixologist_event_process :: proc(mixologist: ^Mixologist) {
 	if sync.mutex_guard(&mixologist.event_mutex) {
 		for event in mixologist.events {
-			switch event in event {
+			#partial switch event in event {
 			case Rule_Add:
 				log.debugf("adding rule: %v", event)
 				daemon_add_program(&mixologist.daemon, string(event))
@@ -395,23 +395,6 @@ mixologist_process_events :: proc(mixologist: ^Mixologist) {
 					mixologist.config.settings = event
 				}
 				mixologist_config_write(mixologist)
-			case Program_Add:
-				log.infof("adding program %s", event)
-				if sync.mutex_guard(&mixologist.program_mutex) {
-					append(&mixologist.programs, string(event))
-				}
-				gui_program_add(&mixologist.gui, string(event))
-			case Program_Remove:
-				log.infof("removing program %s", event)
-				if sync.mutex_guard(&mixologist.program_mutex) {
-					node_idx, found := slice.linear_search(mixologist.programs[:], string(event))
-					if found {
-						delete(mixologist.programs[node_idx])
-						unordered_remove(&mixologist.programs, node_idx)
-					}
-				}
-				gui_program_remove(&mixologist.gui, string(event))
-				delete(string(event))
 			}
 			mixologist.gui.ui_ctx.statuses += {.DIRTY}
 		}

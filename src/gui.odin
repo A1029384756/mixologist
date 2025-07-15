@@ -5,6 +5,7 @@ import "core:log"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:sync/chan"
 
 GUI_Context_Status :: enum u8 {
 	ADDING_NEW,
@@ -18,13 +19,13 @@ GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
 GUI_Context :: struct {
 	ui_ctx:            UI_Context,
+	events:            chan.Chan(Event),
 	// rule modification
 	active_line_buf:   [1024]u8,
 	active_line_len:   int,
 	active_line:       int,
 	// rule addition
 	programs:          [dynamic]string,
-	programs_mutex:    sync.Mutex,
 	selected_programs: [dynamic]string,
 	// custom rule creation
 	new_rule_buf:      [1024]u8,
@@ -64,7 +65,7 @@ gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 
 gui_tick :: proc(ctx: ^GUI_Context) {
 	UI_tick(&ctx.ui_ctx, UI_create_layout, ctx)
-	mixologist_process_events(&mixologist)
+	gui_event_process(ctx)
 
 	if !UI_window_closed(&ctx.ui_ctx) {
 		if .VOLUME in ctx.statuses {
@@ -88,25 +89,44 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 		delete(program)
 	}
 	delete(ctx.programs)
+	chan.close(ctx.events)
+	chan.destroy(ctx.events)
 }
 
-gui_program_add :: proc(ctx: ^GUI_Context, program: string) {
-	if sync.mutex_guard(&ctx.programs_mutex) {
-		for existing_program in ctx.programs {
-			if program == existing_program {
-				return
-			}
+gui_event_send :: proc(event: Event, allocator := context.allocator) {
+	event_clone: Event
+	#partial switch event in event {
+	case Program_Add:
+		event_clone = Program_Add(strings.clone(string(event), allocator))
+	case Program_Remove:
+		event_clone = Program_Remove(strings.clone(string(event), allocator))
+	}
+	log.debugf("gui event sending: %v", event_clone)
+	if !chan.send(mixologist.gui.events, event_clone) {
+		#partial switch event_clone in event_clone {
+		case Program_Add:
+			delete(string(event_clone))
+		case Program_Remove:
+			delete(string(event_clone))
 		}
-		append(&ctx.programs, strings.clone(program))
 	}
 }
 
-gui_program_remove :: proc(ctx: ^GUI_Context, program: string) {
-	if sync.mutex_guard(&ctx.programs_mutex) {
-		node_idx, found := slice.linear_search(ctx.programs[:], program)
-		if found {
-			delete(ctx.programs[node_idx])
-			unordered_remove(&ctx.programs, node_idx)
+gui_event_process :: proc(ctx: ^GUI_Context) {
+	for event in chan.try_recv(ctx.events) {
+		ctx.ui_ctx.statuses += {.DIRTY}
+		#partial switch event in event {
+		case Program_Add:
+			log.infof("gui adding program %s", event)
+			append(&ctx.programs, string(event))
+		case Program_Remove:
+			log.infof("gui removing program %s", event)
+			node_idx, found := slice.linear_search(ctx.programs[:], string(event))
+			if found {
+				delete(ctx.programs[node_idx])
+				unordered_remove(&ctx.programs, node_idx)
+			}
+			delete(string(event))
 		}
 	}
 }
@@ -559,107 +579,103 @@ rule_add_menu :: proc(
 			}
 
 			found_count := 0
-			if sync.mutex_guard(&ctx.programs_mutex) {
-				for program in ctx.programs {
-					if sync.mutex_guard(&mixologist.config_mutex) {
-						if slice.contains(mixologist.config.rules[:], program) {
-							found_count += 1
-						}
+			for program in ctx.programs {
+				if sync.mutex_guard(&mixologist.config_mutex) {
+					if slice.contains(mixologist.config.rules[:], program) {
+						found_count += 1
 					}
 				}
+			}
 
-				if len(ctx.programs) > 0 && found_count != len(ctx.programs) {
-					UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
+			if len(ctx.programs) > 0 && found_count != len(ctx.programs) {
+				UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
+				if clay.UI()(
+				{
+					layout = {
+						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+						layoutDirection = .LeftToRight,
+						padding = clay.PaddingAll(8),
+					},
+					backgroundColor = SURFACE_0,
+					cornerRadius = clay.CornerRadiusAll(10),
+				},
+				) {
 					if clay.UI()(
 					{
+						id = clay.ID("open_programs"),
 						layout = {
+							layoutDirection = .TopToBottom,
 							sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-							layoutDirection = .LeftToRight,
-							padding = clay.PaddingAll(8),
 						},
-						backgroundColor = SURFACE_0,
-						cornerRadius = clay.CornerRadiusAll(10),
+						clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 					},
 					) {
-						if clay.UI()(
-						{
-							id = clay.ID("open_programs"),
-							layout = {
-								layoutDirection = .TopToBottom,
-								sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-							},
-							clip = {vertical = true, childOffset = clay.GetScrollOffset()},
-						},
-						) {
-							for program, idx in ctx.programs {
-								if sync.mutex_guard(&mixologist.config_mutex) {
-									if slice.contains(mixologist.config.rules[:], program) {
-										continue
-									}
-								}
-
-								selection_idx, selected := slice.linear_search(
-									ctx.selected_programs[:],
-									program,
-								)
-
-								if clay.UI()(
-								{
-									layout = {
-										sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-										padding = clay.PaddingAll(8),
-										childAlignment = {x = .Left, y = .Center},
-									},
-								},
-								) {
-									add_program_res, _ := UI_button(
-										&ctx.ui_ctx,
-										selected ? {UI_IconConfig{5, 16, TEXT}} : {},
-										{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
-										clay.CornerRadiusAll(8),
-										selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
-										selected ? MAUVE * {1, 1, 1, 0.6} : SURFACE_2,
-										selected ? MAUVE * {1, 1, 1, 0.7} : SURFACE_1,
-										2,
-										border_config = {
-											width = {2, 2, 2, 2, 2},
-											color = selected ? MAUVE : SURFACE_2,
-										},
-									)
-									UI_horz_spacer(&ctx.ui_ctx, 24)
-									UI_textlabel(program, {textColor = TEXT, fontSize = 16})
-
-									if .RELEASE in add_program_res {
-										if selected {
-											delete(ctx.selected_programs[selection_idx])
-											unordered_remove(&ctx.selected_programs, selection_idx)
-										} else {
-											append(&ctx.selected_programs, strings.clone(program))
-										}
-									}
-								}
-								if idx < len(ctx.programs) - 1 - found_count {
-									list_separator(SURFACE_1)
+						for program, idx in ctx.programs {
+							if sync.mutex_guard(&mixologist.config_mutex) {
+								if slice.contains(mixologist.config.rules[:], program) {
+									continue
 								}
 							}
-						}
 
-						UI_horz_spacer(&ctx.ui_ctx, 8)
-
-						if clay.UI()(
-						{layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}},
-						) {
-							UI_scrollbar(
-								&ctx.ui_ctx,
-								clay.GetScrollContainerData(clay.ID("open_programs")),
-								&ctx.program_scrollbar,
-								8,
-								0,
-								SURFACE_2,
-								OVERLAY_0,
-								OVERLAY_1,
+							selection_idx, selected := slice.linear_search(
+								ctx.selected_programs[:],
+								program,
 							)
+
+							if clay.UI()(
+							{
+								layout = {
+									sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+									padding = clay.PaddingAll(8),
+									childAlignment = {x = .Left, y = .Center},
+								},
+							},
+							) {
+								add_program_res, _ := UI_button(
+									&ctx.ui_ctx,
+									selected ? {UI_IconConfig{5, 16, TEXT}} : {},
+									{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
+									clay.CornerRadiusAll(8),
+									selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
+									selected ? MAUVE * {1, 1, 1, 0.6} : SURFACE_2,
+									selected ? MAUVE * {1, 1, 1, 0.7} : SURFACE_1,
+									2,
+									border_config = {
+										width = {2, 2, 2, 2, 2},
+										color = selected ? MAUVE : SURFACE_2,
+									},
+								)
+								UI_horz_spacer(&ctx.ui_ctx, 24)
+								UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+
+								if .RELEASE in add_program_res {
+									if selected {
+										delete(ctx.selected_programs[selection_idx])
+										unordered_remove(&ctx.selected_programs, selection_idx)
+									} else {
+										append(&ctx.selected_programs, strings.clone(program))
+									}
+								}
+							}
+							if idx < len(ctx.programs) - 1 - found_count {
+								list_separator(SURFACE_1)
+							}
 						}
+					}
+
+					UI_horz_spacer(&ctx.ui_ctx, 8)
+
+					if clay.UI()({layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}}) {
+						UI_scrollbar(
+							&ctx.ui_ctx,
+							clay.GetScrollContainerData(clay.ID("open_programs")),
+							&ctx.program_scrollbar,
+							8,
+							0,
+							SURFACE_2,
+							OVERLAY_0,
+							OVERLAY_1,
+						)
 					}
 				}
 			}
