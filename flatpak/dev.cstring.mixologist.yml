@@ -101,7 +101,7 @@ modules:
       - glslangValidator -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
       - glslangValidator -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
       # build mixologist
-      - /run/build/mixologist/odin/odin build src -out:builds/mixologist -show-timings -vet-unused -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
+      - /run/build/mixologist/odin/odin build src -out:builds/mixologist -show-timings -vet-unused-variables -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
       # install binaries
       - install -Dm0755 builds/mixologist /app/bin/dev.cstring.Mixologist
       # install icons and desktop file
