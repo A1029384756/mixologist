@@ -14,47 +14,6 @@ pipeline: Pipeline
 @(thread_local)
 commands: [dynamic]Command
 
-TEXT_CACHE_CAPACITY :: #config(TEXT_CACHE_CAPACITY, 1024)
-Text_Cache_Key :: struct {
-	font: ^ttf.Font,
-	text: string,
-}
-Text_Cache_Value :: struct {
-	text:       ^ttf.Text,
-	generation: int,
-}
-@(thread_local)
-text_cache: map[Text_Cache_Key]Text_Cache_Value
-
-Renderer_retrieve_text :: proc(
-	ctx: ^UI_Context,
-	font: ^ttf.Font,
-	text: string,
-	allocator := context.temp_allocator,
-) -> ^ttf.Text {
-	key := Text_Cache_Key{font, text}
-	_, text_value, just_inserted, _ := map_entry(&text_cache, key)
-	if just_inserted {
-		c_text := strings.clone_to_cstring(text, allocator)
-		text_value.text = ttf.CreateText(pipeline.text_engine, font, c_text, 0)
-	}
-	text_value.generation = pipeline.generation
-	return text_value.text
-}
-
-Renderer_cull_text_cache :: proc() {
-	if len(text_cache) > TEXT_CACHE_CAPACITY {
-		for key, value in text_cache {
-			if value.generation < pipeline.generation {
-				log.debugf("deleting text cache entry for %s", key.text)
-				delete_key(&text_cache, key)
-			}
-		}
-	} else {
-		log.debugf("text cache size: %d", len(text_cache))
-	}
-}
-
 Pipeline_Status :: enum {
 	TEXTURE_DIRTY,
 }
@@ -195,7 +154,6 @@ Renderer_destroy :: proc(ctx: ^UI_Context) {
 	sdl.ReleaseGPUTransferBuffer(ctx.device, pipeline.texture_buffer)
 	sdl.ReleaseGPUGraphicsPipeline(ctx.device, pipeline.pipeline)
 	delete(commands)
-	delete(text_cache)
 }
 
 Renderer_draw :: proc(
@@ -264,7 +222,8 @@ Renderer_draw :: proc(
 				u16(c.float(config.fontSize) * ctx.scaling),
 			)
 			text := string(config.stringContents.chars[:config.stringContents.length])
-			sdl_text := Renderer_retrieve_text(ctx, font, text)
+			c_text := strings.clone_to_cstring(text, allocator)
+			sdl_text := ttf.CreateText(pipeline.text_engine, font, c_text, 0)
 			append(&commands, Text{sdl_text, {bounds.x, bounds.y}, f32_color(config.textColor)})
 		case .ScissorStart:
 			append(
@@ -551,8 +510,15 @@ Renderer_draw :: proc(
 		}
 	}
 
-	pipeline.generation += 1
-	Renderer_cull_text_cache()
+	// text cleanup -- [TODO] caching
+	{
+		for command in commands {
+			#partial switch cmd in command {
+			case Text:
+				ttf.DestroyText(cmd.ref)
+			}
+		}
+	}
 }
 
 ScissorStart :: sdl.Rect
@@ -601,7 +567,6 @@ Instance :: struct #packed {
 }
 
 Pipeline :: struct {
-	generation:          int,
 	pipeline:            ^sdl.GPUGraphicsPipeline,
 	text_vertex_buffer:  Buffer,
 	text_index_buffer:   Buffer,
