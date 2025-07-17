@@ -817,15 +817,6 @@ UI_textbox :: proc(
 
 	if enabled {
 		active := UI_widget_active(ctx, id)
-		if .PRESS in res {
-			UI_widget_focus(ctx, id)
-			ctx.statuses += {.TEXTBOX_SELECTED}
-			if !active {
-				res += {.FOCUS}
-				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
-			}
-		}
-
 		if .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
 
 		if active {
@@ -1138,10 +1129,24 @@ UI__textbox :: proc(
 		config.layout.sizing = {clay.SizingGrow({}), clay.SizingGrow({})}
 
 
-		if clay.Hovered() do ctx.hovered_widget = id
-		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
-		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
+		if clay.Hovered() {
+			ctx.hovered_widget = id
+			res += {.HOVER}
+
+			if .LEFT in ctx.mouse_pressed && !active {
+				UI_widget_focus(ctx, id)
+				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
+				ctx.click_count = 1
+				res += {.PRESS, .FOCUS}
+				active = true
+			} else if .LEFT in ctx.mouse_pressed {
+				res += {.PRESS}
+			}
+
+			if .LEFT in ctx.mouse_released {
+				res += {.RELEASE}
+			}
+		}
 
 		if clay.UI()(config) {
 			if clay.UI()(
@@ -1177,6 +1182,7 @@ UI__textbox :: proc(
 						ctx.textbox_state.id = u64(local_id.id)
 						ctx.textbox_state.selection = {}
 						edit.move_to(&ctx.textbox_state, .End)
+						log.debugf("selected textbox: %v", ctx.textbox_state.id)
 					}
 
 					if ctx.textbox_state.selection[0] > textlen^ ||
