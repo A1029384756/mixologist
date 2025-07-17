@@ -100,6 +100,8 @@ gui_event_send :: proc(event: Event, allocator := context.allocator) {
 		event_clone = Program_Add(strings.clone(string(event), allocator))
 	case Program_Remove:
 		event_clone = Program_Remove(strings.clone(string(event), allocator))
+	case Open:
+		event_clone = Open{}
 	}
 	log.debugf("gui event sending: %v", event_clone)
 	if !chan.send(mixologist.gui.events, event_clone) {
