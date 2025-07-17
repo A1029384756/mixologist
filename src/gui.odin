@@ -127,6 +127,8 @@ gui_event_process :: proc(ctx: ^GUI_Context) {
 				unordered_remove(&ctx.programs, node_idx)
 			}
 			delete(string(event))
+		case Open:
+			UI_open_window(&ctx.ui_ctx)
 		}
 	}
 }

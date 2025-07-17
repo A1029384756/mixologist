@@ -104,6 +104,7 @@ Event :: union {
 	Program_Remove,
 	Volume,
 	Settings,
+	Open,
 }
 Rule_Add :: distinct string
 Rule_Remove :: distinct string
@@ -114,6 +115,7 @@ Rule_Update :: struct {
 	cur:  string,
 }
 Volume :: f32
+Open :: distinct rawptr
 
 mixologist: Mixologist
 cli: CLI_State
@@ -397,7 +399,6 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 				}
 				mixologist_config_write(mixologist)
 			}
-			mixologist.gui.ui_ctx.statuses += {.DIRTY}
 		}
 		clear(&mixologist.events)
 	}
@@ -460,7 +461,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			}
 		case common.Wake:
 			if .Gui in mixologist.statuses {
-				UI_open_window(&mixologist.gui.ui_ctx)
+				gui_event_send(Open{})
 			}
 		}
 	}
