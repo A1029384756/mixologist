@@ -571,7 +571,7 @@ mixologist_should_exit :: proc() -> bool {
 	return sync.atomic_load(&mixologist.exit)
 }
 
-mixologist_signal_exit :: proc() {
-	log.info("mixologist signaling exit")
+mixologist_signal_exit :: proc(caller_loc := #caller_location) {
+	log.infof("mixologist signaling exit by %v", caller_loc)
 	sync.atomic_store(&mixologist.exit, true)
 }
