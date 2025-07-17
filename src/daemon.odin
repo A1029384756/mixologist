@@ -132,6 +132,7 @@ do_quit_with_data :: proc "c" (signum: posix.Signal, data: rawptr) {
 		ctx = cast(^Daemon_Context)data
 		return
 	}
+	context = ctx.pw_odin_ctx
 	pw.main_loop_quit(ctx.main_loop)
 	mixologist_signal_exit()
 }

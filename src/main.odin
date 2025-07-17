@@ -571,6 +571,7 @@ mixologist_should_exit :: proc() -> bool {
 	return sync.atomic_load(&mixologist.exit)
 }
 
-mixologist_signal_exit :: proc "contextless" () {
+mixologist_signal_exit :: proc() {
+	log.info("mixologist signaling exit")
 	sync.atomic_store(&mixologist.exit, true)
 }
