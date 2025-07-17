@@ -822,6 +822,7 @@ UI_textbox :: proc(
 			ctx.statuses += {.TEXTBOX_SELECTED}
 			if !active {
 				res += {.FOCUS}
+				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 			}
 		}
 
