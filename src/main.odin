@@ -391,6 +391,9 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 				def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 				volumes := [2]f32{def_vol, aux_vol}
 				daemon_set_volumes(&mixologist.daemon, volumes)
+				if .Gui in mixologist.statuses {
+					gui_event_send(Volume{})
+				}
 				mixologist_write_volume_file(mixologist)
 			case Settings:
 				log.debugf("settings changed: %v", event)
