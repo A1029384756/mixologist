@@ -294,6 +294,7 @@ main :: proc() {
 		free_all(context.temp_allocator)
 	}
 
+	log.infof("main event loop exiting")
 	if .Daemon in mixologist.statuses {
 		daemon_signal_stop(&mixologist.daemon)
 		thread.join(mixologist.daemon_thread)
