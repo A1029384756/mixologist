@@ -150,24 +150,24 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
 
 	if clay.UI()(
-	{id = clay.ID("root"), layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}},
+	{id = clay.ID("root"), layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}},
 	) {
 		if clay.UI()(
 		{
 			layout = {
 				layoutDirection = .TopToBottom,
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				childAlignment = {x = .Center, y = .Center},
 			},
 			backgroundColor = BASE,
 		},
 		) {
-			if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}}}) {
+			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}}) {
 				if clay.UI()(
 				{
 					id = clay.ID("rules"),
 					layout = {
-						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+						sizing = {clay.SizingGrow(), clay.SizingFit()},
 						padding = clay.PaddingAll(16),
 						childAlignment = {x = .Center},
 					},
@@ -178,7 +178,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 					{
 						layout = {
 							layoutDirection = .TopToBottom,
-							sizing = {clay.SizingPercent(0.8), clay.SizingGrow({})},
+							sizing = {clay.SizingPercent(0.8), clay.SizingGrow()},
 						},
 						backgroundColor = MANTLE,
 						cornerRadius = clay.CornerRadiusAll(10),
@@ -187,7 +187,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 						if clay.UI()(
 						{
 							layout = {
-								sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+								sizing = {clay.SizingPercent(1), clay.SizingFit()},
 								layoutDirection = .TopToBottom,
 								padding = clay.PaddingAll(16),
 								childGap = 8,
@@ -199,7 +199,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 							if clay.UI()(
 							{
 								layout = {
-									sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+									sizing = {clay.SizingPercent(1), clay.SizingFit()},
 									layoutDirection = .TopToBottom,
 								},
 								backgroundColor = CRUST,
@@ -232,7 +232,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 	if clay.UI()(
 	{
 		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+			sizing = {clay.SizingGrow(), clay.SizingFixed(48)},
 			childAlignment = {.Center, .Center},
 			layoutDirection = .LeftToRight,
 		},
@@ -257,7 +257,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingGrow({}), clay.SizingFixed(48)},
+				sizing = {clay.SizingGrow(), clay.SizingFixed(48)},
 				padding = clay.PaddingAll(16),
 				childGap = 12,
 				childAlignment = {.Center, .Center},
@@ -280,7 +280,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 				OVERLAY_0,
 				SURFACE_2,
 				MAUVE,
-				{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+				{sizing = {clay.SizingGrow(), clay.SizingFixed(16)}},
 				0.025,
 				0,
 			)
@@ -297,12 +297,12 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 
 scrollbar :: proc(ctx: ^GUI_Context) {
 	if clay.UI()(
-	{layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}, padding = {right = 4}}},
+	{layout = {sizing = {clay.SizingFit(), clay.SizingGrow()}, padding = {right = 4}}},
 	) {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+				sizing = {clay.SizingFit(), clay.SizingGrow()},
 				childAlignment = {.Right, .Top},
 			},
 		},
@@ -325,7 +325,7 @@ rules_label :: proc(ctx: ^GUI_Context) {
 	if clay.UI()(
 	{
 		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			childGap = 8,
 			childAlignment = {y = .Center},
 		},
@@ -334,7 +334,7 @@ rules_label :: proc(ctx: ^GUI_Context) {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingFit({}), clay.SizingGrow({})},
+				sizing = {clay.SizingFit(), clay.SizingGrow()},
 				childGap = 8,
 				layoutDirection = .TopToBottom,
 			},
@@ -352,7 +352,7 @@ rules_label :: proc(ctx: ^GUI_Context) {
 				UI_HorzSpacerConfig{size = 4},
 				UI_TextConfig{text = "Add Rule", size = 16, color = TEXT},
 			},
-			{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+			{sizing = {clay.SizingFit(), clay.SizingFit()}},
 			clay.CornerRadiusAll(5),
 			SURFACE_2,
 			SURFACE_1,
@@ -417,7 +417,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 					delete_res, _ := UI_button(
 						&ctx.ui_ctx,
 						{UI_IconConfig{id = 4, size = 16, color = CRUST}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						RED,
 						RED * {0.9, 0.9, 0.9, 1},
@@ -434,7 +434,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 					cancel_res, _ := UI_button(
 						&ctx.ui_ctx,
 						{UI_IconConfig{id = 3, size = 16, color = TEXT}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						SURFACE_2,
 						SURFACE_1,
@@ -451,7 +451,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 					apply_res, _ := UI_button(
 						&ctx.ui_ctx,
 						{UI_IconConfig{id = 5, size = 16, color = CRUST}},
-						{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						MAUVE,
 						MAUVE * {0.9, 0.9, 0.9, 1},
@@ -475,7 +475,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 			button_res, _ := UI_button(
 				&ctx.ui_ctx,
 				{UI_IconConfig{id = 2, size = 16, color = TEXT}},
-				{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+				{sizing = {clay.SizingFit(), clay.SizingFit()}},
 				clay.CornerRadiusAll(5),
 				SURFACE_2,
 				SURFACE_1,
@@ -499,15 +499,10 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 
 list_separator :: proc(color: clay.Color = SURFACE_0) {
 	if clay.UI()(
-	{
-		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingFit({})},
-			padding = {left = 6, right = 6},
-		},
-	},
+	{layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}, padding = {left = 6, right = 6}}},
 	) {
 		if clay.UI()(
-		{layout = {sizing = {clay.SizingGrow({}), clay.SizingFixed(1)}}, backgroundColor = color},
+		{layout = {sizing = {clay.SizingGrow(), clay.SizingFixed(1)}}, backgroundColor = color},
 		) {
 		}
 	}
@@ -548,14 +543,14 @@ rule_add_menu :: proc(
 	{
 		layout = {
 			padding = clay.PaddingAll(16),
-			sizing = {clay.SizingPercent(0.7), clay.SizingFit({})},
+			sizing = {clay.SizingPercent(0.7), clay.SizingFit()},
 		},
 	},
 	) {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+				sizing = {clay.SizingGrow(), clay.SizingFit()},
 				childAlignment = {y = .Center},
 				layoutDirection = .TopToBottom,
 				padding = clay.PaddingAll(16),
@@ -565,7 +560,7 @@ rule_add_menu :: proc(
 			cornerRadius = clay.CornerRadiusAll(10),
 		},
 		) {
-			if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFit({})}}}) {
+			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
 				UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
 				UI_spacer(&ctx.ui_ctx, {min = 24})
 				close_res, _ := UI_button(
@@ -598,7 +593,7 @@ rule_add_menu :: proc(
 				if clay.UI()(
 				{
 					layout = {
-						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+						sizing = {clay.SizingGrow(), clay.SizingFit()},
 						layoutDirection = .LeftToRight,
 						padding = clay.PaddingAll(8),
 					},
@@ -611,7 +606,7 @@ rule_add_menu :: proc(
 						id = clay.ID("open_programs"),
 						layout = {
 							layoutDirection = .TopToBottom,
-							sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+							sizing = {clay.SizingGrow(), clay.SizingFit()},
 						},
 						clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 					},
@@ -631,7 +626,7 @@ rule_add_menu :: proc(
 							if clay.UI()(
 							{
 								layout = {
-									sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+									sizing = {clay.SizingGrow(), clay.SizingFit()},
 									padding = clay.PaddingAll(8),
 									childAlignment = {x = .Left, y = .Center},
 								},
@@ -671,7 +666,7 @@ rule_add_menu :: proc(
 
 					UI_horz_spacer(&ctx.ui_ctx, 8)
 
-					if clay.UI()({layout = {sizing = {clay.SizingFit({}), clay.SizingGrow({})}}}) {
+					if clay.UI()({layout = {sizing = {clay.SizingFit(), clay.SizingGrow()}}}) {
 						UI_scrollbar(
 							&ctx.ui_ctx,
 							clay.GetScrollContainerData(clay.ID("open_programs")),
@@ -691,7 +686,7 @@ rule_add_menu :: proc(
 			{
 				layout = {
 					childAlignment = {x = .Center},
-					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+					sizing = {clay.SizingGrow(), clay.SizingFit()},
 				},
 			},
 			) {
@@ -703,7 +698,7 @@ rule_add_menu :: proc(
 					ctx.new_rule_len == 0 ? placeholder_str : string(ctx.new_rule_buf[:ctx.new_rule_len]),
 					{
 						layout = {
-							sizing = {clay.SizingGrow({}), clay.SizingFixed(32)},
+							sizing = {clay.SizingGrow(), clay.SizingFixed(32)},
 							padding = clay.PaddingAll(5),
 						},
 						backgroundColor = SURFACE_1,
@@ -729,7 +724,7 @@ rule_add_menu :: proc(
 			{
 				layout = {
 					childAlignment = {x = .Center},
-					sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+					sizing = {clay.SizingGrow(), clay.SizingFit()},
 				},
 			},
 			) {
@@ -743,7 +738,7 @@ rule_add_menu :: proc(
 							color = TEXT,
 						},
 					},
-					{sizing = {clay.SizingFit({}), clay.SizingFit({})}},
+					{sizing = {clay.SizingFit(), clay.SizingFit()}},
 					clay.CornerRadiusAll(32),
 					SURFACE_2,
 					SURFACE_1,
@@ -788,7 +783,7 @@ settings_menu :: proc(
 	if clay.UI()(
 	{
 		layout = {
-			sizing = {clay.SizingPercent(0.8), clay.SizingFit({})},
+			sizing = {clay.SizingPercent(0.8), clay.SizingFit()},
 			childAlignment = {x = .Left, y = .Center},
 			layoutDirection = .TopToBottom,
 			padding = clay.PaddingAll(16),
@@ -798,7 +793,7 @@ settings_menu :: proc(
 		cornerRadius = clay.CornerRadiusAll(10),
 	},
 	) {
-		if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFit({})}}}) {
+		if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
 			UI_textlabel("Settings", {textColor = TEXT, fontSize = 20})
 			UI_spacer(&ctx.ui_ctx)
 			close_res, _ := UI_button(
@@ -820,7 +815,7 @@ settings_menu :: proc(
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingPercent(1), clay.SizingFit({})},
+				sizing = {clay.SizingPercent(1), clay.SizingFit()},
 				layoutDirection = .TopToBottom,
 			},
 			backgroundColor = SURFACE_0,
@@ -878,7 +873,7 @@ switch_row :: proc(
 	if clay.UI()(
 	{
 		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			padding = clay.PaddingAll(16),
 			childGap = 8,
 			childAlignment = {y = .Center},
@@ -911,7 +906,7 @@ dropdown_row :: proc(
 	if clay.UI()(
 	{
 		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			padding = clay.PaddingAll(16),
 			childGap = 8,
 		},

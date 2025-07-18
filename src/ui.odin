@@ -851,7 +851,7 @@ UI_slider :: proc(
 		press_color,
 		line_color,
 		line_highlight,
-		{sizing = {clay.SizingGrow({}), clay.SizingFixed(16)}},
+		{sizing = {clay.SizingGrow(), clay.SizingFixed(16)}},
 		..notches,
 	)
 
@@ -975,7 +975,7 @@ UI__scrollbar :: proc(
 	if scroll_container_data.contentDimensions.height <= scroll_container_data.scrollContainerDimensions.height do bar_width = 0
 	if clay.UI()(
 	{
-		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow({})}},
+		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow()}},
 		floating = {attachment = {element = .RightTop, parent = .RightTop}, attachTo = .Parent},
 		backgroundColor = bar_color,
 		id = local_id,
@@ -1091,7 +1091,7 @@ UI__scroll_target :: proc(
 
 			if clay.UI()(
 			{
-				layout = {sizing = {clay.SizingGrow({}), clay.SizingGrow({})}},
+				layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}},
 				backgroundColor = selected_color,
 				cornerRadius = clay.CornerRadiusAll(c.float(size.x) / 2),
 			},
@@ -1126,7 +1126,7 @@ UI__textbox :: proc(
 		if !active do border_config.width = {}
 		if !active do config.backgroundColor *= {0.8, 0.8, 0.8, 1}
 		config.border = border_config
-		config.layout.sizing = {clay.SizingGrow({}), clay.SizingGrow({})}
+		config.layout.sizing = {clay.SizingGrow(), clay.SizingGrow()}
 
 
 		if clay.Hovered() {
@@ -1153,7 +1153,7 @@ UI__textbox :: proc(
 			{
 				id = local_id,
 				layout = {
-					sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+					sizing = {clay.SizingGrow(), clay.SizingGrow()},
 					childAlignment = {y = .Center},
 				},
 				clip = {
@@ -1460,7 +1460,7 @@ UI__slider :: proc(
 		{
 			id = local_id,
 			layout = {
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				childAlignment = {y = .Center},
 			},
 		},
@@ -1612,7 +1612,7 @@ UI__button :: proc(
 		{
 			id = local_id,
 			layout = {
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				padding = clay.PaddingAll(padding),
 				childAlignment = {x = .Center, y = .Center},
 			},
@@ -1673,7 +1673,7 @@ UI__switch :: proc(
 
 		if clay.UI()(
 		{
-			layout = {sizing = {clay.SizingPercent(0.5), clay.SizingGrow({})}},
+			layout = {sizing = {clay.SizingPercent(0.5), clay.SizingGrow()}},
 			cornerRadius = clay.CornerRadiusAll(max(c.float)),
 			backgroundColor = hovered ? color * {1.2, 1.2, 1.2, 1} : color,
 		},
@@ -1690,7 +1690,7 @@ UI_spacer :: proc(
 	res: UI_WidgetResults,
 	id: clay.ElementId,
 ) {
-	if clay.UI()({layout = {sizing = {clay.SizingGrow(horz_constraints), clay.SizingGrow({})}}}) {
+	if clay.UI()({layout = {sizing = {clay.SizingGrow(horz_constraints), clay.SizingGrow()}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 		if clay.UI()({id = local_id}) {
@@ -1731,7 +1731,7 @@ UI_modal_escapable :: proc(
 			attachTo = attachment,
 		},
 		layout = {
-			sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			childAlignment = {x = .Center, y = .Center},
 		},
 		backgroundColor = bg_color,
@@ -1899,7 +1899,7 @@ UI__dropdown_options :: proc(
 			layout = {
 				childAlignment = {x = .Left, y = .Center},
 				layoutDirection = .TopToBottom,
-				sizing = {clay.SizingGrow({}), clay.SizingGrow({})},
+				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				padding = clay.PaddingAll(4),
 				childGap = 2,
 			},
@@ -1920,7 +1920,7 @@ UI__dropdown_options :: proc(
 				{
 					id = option_id,
 					layout = {
-						sizing = {clay.SizingGrow({}), clay.SizingFit({})},
+						sizing = {clay.SizingGrow(), clay.SizingFit()},
 						padding = clay.PaddingAll(8),
 						childAlignment = {x = .Left, y = .Center},
 					},
@@ -1950,11 +1950,11 @@ UI__dropdown_options :: proc(
 }
 
 UI_horz_spacer :: proc(ctx: ^UI_Context, size: c.float) {
-	if clay.UI()({layout = {sizing = {clay.SizingFixed(size), clay.SizingGrow({})}}}) {}
+	if clay.UI()({layout = {sizing = {clay.SizingFixed(size), clay.SizingGrow()}}}) {}
 }
 
 UI_vert_spacer :: proc(ctx: ^UI_Context, size: c.float) {
-	if clay.UI()({layout = {sizing = {clay.SizingGrow({}), clay.SizingFixed(size)}}}) {}
+	if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFixed(size)}}}) {}
 }
 
 when ODIN_DEBUG {
@@ -1971,7 +1971,7 @@ when ODIN_DEBUG {
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingPercent(0.8), clay.SizingFit({})},
+				sizing = {clay.SizingPercent(0.8), clay.SizingFit()},
 				childAlignment = {x = .Center, y = .Center},
 				layoutDirection = .TopToBottom,
 				padding = clay.PaddingAll(16),
