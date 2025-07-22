@@ -53,7 +53,7 @@ gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	ctx.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
 	ui.init(&ctx.ui_ctx, minimized)
 	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
-	ui.load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
+	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
 	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
 	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64}) // MUSIC = 1
 	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {64, 64}) // EDIT = 2

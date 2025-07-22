@@ -686,7 +686,7 @@ load_image_mem :: proc(ctx: ^Context, data: []u8, size: [2]int) -> int {
 	return sa.len(ctx.images) - 1
 }
 
-load_font_mem :: proc(ctx: ^Context, fontsize: u16, data: []u8) -> u16 {
+load_font_mem :: proc(ctx: ^Context, data: []u8, fontsize: u16) -> u16 {
 	font_stream := sdl.IOFromConstMem(raw_data(data), len(data))
 	font := ttf.OpenFontIO(font_stream, true, c.float(fontsize))
 	assert(font != nil)
