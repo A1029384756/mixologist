@@ -49,7 +49,7 @@ gui_proc :: proc(ctx: ^GUI_Context) {
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
-	ctx.events, _ = chan.create(chan.Chan(Event), context.allocator)
+	ctx.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
 	UI_init(&ctx.ui_ctx, minimized)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
@@ -90,7 +90,6 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 		delete(program)
 	}
 	delete(ctx.programs)
-	chan.close(ctx.events)
 	chan.destroy(ctx.events)
 }
 
@@ -106,7 +105,7 @@ gui_event_send :: proc(event: Event, allocator := context.allocator) {
 	case Volume:
 		event_clone = Volume{}
 	}
-	log.debugf("gui event sending: %v", event_clone)
+	log.debugf("gui sending event: %v", event_clone)
 	if !chan.send(mixologist.gui.events, event_clone) {
 		#partial switch event_clone in event_clone {
 		case Program_Add:
