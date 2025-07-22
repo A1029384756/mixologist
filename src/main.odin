@@ -261,11 +261,6 @@ main :: proc() {
 		mixologist_read_volume_file(&mixologist)
 	}
 
-	// start event channels
-	if .Gui in mixologist.statuses {
-		mixologist.gui.events, _ = chan.create(chan.Chan(Event), context.allocator)
-	}
-
 	// init app state
 	if .Daemon in mixologist.statuses {
 		mixologist.daemon_thread = thread.create_and_start_with_poly_data(

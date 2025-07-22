@@ -49,18 +49,19 @@ gui_proc :: proc(ctx: ^GUI_Context) {
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
+	ctx.events, _ = chan.create(chan.Chan(Event), context.allocator)
 	UI_init(&ctx.ui_ctx, minimized)
 	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
 	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64}) // MUSIC = 1
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {24, 24}) // EDIT = 2
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/cancel-symbolic.svg"), {24, 24}) // CANCEL = 3
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {24, 24}) // DELETE = 4
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {24, 24}) // APPLY = 5
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {24, 24}) // PLUS = 6
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/settings-symbolic.svg"), {24, 24}) // SETTINGS = 7
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/dropdown-symbolic.svg"), {24, 24}) // DROPDOWN = 8
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {24, 24}) // CLOSE = 9
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {64, 64}) // EDIT = 2
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/cancel-symbolic.svg"), {64, 64}) // CANCEL = 3
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {64, 64}) // DELETE = 4
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {64, 64}) // APPLY = 5
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {64, 64}) // PLUS = 6
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/settings-symbolic.svg"), {64, 64}) // SETTINGS = 7
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/dropdown-symbolic.svg"), {64, 64}) // DROPDOWN = 8
+	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {64, 64}) // CLOSE = 9
 }
 
 gui_tick :: proc(ctx: ^GUI_Context) {
