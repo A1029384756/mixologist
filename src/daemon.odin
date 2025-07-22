@@ -88,8 +88,6 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 		)
 		sink_init(&ctx.aux_sink, "mixologist-aux", aux_volume, ctx.pw_context, &ctx.arena)
 	}
-
-	setup_exit_handlers(ctx)
 }
 
 
@@ -116,25 +114,6 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 
 daemon_should_exit :: proc(ctx: ^Daemon_Context) -> bool {
 	return ctx.should_exit
-}
-
-// this relies on terrible undefined behavior
-// but allows us to avoid using sigqueue or globals
-setup_exit_handlers :: proc(ctx: ^Daemon_Context) {
-	do_quit_with_data(.SIGUSR1, ctx)
-	posix.signal(.SIGINT, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
-	posix.signal(.SIGTERM, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
-}
-
-do_quit_with_data :: proc "c" (signum: posix.Signal, data: rawptr) {
-	@(static) ctx: ^Daemon_Context
-	if ctx == nil {
-		ctx = cast(^Daemon_Context)data
-		return
-	}
-	context = ctx.pw_odin_ctx
-	pw.main_loop_quit(ctx.main_loop)
-	mixologist_signal_exit()
 }
 
 registry_events := pw.registry_events {
