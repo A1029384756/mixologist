@@ -1,11 +1,12 @@
 package mixologist
 
-import "./clay"
 import "core:log"
 import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:sync/chan"
+import "ui"
+import "ui/clay"
 
 GUI_Context_Status :: enum u8 {
 	ADDING_NEW,
@@ -18,7 +19,7 @@ GUI_Context_Status :: enum u8 {
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
 GUI_Context :: struct {
-	ui_ctx:            UI_Context,
+	ui_ctx:            ui.Context,
 	events:            chan.Chan(Event),
 	// rule modification
 	active_line_buf:   [1024]u8,
@@ -30,8 +31,8 @@ GUI_Context :: struct {
 	// custom rule creation
 	new_rule_buf:      [1024]u8,
 	new_rule_len:      int,
-	rule_scrollbar:    UI_Scrollbar_Data,
-	program_scrollbar: UI_Scrollbar_Data,
+	rule_scrollbar:    ui.Scrollbar_Data,
+	program_scrollbar: ui.Scrollbar_Data,
 	// config state
 	statuses:          GUI_Context_Statuses,
 }
@@ -39,7 +40,7 @@ GUI_Context :: struct {
 gui_proc :: proc(ctx: ^GUI_Context) {
 	log.info("gui starting")
 	gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
-	for !(UI_should_exit(&mixologist.gui.ui_ctx) || mixologist_should_exit()) {
+	for !(ui.should_exit(&mixologist.gui.ui_ctx) || mixologist_should_exit()) {
 		gui_tick(&mixologist.gui)
 		free_all(context.temp_allocator)
 	}
@@ -50,38 +51,39 @@ gui_proc :: proc(ctx: ^GUI_Context) {
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	ctx.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
-	UI_init(&ctx.ui_ctx, minimized)
-	UI_load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64}) // MUSIC = 1
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {64, 64}) // EDIT = 2
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/cancel-symbolic.svg"), {64, 64}) // CANCEL = 3
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {64, 64}) // DELETE = 4
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {64, 64}) // APPLY = 5
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {64, 64}) // PLUS = 6
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/settings-symbolic.svg"), {64, 64}) // SETTINGS = 7
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/dropdown-symbolic.svg"), {64, 64}) // DROPDOWN = 8
-	UI_load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {64, 64}) // CLOSE = 9
+	ui.init(&ctx.ui_ctx, minimized)
+	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
+	ui.load_font_mem(&ctx.ui_ctx, 16, #load("resources/fonts/Roboto-Regular.ttf"))
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64}) // MUSIC = 1
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/edit-symbolic.svg"), {64, 64}) // EDIT = 2
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/cancel-symbolic.svg"), {64, 64}) // CANCEL = 3
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/trash-symbolic.svg"), {64, 64}) // DELETE = 4
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/check-plain-symbolic.svg"), {64, 64}) // APPLY = 5
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/plus-symbolic.svg"), {64, 64}) // PLUS = 6
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/settings-symbolic.svg"), {64, 64}) // SETTINGS = 7
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/dropdown-symbolic.svg"), {64, 64}) // DROPDOWN = 8
+	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {64, 64}) // CLOSE = 9
 }
 
 gui_tick :: proc(ctx: ^GUI_Context) {
-	UI_tick(&ctx.ui_ctx, UI_create_layout, ctx)
+	ui.tick(&ctx.ui_ctx, gui_create_layout, ctx)
 	gui_event_process(ctx)
 
-	if !UI_window_closed(&ctx.ui_ctx) {
+	if !ui.window_closed(&ctx.ui_ctx) {
 		if .VOLUME in ctx.statuses {
 			ctx.statuses -= {.VOLUME}
 		}
 		if .RULES in ctx.statuses {
 			ctx.statuses -= {.RULES}
 			ctx.active_line = 0
-			UI_unfocus_all(&ctx.ui_ctx)
+			ui.unfocus_all(&ctx.ui_ctx)
 		}
 	}
 }
 
 gui_deinit :: proc(ctx: ^GUI_Context) {
-	UI_deinit(&ctx.ui_ctx)
+	ui.deinit(&ctx.ui_ctx)
 	for program in ctx.selected_programs {
 		delete(program)
 	}
@@ -132,13 +134,13 @@ gui_event_process :: proc(ctx: ^GUI_Context) {
 			}
 			delete(string(event))
 		case Open:
-			UI_open_window(&ctx.ui_ctx)
+			ui.open_window(&ctx.ui_ctx)
 		}
 	}
 }
 
-UI_create_layout :: proc(
-	ctx: ^UI_Context,
+gui_create_layout :: proc(
+	ctx: ^ui.Context,
 	userdata: rawptr,
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
@@ -222,7 +224,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 	rule_add_modal(ctx)
 	settings_modal(ctx)
 	when ODIN_DEBUG {
-		UI_memory_debug(&ctx.ui_ctx, track)
+		ui.memory_debug(&ctx.ui_ctx, track)
 	}
 
 	return clay.EndLayout()
@@ -239,9 +241,9 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		res, _ := UI_button(
+		res, _ := ui.button(
 			&ctx.ui_ctx,
-			{UI_IconConfig{id = 7, size = 32, color = TEXT}},
+			{ui.IconConfig{id = 7, size = 32, color = TEXT}},
 			{sizing = {clay.SizingFixed(48), clay.SizingFixed(48)}},
 			clay.CornerRadiusAll(0),
 			OVERLAY_0,
@@ -266,10 +268,10 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 			backgroundColor = SURFACE_0,
 		},
 		) {
-			UI_icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
+			ui.icon(&ctx.ui_ctx, 0, {32, 32}, TEXT)
 
 			vol := mixologist.volume
-			slider_res, _ := UI_slider(
+			slider_res, _ := ui.slider(
 				&ctx.ui_ctx,
 				&vol,
 				0,
@@ -290,7 +292,7 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 				ctx.statuses += {.VOLUME}
 			}
 
-			UI_icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
+			ui.icon(&ctx.ui_ctx, 1, {32, 32}, TEXT)
 		}
 	}
 }
@@ -307,7 +309,7 @@ scrollbar :: proc(ctx: ^GUI_Context) {
 			},
 		},
 		) {
-			UI_scrollbar(
+			ui.scrollbar(
 				&ctx.ui_ctx,
 				clay.GetScrollContainerData(clay.GetElementId(clay.MakeString("rules"))),
 				&ctx.rule_scrollbar,
@@ -340,17 +342,17 @@ rules_label :: proc(ctx: ^GUI_Context) {
 			},
 		},
 		) {
-			UI_textlabel("Rules", {textColor = TEXT, fontSize = 20})
-			UI_textlabel("Selected Programs", {textColor = TEXT * 0.8, fontSize = 16})
+			ui.textlabel("Rules", {textColor = TEXT, fontSize = 20})
+			ui.textlabel("Selected Programs", {textColor = TEXT * 0.8, fontSize = 16})
 		}
-		UI_spacer(&ctx.ui_ctx)
+		ui.spacer(&ctx.ui_ctx)
 
-		res, _ := UI_button(
+		res, _ := ui.button(
 			&ctx.ui_ctx,
 			{
-				UI_IconConfig{id = 6, size = 16, color = TEXT},
-				UI_HorzSpacerConfig{size = 4},
-				UI_TextConfig{text = "Add Rule", size = 16, color = TEXT},
+				ui.IconConfig{id = 6, size = 16, color = TEXT},
+				ui.HorzSpacerConfig{size = 4},
+				ui.TextConfig{text = "Add Rule", size = 16, color = TEXT},
 			},
 			{sizing = {clay.SizingFit(), clay.SizingFit()}},
 			clay.CornerRadiusAll(5),
@@ -379,7 +381,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 	) {
 		row_selected := idx == ctx.active_line
 
-		tb_res, tb_id := UI_textbox(
+		tb_res, tb_id := ui.textbox(
 			&ctx.ui_ctx,
 			ctx.active_line_buf[:],
 			&ctx.active_line_len,
@@ -409,14 +411,14 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 			row_selected = false
 		}
 
-		UI_spacer(&ctx.ui_ctx)
+		ui.spacer(&ctx.ui_ctx)
 
 		if row_selected {
 			if clay.UI()({layout = {childGap = 5}}) {
 				if clay.UI()({}) {
-					delete_res, _ := UI_button(
+					delete_res, _ := ui.button(
 						&ctx.ui_ctx,
-						{UI_IconConfig{id = 4, size = 16, color = CRUST}},
+						{ui.IconConfig{id = 4, size = 16, color = CRUST}},
 						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						RED,
@@ -431,9 +433,9 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					cancel_res, _ := UI_button(
+					cancel_res, _ := ui.button(
 						&ctx.ui_ctx,
-						{UI_IconConfig{id = 3, size = 16, color = TEXT}},
+						{ui.IconConfig{id = 3, size = 16, color = TEXT}},
 						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						SURFACE_2,
@@ -448,9 +450,9 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 
 				if clay.UI()({}) {
-					apply_res, _ := UI_button(
+					apply_res, _ := ui.button(
 						&ctx.ui_ctx,
-						{UI_IconConfig{id = 5, size = 16, color = CRUST}},
+						{ui.IconConfig{id = 5, size = 16, color = CRUST}},
 						{sizing = {clay.SizingFit(), clay.SizingFit()}},
 						clay.CornerRadiusAll(5),
 						MAUVE,
@@ -472,9 +474,9 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 				}
 			}
 		} else {
-			button_res, _ := UI_button(
+			button_res, _ := ui.button(
 				&ctx.ui_ctx,
-				{UI_IconConfig{id = 2, size = 16, color = TEXT}},
+				{ui.IconConfig{id = 2, size = 16, color = TEXT}},
 				{sizing = {clay.SizingFit(), clay.SizingFit()}},
 				clay.CornerRadiusAll(5),
 				SURFACE_2,
@@ -484,9 +486,9 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 			)
 
 			if .RELEASE in button_res {
-				UI_widget_focus(&ctx.ui_ctx, tb_id)
-				UI_status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
-				UI_textbox_reset(&ctx.ui_ctx, len(rule))
+				ui.widget_focus(&ctx.ui_ctx, tb_id)
+				ui.status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
+				ui.textbox_reset(&ctx.ui_ctx, len(rule))
 				copy(ctx.active_line_buf[:], rule)
 				ctx.active_line_len = len(rule)
 				ctx.active_line = idx
@@ -510,23 +512,23 @@ list_separator :: proc(color: clay.Color = SURFACE_0) {
 
 rule_add_modal :: proc(ctx: ^GUI_Context) {
 	if .ADDING in ctx.statuses {
-		res, _ := UI_modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, rule_add_menu, ctx)
+		res, _ := ui.modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, rule_add_menu, ctx)
 		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
 	}
 }
 
 settings_modal :: proc(ctx: ^GUI_Context) {
 	if .SETTINGS in ctx.statuses {
-		res, _ := UI_modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, settings_menu, ctx)
+		res, _ := ui.modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, settings_menu, ctx)
 		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
 	}
 }
 
 rule_add_menu :: proc(
-	ui_ctx: ^UI_Context,
+	ui_ctx: ^ui.Context,
 	ctx: rawptr,
 ) -> (
-	res: UI_WidgetResults,
+	res: ui.WidgetResults,
 	id: clay.ElementId,
 ) {
 	ctx := cast(^GUI_Context)ctx
@@ -561,11 +563,11 @@ rule_add_menu :: proc(
 		},
 		) {
 			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
-				UI_textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
-				UI_spacer(&ctx.ui_ctx, {min = 24})
-				close_res, _ := UI_button(
+				ui.textlabel("Add Rule", {textColor = TEXT, fontSize = 20})
+				ui.spacer(&ctx.ui_ctx, {min = 24})
+				close_res, _ := ui.button(
 					&ctx.ui_ctx,
-					{UI_IconConfig{9, 20, TEXT}},
+					{ui.IconConfig{9, 20, TEXT}},
 					{},
 					clay.CornerRadiusAll(max(f32)),
 					SURFACE_2,
@@ -589,7 +591,7 @@ rule_add_menu :: proc(
 			}
 
 			if len(ctx.programs) > 0 && found_count != len(ctx.programs) {
-				UI_textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
+				ui.textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
 				if clay.UI()(
 				{
 					layout = {
@@ -632,9 +634,9 @@ rule_add_menu :: proc(
 								},
 							},
 							) {
-								add_program_res, _ := UI_button(
+								add_program_res, _ := ui.button(
 									&ctx.ui_ctx,
-									selected ? {UI_IconConfig{5, 16, TEXT}} : {},
+									selected ? {ui.IconConfig{5, 16, TEXT}} : {},
 									{sizing = {clay.SizingFixed(24), clay.SizingFixed(24)}},
 									clay.CornerRadiusAll(8),
 									selected ? MAUVE * {1, 1, 1, 0.5} : SURFACE_0,
@@ -646,8 +648,8 @@ rule_add_menu :: proc(
 										color = selected ? MAUVE : SURFACE_2,
 									},
 								)
-								UI_horz_spacer(&ctx.ui_ctx, 24)
-								UI_textlabel(program, {textColor = TEXT, fontSize = 16})
+								ui.horz_spacer(&ctx.ui_ctx, 24)
+								ui.textlabel(program, {textColor = TEXT, fontSize = 16})
 
 								if .RELEASE in add_program_res {
 									if selected {
@@ -664,10 +666,10 @@ rule_add_menu :: proc(
 						}
 					}
 
-					UI_horz_spacer(&ctx.ui_ctx, 8)
+					ui.horz_spacer(&ctx.ui_ctx, 8)
 
 					if clay.UI()({layout = {sizing = {clay.SizingFit(), clay.SizingGrow()}}}) {
-						UI_scrollbar(
+						ui.scrollbar(
 							&ctx.ui_ctx,
 							clay.GetScrollContainerData(clay.ID("open_programs")),
 							&ctx.program_scrollbar,
@@ -681,7 +683,7 @@ rule_add_menu :: proc(
 				}
 			}
 
-			UI_textlabel("Custom Rule", {textColor = TEXT, fontSize = 16})
+			ui.textlabel("Custom Rule", {textColor = TEXT, fontSize = 16})
 			if clay.UI()(
 			{
 				layout = {
@@ -691,7 +693,7 @@ rule_add_menu :: proc(
 			},
 			) {
 				placeholder_str := "New rule..."
-				tb_res, _ := UI_textbox(
+				tb_res, _ := ui.textbox(
 					&ctx.ui_ctx,
 					ctx.new_rule_buf[:],
 					&ctx.new_rule_len,
@@ -729,10 +731,10 @@ rule_add_menu :: proc(
 			},
 			) {
 				rules_to_add := len(ctx.selected_programs) + int(ctx.new_rule_len > 0)
-				button_res, _ := UI_button(
+				button_res, _ := ui.button(
 					&ctx.ui_ctx,
 					{
-						UI_TextConfig {
+						ui.TextConfig {
 							text = rules_to_add > 1 ? "Add Rules" : "Add Rule",
 							size = 16,
 							color = TEXT,
@@ -772,10 +774,10 @@ rule_add_menu :: proc(
 }
 
 settings_menu :: proc(
-	ui_ctx: ^UI_Context,
+	ui_ctx: ^ui.Context,
 	ctx: rawptr,
 ) -> (
-	res: UI_WidgetResults,
+	res: ui.WidgetResults,
 	id: clay.ElementId,
 ) {
 	ctx := cast(^GUI_Context)ctx
@@ -794,11 +796,11 @@ settings_menu :: proc(
 	},
 	) {
 		if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
-			UI_textlabel("Settings", {textColor = TEXT, fontSize = 20})
-			UI_spacer(&ctx.ui_ctx)
-			close_res, _ := UI_button(
+			ui.textlabel("Settings", {textColor = TEXT, fontSize = 20})
+			ui.spacer(&ctx.ui_ctx)
+			close_res, _ := ui.button(
 				&ctx.ui_ctx,
-				{UI_IconConfig{9, 20, TEXT}},
+				{ui.IconConfig{9, 20, TEXT}},
 				{},
 				clay.CornerRadiusAll(max(f32)),
 				SURFACE_2,
@@ -864,10 +866,10 @@ settings_menu :: proc(
 
 switch_row :: proc(
 	ctx: ^GUI_Context,
-	label: UI_TextConfig,
+	label: ui.TextConfig,
 	state: ^bool,
 ) -> (
-	res: UI_WidgetResults,
+	res: ui.WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()(
@@ -880,9 +882,9 @@ switch_row :: proc(
 		},
 	},
 	) {
-		UI_textlabel(label.text, {textColor = label.color, fontSize = label.size})
-		UI_spacer(&ctx.ui_ctx)
-		res, _ = UI_switch(
+		ui.textlabel(label.text, {textColor = label.color, fontSize = label.size})
+		ui.spacer(&ctx.ui_ctx)
+		res, _ = ui.tswitch(
 			&ctx.ui_ctx,
 			state,
 			{sizing = {clay.SizingFixed(48), clay.SizingFixed(24)}},
@@ -896,11 +898,11 @@ switch_row :: proc(
 
 dropdown_row :: proc(
 	ctx: ^GUI_Context,
-	label: UI_TextConfig,
+	label: ui.TextConfig,
 	options: []string,
 	selected: ^int,
 ) -> (
-	res: UI_WidgetResults,
+	res: ui.WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()(
@@ -912,10 +914,10 @@ dropdown_row :: proc(
 		},
 	},
 	) {
-		UI_textlabel(label.text, {textColor = label.color, fontSize = label.size})
-		UI_spacer(&ctx.ui_ctx)
+		ui.textlabel(label.text, {textColor = label.color, fontSize = label.size})
+		ui.spacer(&ctx.ui_ctx)
 
-		res, _ = UI_dropdown(&ctx.ui_ctx, options, selected, TEXT, SURFACE_0, 16, 8, 5)
+		res, _ = ui.dropdown(&ctx.ui_ctx, options, selected, TEXT, SURFACE_0, 16, 8, 5)
 	}
 	return
 }

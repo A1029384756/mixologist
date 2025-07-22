@@ -1,4 +1,4 @@
-package mixologist
+package ui
 
 import "clay"
 import "core:c"
@@ -19,7 +19,7 @@ Pipeline_Status :: enum {
 }
 Pipeline_Statuses :: bit_set[Pipeline_Status]
 
-Renderer_init :: proc(ctx: ^UI_Context) {
+Renderer_init :: proc(ctx: ^Context) {
 	// create pipeline
 	{
 		VERT :: #load("resources/shaders/compiled/ui.vert.spv")
@@ -147,7 +147,7 @@ Renderer_init :: proc(ctx: ^UI_Context) {
 	}
 }
 
-Renderer_destroy :: proc(ctx: ^UI_Context) {
+Renderer_destroy :: proc(ctx: ^Context) {
 	destroy_buffer(ctx.device, &pipeline.instance_buffer)
 	destroy_buffer(ctx.device, &pipeline.text_index_buffer)
 	destroy_buffer(ctx.device, &pipeline.text_vertex_buffer)
@@ -157,7 +157,7 @@ Renderer_destroy :: proc(ctx: ^UI_Context) {
 }
 
 Renderer_draw :: proc(
-	ctx: ^UI_Context,
+	ctx: ^Context,
 	cmd_buffer: ^sdl.GPUCommandBuffer,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 	allocator := context.temp_allocator,
@@ -181,7 +181,7 @@ Renderer_draw :: proc(
 			config := cmd.renderData.rectangle
 			color := f32_color(config.backgroundColor)
 			cr := clamp_corners(config.cornerRadius, bounds)
-			widget_data := transmute(UI_Data_Flags)cmd.userData
+			widget_data := transmute(Data_Flags)cmd.userData
 			if .SHADOW in widget_data {
 				append(
 					&commands,
@@ -216,11 +216,7 @@ Renderer_draw :: proc(
 			)
 		case .Text:
 			config := cmd.renderData.text
-			font := UI_retrieve_font(
-				ctx,
-				config.fontId,
-				u16(c.float(config.fontSize) * ctx.scaling),
-			)
+			font := retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
 			text := string(config.stringContents.chars[:config.stringContents.length])
 			c_text := strings.clone_to_cstring(text, allocator)
 			sdl_text := ttf.CreateText(pipeline.text_engine, font, c_text, 0)
@@ -244,9 +240,9 @@ Renderer_draw :: proc(
 				config.backgroundColor = 255
 			}
 
-			image := Image {
+			image := R_Image {
 				pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
-				img       = cast(^_UI_Image)config.imageData,
+				img       = cast(^_Image)config.imageData,
 				color     = f32_color(config.backgroundColor),
 			}
 			append(&commands, image)
@@ -263,12 +259,12 @@ Renderer_draw :: proc(
 		instances := make([dynamic]Instance, 0, len(commands), allocator)
 		text_vertices := make([dynamic]Text_Vert, 0, len(commands), allocator)
 		text_indices := make([dynamic]c.int, 0, len(commands), allocator)
-		textures := make([dynamic]^_UI_Image, 0, len(commands), allocator)
+		textures := make([dynamic]^_Image, 0, len(commands), allocator)
 		curr_texture_buffer_size: int
 
 		for command in commands {
 			#partial switch cmd in command {
-			case Image:
+			case R_Image:
 				append(
 					&instances,
 					Instance{quad = {pos_scale = cmd.pos_scale, color = cmd.color}, type = 2},
@@ -459,7 +455,7 @@ Renderer_draw :: proc(
 				sdl.SetGPUScissor(render_pass, cmd)
 			case ScissorEnd:
 				sdl.SetGPUScissor(render_pass, {0, 0, i32(w), i32(h)})
-			case Image:
+			case R_Image:
 				sdl.BindGPUFragmentSamplers(
 					render_pass,
 					0,
@@ -527,16 +523,16 @@ ScissorEnd :: struct {}
 Command :: union {
 	Text,
 	Quad,
-	Image,
+	R_Image,
 	Shadow,
 	ScissorStart,
 	ScissorEnd,
 }
 
-Image :: distinct struct #packed {
+R_Image :: distinct struct #packed {
 	pos_scale: [4]f32,
 	color:     [4]f32,
-	img:       ^_UI_Image,
+	img:       ^_Image,
 }
 
 Text_Vert :: struct #packed {
@@ -604,7 +600,7 @@ ortho_rh :: proc(
 	}
 }
 
-push_globals :: proc(ctx: ^UI_Context, cmd_buffer: ^sdl.GPUCommandBuffer, w: f32, h: f32) {
+push_globals :: proc(ctx: ^Context, cmd_buffer: ^sdl.GPUCommandBuffer, w: f32, h: f32) {
 	globals := Globals {
 		ortho_rh(left = 0.0, top = 0.0, right = f32(w), bottom = f32(h), near = -1.0, far = 1.0),
 		ctx.scaling,

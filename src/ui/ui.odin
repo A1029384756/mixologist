@@ -1,8 +1,8 @@
-package mixologist
+package ui
 
-import "./clay"
 import "base:intrinsics"
 import "base:runtime"
+import "clay"
 import "core:c"
 import sa "core:container/small_array"
 import "core:fmt"
@@ -21,33 +21,33 @@ import ttf "vendor:sdl3/ttf"
 
 odin_context: runtime.Context
 
-UI_Context :: struct {
+Context :: struct {
 	textbox_input:       strings.Builder,
 	textbox_state:       edit.State,
 	textbox_offset:      int,
 	active_widgets:      sa.Small_Array(16, clay.ElementId),
 	hovered_widget:      clay.ElementId,
 	prev_hovered_widget: clay.ElementId,
-	statuses:            UI_Context_Statuses,
+	statuses:            Context_Statuses,
 	// input handling
 	_text_store:         [1024]u8, // global text input per frame
 	click_count:         int,
 	// mouse
 	prev_click_time:     time.Time,
 	click_debounce:      time.Time,
-	mouse_pressed:       UI_Mouse_Buttons,
-	mouse_down:          UI_Mouse_Buttons,
-	mouse_released:      UI_Mouse_Buttons,
+	mouse_pressed:       Mouse_Buttons,
+	mouse_down:          Mouse_Buttons,
+	mouse_released:      Mouse_Buttons,
 	mouse_pos:           [2]c.float,
 	scroll_delta:        [2]c.float,
 	// keyboard
-	keys_pressed:        UI_Control_Keys,
-	keys_down:           UI_Control_Keys,
+	keys_pressed:        Control_Keys,
+	keys_down:           Control_Keys,
 	// allocated
 	clay_memory:         []u8,
 	font_allocator:      virtual.Arena,
-	fonts:               sa.Small_Array(16, UI_Font),
-	images:              sa.Small_Array(16, UI_Image),
+	fonts:               sa.Small_Array(16, Font),
+	images:              sa.Small_Array(16, Image),
 	// sdl3
 	window:              ^sdl.Window,
 	window_size:         [2]c.float,
@@ -63,7 +63,7 @@ UI_Context :: struct {
 	exit_entry:          ^sdl.TrayEntry,
 	// renderer
 	device:              ^sdl.GPUDevice,
-	memory_debug:        UI_Memory_Debug_Data,
+	memory_debug:        Memory_Debug_Data,
 }
 
 when ODIN_DEBUG {
@@ -72,28 +72,28 @@ when ODIN_DEBUG {
 		color:    clay.Color,
 	}
 
-	UI_Memory_Debug_Data :: struct {
+	Memory_Debug_Data :: struct {
 		memory: map[rawptr]MemEntry,
 	}
 } else {
-	UI_Memory_Debug_Data :: struct {}
+	Memory_Debug_Data :: struct {}
 }
 
-UI_Scrollbar_Data :: struct {
+Scrollbar_Data :: struct {
 	click_origin: clay.Vector2,
 	pos_origin:   clay.Vector2,
 }
 
-UI_Mouse_Button :: enum {
+Mouse_Button :: enum {
 	LEFT,
 	MIDDLE,
 	RIGHT,
 	SIDE_1,
 	SIDE_2,
 }
-UI_Mouse_Buttons :: bit_set[UI_Mouse_Button]
+Mouse_Buttons :: bit_set[Mouse_Button]
 
-UI_Control_Key :: enum {
+Control_Key :: enum {
 	SHIFT,
 	CTRL,
 	ALT,
@@ -112,19 +112,19 @@ UI_Control_Key :: enum {
 	D,
 	M,
 }
-UI_Control_Keys :: bit_set[UI_Control_Key]
+Control_Keys :: bit_set[Control_Key]
 
-UI_Data_Flag :: enum {
+Data_Flag :: enum {
 	SHADOW,
 }
-UI_Data_Flags :: bit_set[UI_Data_Flag;uintptr]
+Data_Flags :: bit_set[Data_Flag;uintptr]
 
-UI_DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
-UI_EVENT_DELAY :: 33 * time.Millisecond
+DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
+EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
-UI_DEBUG_PREV_TIME: time.Tick
+DEBUG_PREV_TIME: time.Tick
 
-UI_Context_Status :: enum {
+Context_Status :: enum {
 	DIRTY,
 	EVENT,
 	TEXTBOX_SELECTED,
@@ -138,9 +138,9 @@ UI_Context_Status :: enum {
 	APP_EXIT,
 	MEMORY_DEBUG,
 }
-UI_Context_Statuses :: bit_set[UI_Context_Status]
+Context_Statuses :: bit_set[Context_Status]
 
-UI_WidgetResult :: enum {
+WidgetResult :: enum {
 	CHANGE,
 	CANCEL,
 	SUBMIT,
@@ -151,26 +151,26 @@ UI_WidgetResult :: enum {
 	RELEASE,
 	HOVER,
 }
-UI_WidgetResults :: bit_set[UI_WidgetResult]
+WidgetResults :: bit_set[WidgetResult]
 
-UI_Font :: struct {
+Font :: struct {
 	font: map[u16]^ttf.Font,
 	data: []u8,
 }
 
-_UI_Image :: struct {
+_Image :: struct {
 	surface: ^sdl.Surface,
 	texture: ^sdl.GPUTexture,
 	size:    int,
 }
 
-UI_Image :: struct {
-	image:      _UI_Image,
+Image :: struct {
+	image:      _Image,
 	dimensions: [2]int,
 	data:       []u8,
 }
 
-UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
+retrieve_font :: proc(ctx: ^Context, id, size: u16) -> ^ttf.Font {
 	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
 	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
 	if just_inserted {
@@ -181,7 +181,7 @@ UI_retrieve_font :: proc(ctx: ^UI_Context, id, size: u16) -> ^ttf.Font {
 	return font^
 }
 
-UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image {
+retrieve_image :: proc(ctx: ^Context, id: int, size: [2]int) -> ^_Image {
 	ui_img := sa.get_ptr(&ctx.images, id)
 	if ui_img.dimensions.x < size.x || ui_img.dimensions.y < size.y {
 		log.infof("resizing image %v from %v to %v", id, ui_img.dimensions, size)
@@ -203,7 +203,7 @@ UI_retrieve_image :: proc(ctx: ^UI_Context, id: int, size: [2]int) -> ^_UI_Image
 			},
 		)
 		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
-		ui_img.image = _UI_Image{img_surface, img_texture, texture_size}
+		ui_img.image = _Image{img_surface, img_texture, texture_size}
 		ui_img.dimensions = size
 		pipeline.status += {.TEXTURE_DIRTY}
 	}
@@ -214,13 +214,13 @@ TEXT_CURSOR: ^sdl.Cursor
 HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
-UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
+init :: proc(ctx: ^Context, minimized: bool) {
 	odin_context = context
 	font_arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if font_arena_init_err != nil do panic("font allocator initialization failed")
 
-	ctx.textbox_state.set_clipboard = UI__set_clipboard
-	ctx.textbox_state.get_clipboard = UI__get_clipboard
+	ctx.textbox_state.set_clipboard = _set_clipboard
+	ctx.textbox_state.get_clipboard = _get_clipboard
 	ctx.textbox_input = strings.builder_from_bytes(ctx._text_store[:])
 	ctx.start_time = time.tick_now()
 
@@ -266,10 +266,7 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	Renderer_init(ctx)
 
 	{
-		ICON :: #load("../data/mixologist.svg")
-		icon_io := sdl.IOFromConstMem(raw_data(ICON), len(ICON))
-		ctx.tray_icon = img.Load_IO(icon_io, true)
-		ctx.tray = sdl.CreateTray(ctx.tray_icon, "Mixologist")
+		ctx.tray = sdl.CreateTray(nil, "Mixologist")
 		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
 
 		ctx.toggle_entry = sdl.InsertTrayEntryAt(
@@ -278,10 +275,10 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 			(minimized ? "Open" : "Close"),
 			{.BUTTON},
 		)
-		sdl.SetTrayEntryCallback(ctx.toggle_entry, UI_toggle_window, ctx)
+		sdl.SetTrayEntryCallback(ctx.toggle_entry, toggle_window, ctx)
 
 		ctx.exit_entry = sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
-		sdl.SetTrayEntryCallback(ctx.exit_entry, UI__quit_application, ctx)
+		sdl.SetTrayEntryCallback(ctx.exit_entry, _quit_application, ctx)
 	}
 
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
@@ -295,10 +292,10 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	clay.Initialize(
 		arena,
 		{c.float(window_size.x), c.float(window_size.y)},
-		{handler = UI__clay_error_handler},
+		{handler = _clay_error_handler},
 	)
 
-	clay.SetMeasureTextFunction(UI__measure_text, ctx)
+	clay.SetMeasureTextFunction(_measure_text, ctx)
 	ctx.prev_event_time = time.tick_now()
 	ctx.prev_frame_time = time.tick_now()
 
@@ -311,7 +308,7 @@ UI_init :: proc(ctx: ^UI_Context, minimized: bool) {
 	}
 }
 
-UI_deinit :: proc(ctx: ^UI_Context) {
+deinit :: proc(ctx: ^Context) {
 	when ODIN_DEBUG {
 		delete(ctx.memory_debug.memory)
 	}
@@ -331,12 +328,15 @@ UI_deinit :: proc(ctx: ^UI_Context) {
 	sdl.DestroyWindow(ctx.window)
 }
 
-UI_tick :: proc(
-	ctx: ^UI_Context,
-	ui_create_layout: proc(
-		ctx: ^UI_Context,
-		userdata: rawptr,
-	) -> clay.ClayArray(clay.RenderCommand),
+set_tray_icon :: proc(ctx: ^Context, icon: []u8) {
+	icon_io := sdl.IOFromConstMem(raw_data(icon), len(icon))
+	ctx.tray_icon = img.Load_IO(icon_io, true)
+	sdl.SetTrayIcon(ctx.tray, ctx.tray_icon)
+}
+
+tick :: proc(
+	ctx: ^Context,
+	ui_create_layout: proc(ctx: ^Context, userdata: rawptr) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
 	frame_start := time.tick_now()
@@ -361,7 +361,7 @@ UI_tick :: proc(
 		case .WINDOW_RESTORED:
 			ctx.statuses -= {.WINDOW_MINIMIZED}
 		case .WINDOW_CLOSE_REQUESTED:
-			UI_toggle_window(ctx, ctx.toggle_entry)
+			toggle_window(ctx, ctx.toggle_entry)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.statuses += {.EVENT}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
@@ -377,7 +377,7 @@ UI_tick :: proc(
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
 			ctx.statuses += {.EVENT}
-			fn := event.type == .MOUSE_BUTTON_UP ? UI__input_mouse_up : UI__input_mouse_down
+			fn := event.type == .MOUSE_BUTTON_UP ? _input_mouse_up : _input_mouse_down
 			switch event.button.button {
 			case 1:
 				fn(ctx, .LEFT)
@@ -392,7 +392,7 @@ UI_tick :: proc(
 			}
 		case .KEY_UP, .KEY_DOWN:
 			ctx.statuses += {.EVENT}
-			fn := event.type == .KEY_UP ? UI__input_key_up : UI__input_key_down
+			fn := event.type == .KEY_UP ? _input_key_up : _input_key_down
 			#partial switch event.key.scancode {
 			case .LSHIFT, .RSHIFT:
 				fn(ctx, .SHIFT)
@@ -440,7 +440,7 @@ UI_tick :: proc(
 	}
 
 	if .LEFT in ctx.mouse_pressed {
-		if time.since(ctx.prev_click_time) <= UI_DOUBLE_CLICK_INTERVAL {
+		if time.since(ctx.prev_click_time) <= DOUBLE_CLICK_INTERVAL {
 			ctx.click_count += 1
 		} else {
 			ctx.click_count = 1
@@ -454,7 +454,7 @@ UI_tick :: proc(
 			ctx.statuses -= {.DOUBLE_CLICKED}
 			ctx.statuses += {.TRIPLE_CLICKED}
 		}
-	} else if time.since(ctx.prev_click_time) >= UI_DOUBLE_CLICK_INTERVAL {
+	} else if time.since(ctx.prev_click_time) >= DOUBLE_CLICK_INTERVAL {
 		ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 	}
 
@@ -539,7 +539,7 @@ UI_tick :: proc(
 		ctx.statuses += {.DIRTY}
 		render_time := time.tick_since(render_start)
 		if clay.IsDebugModeEnabled() {
-			if time.tick_since(UI_DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
+			if time.tick_since(DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
 				fmt.printfln(
 					"FPS: %.2f",
 					1 / time.duration_seconds(time.tick_since(ctx.prev_frame_time)),
@@ -551,7 +551,7 @@ UI_tick :: proc(
 				fmt.println("Mouse scroll:", ctx.scroll_delta)
 				fmt.println("Display scale:", ctx.scaling)
 				fmt.println("Statuses:", ctx.statuses)
-				UI_DEBUG_PREV_TIME = time.tick_now()
+				DEBUG_PREV_TIME = time.tick_now()
 			}
 		}
 	}
@@ -560,7 +560,7 @@ UI_tick :: proc(
 	ctx.prev_frametime = time.tick_since(frame_start)
 }
 
-UI_open_window :: proc(ctx: ^UI_Context) {
+open_window :: proc(ctx: ^Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
 	ctx.statuses += {.WINDOW_JUST_SHOWN}
 	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
@@ -568,29 +568,29 @@ UI_open_window :: proc(ctx: ^UI_Context) {
 	sdl.RaiseWindow(ctx.window)
 }
 
-UI_close_window :: proc(ctx: ^UI_Context) {
+close_window :: proc(ctx: ^Context) {
 	ctx.statuses += {.WINDOW_CLOSED}
 	sdl.HideWindow(ctx.window)
 }
 
-UI_toggle_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
-	ctx := cast(^UI_Context)userdata
+toggle_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+	ctx := cast(^Context)userdata
 	context = odin_context
 	if .WINDOW_CLOSED in ctx.statuses {
 		sdl.SetTrayEntryLabel(entry, "Close")
-		UI_open_window(ctx)
+		open_window(ctx)
 	} else {
 		sdl.SetTrayEntryLabel(entry, "Open")
-		UI_close_window(ctx)
+		close_window(ctx)
 	}
 }
 
-UI__quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
-	ctx := cast(^UI_Context)userdata
+_quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+	ctx := cast(^Context)userdata
 	ctx.statuses += {.APP_EXIT}
 }
 
-UI__measure_text :: proc "c" (
+_measure_text :: proc "c" (
 	text: clay.StringSlice,
 	config: ^clay.TextElementConfig,
 	userData: rawptr,
@@ -598,71 +598,71 @@ UI__measure_text :: proc "c" (
 	if text.length == 0 do return {0, 0}
 
 	context = odin_context
-	ctx := cast(^UI_Context)userData
-	font := UI_retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
+	ctx := cast(^Context)userData
+	font := retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
 
 	size: [2]c.int
 	_ = ttf.GetStringSize(font, cstring(text.chars), c.size_t(text.length), &size.x, &size.y)
 	return {c.float(size.x) / ctx.scaling, c.float(size.y) / ctx.scaling}
 }
 
-UI__input_key_down :: proc(ctx: ^UI_Context, key: UI_Control_Key) {
+_input_key_down :: proc(ctx: ^Context, key: Control_Key) {
 	ctx.keys_down += {key}
 	ctx.keys_pressed += {key}
 }
 
-UI__input_key_up :: proc(ctx: ^UI_Context, key: UI_Control_Key) {
+_input_key_up :: proc(ctx: ^Context, key: Control_Key) {
 	ctx.keys_down -= {key}
 }
 
-UI__input_mouse_down :: proc(ctx: ^UI_Context, button: UI_Mouse_Button) {
+_input_mouse_down :: proc(ctx: ^Context, button: Mouse_Button) {
 	ctx.mouse_down += {button}
 	ctx.mouse_pressed += {button}
 }
 
-UI__input_mouse_up :: proc(ctx: ^UI_Context, button: UI_Mouse_Button) {
+_input_mouse_up :: proc(ctx: ^Context, button: Mouse_Button) {
 	ctx.mouse_down -= {button}
 	ctx.mouse_released += {button}
 }
 
-UI_widget_active :: proc(ctx: ^UI_Context, id: clay.ElementId) -> bool {
+widget_active :: proc(ctx: ^Context, id: clay.ElementId) -> bool {
 	return slice.contains(sa.slice(&ctx.active_widgets), id)
 }
 
-UI_widget_focus :: proc(ctx: ^UI_Context, id: clay.ElementId) {
+widget_focus :: proc(ctx: ^Context, id: clay.ElementId) {
 	if !slice.contains(sa.slice(&ctx.active_widgets), id) do sa.append(&ctx.active_widgets, id)
 }
 
-UI_status_add :: proc(ctx: ^UI_Context, statuses: UI_Context_Statuses) {
+status_add :: proc(ctx: ^Context, statuses: Context_Statuses) {
 	ctx.statuses += statuses
 }
 
-UI_textbox_reset :: proc(ctx: ^UI_Context, textlen: int) {
+textbox_reset :: proc(ctx: ^Context, textlen: int) {
 	ctx.textbox_state.selection = {textlen, textlen}
 }
 
-UI_unfocus :: proc(ctx: ^UI_Context, id: clay.ElementId) {
+unfocus :: proc(ctx: ^Context, id: clay.ElementId) {
 	idx, found := slice.linear_search(sa.slice(&ctx.active_widgets), id)
 	if found do sa.unordered_remove(&ctx.active_widgets, idx)
 }
 
-UI_unfocus_all :: proc(ctx: ^UI_Context) {
+unfocus_all :: proc(ctx: ^Context) {
 	sa.clear(&ctx.active_widgets)
 }
 
-UI_window_closed :: proc(ctx: ^UI_Context) -> bool {
+window_closed :: proc(ctx: ^Context) -> bool {
 	return .WINDOW_CLOSED in ctx.statuses
 }
 
-UI_should_exit :: proc(ctx: ^UI_Context) -> bool {
+should_exit :: proc(ctx: ^Context) -> bool {
 	return .APP_EXIT in ctx.statuses
 }
 
-UI_exit :: proc(ctx: ^UI_Context) {
+exit :: proc(ctx: ^Context) {
 	ctx.statuses += {.APP_EXIT}
 }
 
-UI_load_image_mem :: proc(ctx: ^UI_Context, data: []u8, size: [2]int) -> int {
+load_image_mem :: proc(ctx: ^Context, data: []u8, size: [2]int) -> int {
 	img_stream := sdl.IOFromConstMem(raw_data(data), len(data))
 	defer sdl.CloseIO(img_stream)
 	img_surface := img.LoadSizedSVG_IO(img_stream, c.int(size.x), c.int(size.y))
@@ -679,21 +679,21 @@ UI_load_image_mem :: proc(ctx: ^UI_Context, data: []u8, size: [2]int) -> int {
 	)
 	texture_size := 4 * int(img_surface.w) * int(img_surface.h)
 	log.debugf("loaded image of size: [%v, %v]", img_surface.w, img_surface.h)
-	image := _UI_Image{img_surface, img_texture, texture_size}
+	image := _Image{img_surface, img_texture, texture_size}
 
 	pipeline.status += {.TEXTURE_DIRTY}
-	sa.append(&ctx.images, UI_Image{image = image, dimensions = size, data = data})
+	sa.append(&ctx.images, Image{image = image, dimensions = size, data = data})
 	return sa.len(ctx.images) - 1
 }
 
-UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
+load_font_mem :: proc(ctx: ^Context, fontsize: u16, data: []u8) -> u16 {
 	font_stream := sdl.IOFromConstMem(raw_data(data), len(data))
 	font := ttf.OpenFontIO(font_stream, true, c.float(fontsize))
 	assert(font != nil)
 
 	font_map := make(map[u16]^ttf.Font, 16, virtual.arena_allocator(&ctx.font_allocator))
 	font_map[fontsize] = font
-	ui_font := UI_Font {
+	ui_font := Font {
 		font = font_map,
 		data = data,
 	}
@@ -702,18 +702,18 @@ UI_load_font_mem :: proc(ctx: ^UI_Context, fontsize: u16, data: []u8) -> u16 {
 	return u16(sa.len(ctx.fonts) - 1)
 }
 
-UI_load_font :: proc(ctx: ^UI_Context, fontsize: u16, path: cstring) -> u16 {
+load_font :: proc(ctx: ^Context, fontsize: u16, path: cstring) -> u16 {
 	unimplemented()
 }
 
-UI__set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
+_set_clipboard :: proc(user_data: rawptr, text: string) -> (ok: bool) {
 	text_cstr := strings.clone_to_cstring(text)
 	sdl.SetClipboardText(text_cstr)
 	delete(text_cstr)
 	return true
 }
 
-UI__get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
+_get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 	text_cstr := cstring(sdl.GetClipboardText())
 	if text_cstr != nil {
 		text = string(text_cstr)
@@ -722,23 +722,23 @@ UI__get_clipboard :: proc(user_data: rawptr) -> (text: string, ok: bool) {
 	return
 }
 
-UI__clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
+_clay_error_handler :: proc "c" (errordata: clay.ErrorData) {
 	// [TODO] find out why `ID_LOCAL` is producing duplicate id errors
 	// context = runtime.default_context()
 	// fmt.printfln("clay error detected: %s", errordata.errorText.chars[:errordata.errorText.length])
 }
 
-UI_scrollbar :: proc(
-	ctx: ^UI_Context,
+scrollbar :: proc(
+	ctx: ^Context,
 	scroll_container_data: clay.ScrollContainerData,
-	scrollbar_data: ^UI_Scrollbar_Data,
+	scrollbar_data: ^Scrollbar_Data,
 	bar_width: int,
 	bar_color, target_color, hover_color, press_color: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__scrollbar(
+	res, id = _scrollbar(
 		ctx,
 		scroll_container_data,
 		scrollbar_data,
@@ -749,9 +749,9 @@ UI_scrollbar :: proc(
 		press_color,
 	)
 
-	active := UI_widget_active(ctx, id)
+	active := widget_active(ctx, id)
 	if .PRESS in res {
-		UI_widget_focus(ctx, id)
+		widget_focus(ctx, id)
 		if !active {
 			res += {.FOCUS}
 			scrollbar_data.click_origin = ctx.mouse_pos
@@ -760,7 +760,7 @@ UI_scrollbar :: proc(
 		active = true
 	}
 	if active && .LEFT in ctx.mouse_down {
-		if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+		if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 		res += {.CHANGE}
 
 		data := clay.GetElementData(id)
@@ -795,13 +795,13 @@ UI_scrollbar :: proc(
 		)
 
 		scroll_container_data.scrollPosition^ = scroll_pos
-	} else if .LEFT not_in ctx.mouse_down do UI_unfocus(ctx, id)
+	} else if .LEFT not_in ctx.mouse_down do unfocus(ctx, id)
 
 	return
 }
 
-UI_textbox :: proc(
-	ctx: ^UI_Context,
+textbox :: proc(
+	ctx: ^Context,
 	buf: []u8,
 	textlen: ^int,
 	placeholder_text: string,
@@ -810,26 +810,26 @@ UI_textbox :: proc(
 	text_config: clay.TextElementConfig,
 	enabled := true,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__textbox(ctx, buf, textlen, placeholder_text, config, border_config, text_config)
+	res, id = _textbox(ctx, buf, textlen, placeholder_text, config, border_config, text_config)
 
 	if enabled {
-		active := UI_widget_active(ctx, id)
+		active := widget_active(ctx, id)
 		if .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
 
 		if active {
-			if .CANCEL in res do UI_unfocus(ctx, id)
-			if .SUBMIT in res && textlen^ > 0 do UI_unfocus(ctx, id)
+			if .CANCEL in res do unfocus(ctx, id)
+			if .SUBMIT in res && textlen^ > 0 do unfocus(ctx, id)
 		}
 	}
-	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
+	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do unfocus(ctx, id)
 	return
 }
 
-UI_slider :: proc(
-	ctx: ^UI_Context,
+slider :: proc(
+	ctx: ^Context,
 	pos: ^$T,
 	default_val, min_val, max_val: T,
 	color, hover_color, press_color, line_color, line_highlight: clay.Color,
@@ -837,10 +837,10 @@ UI_slider :: proc(
 	snap_threshhold: T,
 	notches: ..T,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) where intrinsics.type_is_float(T) {
-	res, id = UI__slider(
+	res, id = _slider(
 		ctx,
 		pos,
 		default_val,
@@ -855,15 +855,15 @@ UI_slider :: proc(
 		..notches,
 	)
 
-	active := UI_widget_active(ctx, id)
+	active := widget_active(ctx, id)
 	if .PRESS in res {
-		UI_widget_focus(ctx, id)
+		widget_focus(ctx, id)
 		if !active do res += {.FOCUS}
 	}
 	if active && .LEFT in ctx.mouse_down do res += {.CHANGE}
 
-	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do UI_unfocus(ctx, id)
-	if .LEFT in ctx.mouse_released do UI_unfocus(ctx, id)
+	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do unfocus(ctx, id)
+	if .LEFT in ctx.mouse_released do unfocus(ctx, id)
 
 	for notch in notches {
 		if abs(pos^ - notch) < snap_threshhold {
@@ -872,40 +872,40 @@ UI_slider :: proc(
 		}
 	}
 
-	if .CHANGE in res && time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+	if .CHANGE in res && time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 	return
 }
 
-UI_ElementConfig :: union {
-	UI_TextConfig,
-	UI_IconConfig,
-	UI_HorzSpacerConfig,
-	UI_VertSpacerConfig,
+ElementConfig :: union {
+	TextConfig,
+	IconConfig,
+	HorzSpacerConfig,
+	VertSpacerConfig,
 }
 
-UI_HorzSpacerConfig :: struct {
+HorzSpacerConfig :: struct {
 	size: c.float,
 }
 
-UI_VertSpacerConfig :: struct {
+VertSpacerConfig :: struct {
 	size: c.float,
 }
 
-UI_TextConfig :: struct {
+TextConfig :: struct {
 	text:  string,
 	size:  u16,
 	color: clay.Color,
 }
 
-UI_IconConfig :: struct {
+IconConfig :: struct {
 	id:    int,
 	size:  [2]int,
 	color: clay.Color,
 }
 
-UI_button :: proc(
-	ctx: ^UI_Context,
-	elements: []UI_ElementConfig,
+button :: proc(
+	ctx: ^Context,
+	elements: []ElementConfig,
 	layout: clay.LayoutConfig,
 	corner_radius: clay.CornerRadius,
 	color, hover_color, press_color: clay.Color,
@@ -913,10 +913,10 @@ UI_button :: proc(
 	enabled := true,
 	border_config: clay.BorderElementConfig = {},
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__button(
+	res, id = _button(
 		ctx,
 		elements,
 		layout,
@@ -930,42 +930,42 @@ UI_button :: proc(
 
 	if enabled {
 		if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
-		else do UI_unfocus(ctx, id)
+		else do unfocus(ctx, id)
 
-		if .PRESS in res do UI_widget_focus(ctx, id)
-		else if .RELEASE in res do UI_unfocus(ctx, id)
+		if .PRESS in res do widget_focus(ctx, id)
+		else if .RELEASE in res do unfocus(ctx, id)
 	}
 	return
 }
 
-UI_switch :: proc(
-	ctx: ^UI_Context,
+tswitch :: proc(
+	ctx: ^Context,
 	state: ^bool,
 	layout: clay.LayoutConfig,
 	color, background_color, active_background_color: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__switch(ctx, state, layout, color, background_color, active_background_color)
+	res, id = _switch(ctx, state, layout, color, background_color, active_background_color)
 
 	if .HOVER in res do ctx.statuses += {.BUTTON_HOVERING}
-	else do UI_unfocus(ctx, id)
+	else do unfocus(ctx, id)
 
-	if .PRESS in res do UI_widget_focus(ctx, id)
-	else if .RELEASE in res do UI_unfocus(ctx, id)
+	if .PRESS in res do widget_focus(ctx, id)
+	else if .RELEASE in res do unfocus(ctx, id)
 
 	return
 }
 
-UI__scrollbar :: proc(
-	ctx: ^UI_Context,
+_scrollbar :: proc(
+	ctx: ^Context,
 	scroll_container_data: clay.ScrollContainerData,
-	scrollbar_data: ^UI_Scrollbar_Data,
+	scrollbar_data: ^Scrollbar_Data,
 	bar_width: int,
 	bar_color, target_color, hover_color, press_color: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	local_id := clay.ID_LOCAL(#procedure)
@@ -981,7 +981,7 @@ UI__scrollbar :: proc(
 		id = local_id,
 	},
 	) {
-		scroll_res, scroll_id := UI__scroll_target(
+		scroll_res, scroll_id := _scroll_target(
 			ctx,
 			scroll_container_data,
 			bar_width,
@@ -990,9 +990,9 @@ UI__scrollbar :: proc(
 			press_color,
 		)
 
-		scroll_active := UI_widget_active(ctx, scroll_id)
+		scroll_active := widget_active(ctx, scroll_id)
 		if .PRESS in scroll_res {
-			UI_widget_focus(ctx, scroll_id)
+			widget_focus(ctx, scroll_id)
 			if !scroll_active {
 				res += {.FOCUS}
 				scrollbar_data.click_origin = ctx.mouse_pos
@@ -1028,7 +1028,7 @@ UI__scrollbar :: proc(
 
 			scroll_container_data.scrollPosition^ = scroll_pos
 		}
-		if .LEFT in ctx.mouse_released do UI_unfocus(ctx, scroll_id)
+		if .LEFT in ctx.mouse_released do unfocus(ctx, scroll_id)
 
 		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
@@ -1038,13 +1038,13 @@ UI__scrollbar :: proc(
 	return
 }
 
-UI__scroll_target :: proc(
-	ctx: ^UI_Context,
+_scroll_target :: proc(
+	ctx: ^Context,
 	scroll_container_data: clay.ScrollContainerData,
 	width: int,
 	color, hover_color, press_color: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	target_height := int(
@@ -1079,7 +1079,7 @@ UI__scroll_target :: proc(
 			},
 		},
 		) {
-			active := UI_widget_active(ctx, local_id)
+			active := widget_active(ctx, local_id)
 			selected_color := color
 			if active do selected_color = press_color
 			else if clay.Hovered() do selected_color = hover_color
@@ -1102,8 +1102,8 @@ UI__scroll_target :: proc(
 	return
 }
 
-UI__textbox :: proc(
-	ctx: ^UI_Context,
+_textbox :: proc(
+	ctx: ^Context,
 	buf: []u8,
 	textlen: ^int,
 	placeholder_text: string,
@@ -1111,7 +1111,7 @@ UI__textbox :: proc(
 	border_config: clay.BorderElementConfig,
 	text_config: clay.TextElementConfig,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	config := config
@@ -1122,7 +1122,7 @@ UI__textbox :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		active := UI_widget_active(ctx, local_id)
+		active := widget_active(ctx, local_id)
 		if !active do border_config.width = {}
 		if !active do config.backgroundColor *= {0.8, 0.8, 0.8, 1}
 		config.border = border_config
@@ -1134,7 +1134,7 @@ UI__textbox :: proc(
 			res += {.HOVER}
 
 			if .LEFT in ctx.mouse_pressed && !active {
-				UI_widget_focus(ctx, id)
+				widget_focus(ctx, id)
 				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 				ctx.click_count = 1
 				res += {.PRESS, .FOCUS}
@@ -1300,7 +1300,7 @@ UI__textbox :: proc(
 								if buf[i] > 0x80 && buf[i] < 0xC0 do continue
 
 								clay_str := clay.MakeString(string(buf[:i]))
-								text_size := UI__measure_text(
+								text_size := _measure_text(
 									clay.StringSlice {
 										clay_str.length,
 										clay_str.chars,
@@ -1326,7 +1326,7 @@ UI__textbox :: proc(
 
 					text_str := string(buf[:textlen^])
 					text_clay_str := clay.MakeString(text_str)
-					text_size := UI__measure_text(
+					text_size := _measure_text(
 						clay.StringSlice {
 							text_clay_str.length,
 							text_clay_str.chars,
@@ -1337,7 +1337,7 @@ UI__textbox :: proc(
 					)
 
 					head_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[0]])
-					head_size := UI__measure_text(
+					head_size := _measure_text(
 						clay.StringSlice {
 							head_clay_str.length,
 							head_clay_str.chars,
@@ -1347,7 +1347,7 @@ UI__textbox :: proc(
 						ctx,
 					)
 					tail_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[1]])
-					tail_size := UI__measure_text(
+					tail_size := _measure_text(
 						clay.StringSlice {
 							tail_clay_str.length,
 							tail_clay_str.chars,
@@ -1397,7 +1397,7 @@ UI__textbox :: proc(
 								},
 						},
 						) {
-							if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+							if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					} else { 	// selection box
 						x_offset := f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)
@@ -1421,7 +1421,7 @@ UI__textbox :: proc(
 							backgroundColor = text_config.textColor * {1, 1, 1, 0.25},
 						},
 						) {
-							if time.tick_since(ctx.prev_event_time) > UI_EVENT_DELAY do ctx.statuses += {.EVENT}
+							if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
 
@@ -1435,22 +1435,22 @@ UI__textbox :: proc(
 	return
 }
 
-UI__slider :: proc(
-	ctx: ^UI_Context,
+_slider :: proc(
+	ctx: ^Context,
 	pos: ^$T,
 	default_val, min_val, max_val: T,
 	color, hover_color, press_color, line_color, line_highlight: clay.Color,
 	layout: clay.LayoutConfig,
 	notches: ..T,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) where intrinsics.type_is_float(T) {
 	if clay.UI()({layout = layout}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		active := UI_widget_active(ctx, local_id)
+		active := widget_active(ctx, local_id)
 		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
@@ -1582,23 +1582,23 @@ UI__slider :: proc(
 	return
 }
 
-UI__button :: proc(
-	ctx: ^UI_Context,
-	elements: []UI_ElementConfig,
+_button :: proc(
+	ctx: ^Context,
+	elements: []ElementConfig,
 	layout: clay.LayoutConfig,
 	border: clay.BorderElementConfig,
 	corner_radius: clay.CornerRadius,
 	color, hover_color, press_color: clay.Color,
 	padding: u16,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()({layout = layout}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		active := UI_widget_active(ctx, id)
+		active := widget_active(ctx, id)
 		selected_color := color
 		if active do selected_color = press_color
 		else if clay.Hovered() do selected_color = hover_color
@@ -1623,17 +1623,17 @@ UI__button :: proc(
 		) {
 			for element in elements {
 				switch element in element {
-				case UI_IconConfig:
-					UI_icon(ctx, element.id, element.size, element.color)
-				case UI_TextConfig:
+				case IconConfig:
+					icon(ctx, element.id, element.size, element.color)
+				case TextConfig:
 					clay_textconfig := clay.TextConfig(
 						{textColor = element.color, fontSize = element.size},
 					)
 					clay.TextDynamic(element.text, clay_textconfig)
-				case UI_HorzSpacerConfig:
-					UI_horz_spacer(ctx, element.size)
-				case UI_VertSpacerConfig:
-					UI_vert_spacer(ctx, element.size)
+				case HorzSpacerConfig:
+					horz_spacer(ctx, element.size)
+				case VertSpacerConfig:
+					vert_spacer(ctx, element.size)
 				}
 			}
 		}
@@ -1641,13 +1641,13 @@ UI__button :: proc(
 	return
 }
 
-UI__switch :: proc(
-	ctx: ^UI_Context,
+_switch :: proc(
+	ctx: ^Context,
 	state: ^bool,
 	layout: clay.LayoutConfig,
 	color, background_color, active_background_color: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	layout := layout
@@ -1683,11 +1683,11 @@ UI__switch :: proc(
 	return
 }
 
-UI_spacer :: proc(
-	ctx: ^UI_Context,
+spacer :: proc(
+	ctx: ^Context,
 	horz_constraints: clay.SizingConstraintsMinMax = {},
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow(horz_constraints), clay.SizingGrow()}}}) {
@@ -1703,25 +1703,19 @@ UI_spacer :: proc(
 	return
 }
 
-UI_textlabel :: proc(text: string, config: clay.TextElementConfig) {
+textlabel :: proc(text: string, config: clay.TextElementConfig) {
 	textlabel := clay.TextConfig(config)
 	clay.TextDynamic(text, textlabel)
 }
 
-UI_modal_escapable :: proc(
-	ctx: ^UI_Context,
+modal_escapable :: proc(
+	ctx: ^Context,
 	bg_color: clay.Color,
-	widget: proc(
-		ctx: ^UI_Context,
-		user_data: rawptr,
-	) -> (
-		res: UI_WidgetResults,
-		id: clay.ElementId,
-	),
+	widget: proc(ctx: ^Context, user_data: rawptr) -> (res: WidgetResults, id: clay.ElementId),
 	user_data: rawptr = nil,
 	attachment: clay.FloatingAttachToElement = .Root,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()(
@@ -1742,13 +1736,13 @@ UI_modal_escapable :: proc(
 	return
 }
 
-UI_icon :: proc(
-	ctx: ^UI_Context,
+icon :: proc(
+	ctx: ^Context,
 	image_id: int,
 	image_size: [2]int,
 	tint: clay.Color,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	if clay.UI()(
@@ -1759,25 +1753,25 @@ UI_icon :: proc(
 				height = clay.SizingFixed(c.float(image_size.y)),
 			},
 		},
-		image = {imageData = UI_retrieve_image(ctx, image_id, image_size)},
+		image = {imageData = retrieve_image(ctx, image_id, image_size)},
 		backgroundColor = tint,
 	},
 	) {}
 	return
 }
 
-UI_dropdown :: proc(
-	ctx: ^UI_Context,
+dropdown :: proc(
+	ctx: ^Context,
 	options: []string,
 	selected: ^int,
 	color, background_color: clay.Color,
 	text_size: u16,
 	dropdown_icon_id, selection_icon_id: Maybe(int),
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = UI__dropdown(
+	res, id = _dropdown(
 		ctx,
 		options,
 		selected,
@@ -1790,21 +1784,21 @@ UI_dropdown :: proc(
 	return
 }
 
-UI__dropdown :: proc(
-	ctx: ^UI_Context,
+_dropdown :: proc(
+	ctx: ^Context,
 	options: []string,
 	selected: ^int,
 	color, background_color: clay.Color,
 	text_size: u16,
 	dropdown_icon_id, selection_icon_id: Maybe(int),
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	local_id := clay.ID_LOCAL(#procedure)
 	id = local_id
 	if clay.UI()({id = id, layout = {childAlignment = {x = .Left, y = .Center}}}) {
-		UI_textlabel(
+		textlabel(
 			options[selected^],
 			{
 				textColor = clay.Hovered() ? color * {1.2, 1.2, 1.2, 1} : color,
@@ -1813,19 +1807,19 @@ UI__dropdown :: proc(
 		)
 
 		if dropdown_icon_id, ok := dropdown_icon_id.?; ok {
-			UI_icon(ctx, dropdown_icon_id, {int(text_size), int(text_size)}, color)
+			icon(ctx, dropdown_icon_id, {int(text_size), int(text_size)}, color)
 		}
 
 		open: bool
 		if clay.Hovered() do ctx.hovered_widget = id
 		if clay.Hovered() do res += {.HOVER}
-		if clay.Hovered() && .LEFT in ctx.mouse_released && !UI_widget_active(ctx, id) {
-			UI_widget_focus(ctx, id)
+		if clay.Hovered() && .LEFT in ctx.mouse_released && !widget_active(ctx, id) {
+			widget_focus(ctx, id)
 			open = true
 		}
 
-		if UI_widget_active(ctx, id) {
-			dropdown_res, _ := UI__dropdown_options(
+		if widget_active(ctx, id) {
+			dropdown_res, _ := _dropdown_options(
 				ctx,
 				options,
 				selected,
@@ -1838,17 +1832,17 @@ UI__dropdown :: proc(
 			)
 			if .CHANGE in dropdown_res {
 				res += {.CHANGE}
-				UI_unfocus(ctx, id)
+				unfocus(ctx, id)
 			} else if .CANCEL in dropdown_res {
-				UI_unfocus(ctx, id)
+				unfocus(ctx, id)
 			}
 		}
 	}
 	return
 }
 
-UI__dropdown_options :: proc(
-	ctx: ^UI_Context,
+_dropdown_options :: proc(
+	ctx: ^Context,
 	options: []string,
 	selected: ^int,
 	parent_id: clay.ElementId,
@@ -1857,7 +1851,7 @@ UI__dropdown_options :: proc(
 	selection_icon_id: Maybe(int),
 	open: bool,
 ) -> (
-	res: UI_WidgetResults,
+	res: WidgetResults,
 	id: clay.ElementId,
 ) {
 	dropdown_id := clay.ID_LOCAL(#procedure, parent_id.id)
@@ -1891,7 +1885,7 @@ UI__dropdown_options :: proc(
 		},
 		backgroundColor = {0, 0, 0, 255},
 		cornerRadius = clay.CornerRadiusAll(14),
-		userData = transmute(rawptr)UI_Data_Flags{.SHADOW},
+		userData = transmute(rawptr)Data_Flags{.SHADOW},
 	},
 	) {
 		if clay.UI()(
@@ -1930,12 +1924,12 @@ UI__dropdown_options :: proc(
 				) {
 					if clay.Hovered() do ctx.hovered_widget = option_id
 
-					UI_textlabel(option, {textColor = color, fontSize = text_size})
+					textlabel(option, {textColor = color, fontSize = text_size})
 
-					UI_horz_spacer(ctx, 8)
+					horz_spacer(ctx, 8)
 
 					if selection_icon_id, ok := selection_icon_id.?; ok && idx == selected^ {
-						UI_icon(ctx, selection_icon_id, {int(text_size), int(text_size)}, color)
+						icon(ctx, selection_icon_id, {int(text_size), int(text_size)}, color)
 					}
 
 					if clay.Hovered() && .LEFT in ctx.mouse_pressed {
@@ -1949,16 +1943,16 @@ UI__dropdown_options :: proc(
 	return
 }
 
-UI_horz_spacer :: proc(ctx: ^UI_Context, size: c.float) {
+horz_spacer :: proc(ctx: ^Context, size: c.float) {
 	if clay.UI()({layout = {sizing = {clay.SizingFixed(size), clay.SizingGrow()}}}) {}
 }
 
-UI_vert_spacer :: proc(ctx: ^UI_Context, size: c.float) {
+vert_spacer :: proc(ctx: ^Context, size: c.float) {
 	if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFixed(size)}}}) {}
 }
 
 when ODIN_DEBUG {
-	UI_memory_debug :: proc(ctx: ^UI_Context, tracking_allocator: mem.Tracking_Allocator) {
+	memory_debug :: proc(ctx: ^Context, tracking_allocator: mem.Tracking_Allocator) {
 		if .M in ctx.keys_pressed && .CTRL in ctx.keys_down {
 			if .MEMORY_DEBUG in ctx.statuses {
 				ctx.statuses -= {.MEMORY_DEBUG}
@@ -1985,24 +1979,24 @@ when ODIN_DEBUG {
 			cornerRadius = clay.CornerRadiusAll(10),
 		},
 		) {
-			UI_textlabel("Memory Debug", {textColor = 255, fontSize = 20})
-			UI_textlabel(
+			textlabel("Memory Debug", {textColor = 255, fontSize = 20})
+			textlabel(
 				fmt.tprintf("Peak Allocation: %v", tracking_allocator.peak_memory_allocated),
 				{textColor = 255, fontSize = 16},
 			)
-			UI_textlabel(
+			textlabel(
 				fmt.tprintf("Current Allocation: %v", tracking_allocator.current_memory_allocated),
 				{textColor = 255, fontSize = 16},
 			)
-			UI_textlabel(
+			textlabel(
 				fmt.tprintf("Total Allocations: %v", tracking_allocator.total_allocation_count),
 				{textColor = 255, fontSize = 16},
 			)
-			UI_textlabel(
+			textlabel(
 				fmt.tprintf("Total Frees: %v", tracking_allocator.total_free_count),
 				{textColor = 255, fontSize = 16},
 			)
-			UI_textlabel(
+			textlabel(
 				fmt.tprintf(
 					"Δ Frees: %v",
 					tracking_allocator.total_allocation_count -
@@ -2072,15 +2066,12 @@ when ODIN_DEBUG {
 								backgroundColor = clay.Color{35, 35, 35, 255},
 							},
 							) {
-								UI_textlabel(
-									fmt.tprintf("%v", ptr),
-									{textColor = 255, fontSize = 16},
-								)
-								UI_textlabel(
+								textlabel(fmt.tprintf("%v", ptr), {textColor = 255, fontSize = 16})
+								textlabel(
 									fmt.tprintf("Size: %v", entry.size),
 									{textColor = 255, fontSize = 16},
 								)
-								UI_textlabel(
+								textlabel(
 									fmt.tprintf("%v", entry.location),
 									{textColor = 255, fontSize = 16},
 								)
