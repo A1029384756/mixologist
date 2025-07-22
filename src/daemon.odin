@@ -33,8 +33,6 @@ Daemon_Context :: struct {
 	// allocations
 	arena:             virtual.Arena,
 	allocator:         mem.Allocator,
-	// control flow/ipc state
-	should_exit:       bool,
 }
 
 daemon_proc :: proc(ctx: ^Daemon_Context) {
@@ -110,10 +108,6 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 	delete(ctx.device_inputs)
 	delete(ctx.passthrough_nodes)
 	delete(ctx.passthrough_ports)
-}
-
-daemon_should_exit :: proc(ctx: ^Daemon_Context) -> bool {
-	return ctx.should_exit
 }
 
 registry_events := pw.registry_events {
@@ -571,5 +565,4 @@ daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 daemon_signal_stop :: proc(ctx: ^Daemon_Context) {
 	log.info("daemon signaling stop")
 	pw.main_loop_quit(ctx.main_loop)
-	ctx.should_exit = true
 }
