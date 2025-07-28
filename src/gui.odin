@@ -5,7 +5,6 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:sync/chan"
-import "core:thread"
 import "ui"
 import "ui/clay"
 
@@ -20,7 +19,6 @@ GUI_Context_Status :: enum u8 {
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
 gui: GUI_Context
-gui_thread: ^thread.Thread
 
 GUI_Context :: struct {
 	ui_ctx:            ui.Context,
@@ -39,18 +37,6 @@ GUI_Context :: struct {
 	program_scrollbar: ui.Scrollbar_Data,
 	// config state
 	statuses:          GUI_Context_Statuses,
-}
-
-gui_proc :: proc(ctx: ^GUI_Context) {
-	log.info("gui starting")
-	gui_init(&gui, mixologist.config.settings.start_minimized)
-	for !(ui.should_exit(&gui.ui_ctx) || mixologist_should_exit()) {
-		gui_tick(&gui)
-		free_all(context.temp_allocator)
-	}
-	gui_deinit(&gui)
-	log.info("gui exiting")
-	mixologist_signal_exit()
 }
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
@@ -102,22 +88,13 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 gui_event_send :: proc(event: Event, allocator := context.allocator) {
 	if .Gui not_in mixologist.features do return
 
-	event_clone: Event
-	#partial switch event in event {
-	case Program_Add:
-		event_clone = Program_Add(strings.clone(string(event), allocator))
-	case Program_Remove:
-		event_clone = Program_Remove(strings.clone(string(event), allocator))
-	case Open, Volume_Event:
-		event_clone = event
-	}
-	log.debugf("gui sending event: %v", event_clone)
-	if !chan.send(gui.events, event_clone) {
-		#partial switch event_clone in event_clone {
+	log.debugf("gui sending event: %v", event)
+	if !chan.send(gui.events, event) {
+		#partial switch event in event {
 		case Program_Add:
-			delete(string(event_clone))
+			delete(string(event), allocator)
 		case Program_Remove:
-			delete(string(event_clone))
+			delete(string(event), allocator)
 		}
 	}
 }
@@ -149,6 +126,7 @@ gui_create_layout :: proc(
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
 	layout := create_layout(mgst_ctx)
+	mixologist_event_process(&mixologist)
 	return layout
 }
 
@@ -212,9 +190,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 								cornerRadius = clay.CornerRadiusAll(10),
 							},
 							) {
-								if sync.mutex_guard(&mixologist.config_mutex) {
-									for rule, i in mixologist.config.rules do rule_line(ctx, rule, i + 1, len(mixologist.config.rules))
-								}
+								for rule, i in mixologist.config.rules do rule_line(ctx, rule, i + 1, len(mixologist.config.rules))
 							}
 						}
 					}
@@ -587,10 +563,8 @@ rule_add_menu :: proc(
 
 			found_count := 0
 			for program in ctx.programs {
-				if sync.mutex_guard(&mixologist.config_mutex) {
-					if slice.contains(mixologist.config.rules[:], program) {
-						found_count += 1
-					}
+				if slice.contains(mixologist.config.rules[:], program) {
+					found_count += 1
 				}
 			}
 
@@ -618,10 +592,8 @@ rule_add_menu :: proc(
 					},
 					) {
 						for program, idx in ctx.programs {
-							if sync.mutex_guard(&mixologist.config_mutex) {
-								if slice.contains(mixologist.config.rules[:], program) {
-									continue
-								}
+							if slice.contains(mixologist.config.rules[:], program) {
+								continue
 							}
 
 							selection_idx, selected := slice.linear_search(

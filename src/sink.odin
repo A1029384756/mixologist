@@ -79,7 +79,7 @@ node_init :: proc(
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		gui_event_send(Program_Add(node.name))
+		gui_event_send(Program_Add(strings.clone(node.name, allocator)))
 	}
 }
 
@@ -92,7 +92,7 @@ node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 
 	log.infof("destroying node: %v", node.name)
 	if node.name != "output.mixologist-default" && node.name != "output.mixologist-aux" {
-		gui_event_send(Program_Remove(node.name))
+		gui_event_send(Program_Remove(strings.clone(node.name)))
 	}
 
 	pw.proxy_destroy(node.proxy)

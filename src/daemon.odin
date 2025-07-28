@@ -44,7 +44,6 @@ daemon_proc :: proc(ctx: ^Daemon_Context) {
 	pw.main_loop_run(ctx.main_loop)
 	daemon_deinit(&daemon)
 	log.info("daemon exiting")
-	mixologist_should_exit()
 }
 
 daemon_init :: proc(ctx: ^Daemon_Context) {

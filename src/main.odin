@@ -12,28 +12,27 @@ import "core:os/os2"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
 import "core:time"
+import "ui"
 
 Mixologist :: struct {
 	// state
-	features:     Features,
-	events:       chan.Chan(Event),
-	config_mutex: sync.Mutex,
+	features:    Features,
+	events:      chan.Chan(Event),
 	// ipc
-	ipc:          IPC_Server_Context,
-	shortcuts:    GlobalShortcuts_Session,
+	ipc:         IPC_Server_Context,
+	shortcuts:   GlobalShortcuts_Session,
 	// config
-	config_dir:   string,
-	cache_dir:    string,
-	volume_file:  string,
-	config:       Config,
-	volume:       f32,
+	config_dir:  string,
+	cache_dir:   string,
+	volume_file: string,
+	config:      Config,
+	volume:      f32,
 	// atomic
-	exit:         bool,
+	exit:        bool,
 }
 
 Config :: struct {
@@ -95,7 +94,7 @@ Event :: union {
 	Rule_Update,
 	Program_Add,
 	Program_Remove,
-	Volume_Event,
+	Refresh_Event,
 	Settings,
 	Open,
 }
@@ -107,7 +106,7 @@ Rule_Update :: struct {
 	prev: string,
 	cur:  string,
 }
-Volume_Event :: f32
+Refresh_Event :: f32
 Open :: distinct rawptr
 
 mixologist: Mixologist
@@ -261,10 +260,11 @@ main :: proc() {
 	}
 
 	if .Gui in mixologist.features {
-		gui_thread = thread.create_and_start_with_poly_data(&gui, gui_proc, context)
+		log.info("gui starting")
+		gui_init(&gui, mixologist.config.settings.start_minimized)
 	}
 
-	for !mixologist_should_exit() {
+	for !mixologist.exit {
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
@@ -273,7 +273,11 @@ main :: proc() {
 			Portals_Tick(mixologist.shortcuts.conn)
 		}
 		mixologist_event_process(&mixologist)
-		time.sleep(16 * time.Millisecond)
+		if .Gui in mixologist.features {
+			gui_tick(&gui)
+			mixologist.exit = ui.should_exit(&gui.ui_ctx)
+		}
+
 		free_all(context.temp_allocator)
 	}
 
@@ -284,7 +288,8 @@ main :: proc() {
 	}
 
 	if .Gui in mixologist.features {
-		thread.join(gui_thread)
+		log.info("gui exiting")
+		gui_deinit(&gui)
 	}
 
 	if .GlobalShortcuts in mixologist.features {
@@ -318,20 +323,16 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 		case Rule_Add:
 			log.debugf("adding rule: %v", event)
 			daemon_add_program(&daemon, string(event))
-			if sync.mutex_guard(&mixologist.config_mutex) {
-				append(&mixologist.config.rules, string(event))
-			}
+			append(&mixologist.config.rules, string(event))
 			mixologist_config_write(mixologist)
 		case Rule_Remove:
 			log.debugf("removing rule: %v", event)
 			daemon_remove_program(&daemon, string(event))
-			if sync.mutex_guard(&mixologist.config_mutex) {
-				#reverse for rule, idx in mixologist.config.rules {
-					if rule == string(event) {
-						delete(rule)
-						ordered_remove(&mixologist.config.rules, idx)
-						break
-					}
+			#reverse for rule, idx in mixologist.config.rules {
+				if rule == string(event) {
+					delete(rule)
+					ordered_remove(&mixologist.config.rules, idx)
+					break
 				}
 			}
 			mixologist_config_write(mixologist)
@@ -339,47 +340,39 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 			if len(event.cur) == 0 {
 				log.debugf("updating to zero-length rule: %v", event.prev)
 				daemon_remove_program(&daemon, event.prev)
-				if sync.mutex_guard(&mixologist.config_mutex) {
-					for rule, idx in mixologist.config.rules {
-						if rule == event.prev {
-							delete(rule)
-							delete(event.cur)
-							ordered_remove(&mixologist.config.rules, idx)
-							break
-						}
+				for rule, idx in mixologist.config.rules {
+					if rule == event.prev {
+						delete(rule)
+						delete(event.cur)
+						ordered_remove(&mixologist.config.rules, idx)
+						break
 					}
 				}
 			} else {
 				log.debugf("updating rule: %v -> %v", event.prev, event.cur)
 				daemon_remove_program(&daemon, event.prev)
 				daemon_add_program(&daemon, event.cur)
-				if sync.mutex_guard(&mixologist.config_mutex) {
-					for &rule in mixologist.config.rules {
-						if rule == event.prev {
-							delete(rule)
-							rule = event.cur
-							break
-						}
+				for &rule in mixologist.config.rules {
+					if rule == event.prev {
+						delete(rule)
+						rule = event.cur
+						break
 					}
 				}
 			}
 			mixologist_config_write(mixologist)
-		case Volume_Event:
+		case Refresh_Event:
 			log.debugf("setting volume: %v", event)
 			mixologist.volume = event
 			mixologist.volume = clamp(mixologist.volume, -1, 1)
 			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 			volumes := [2]f32{def_vol, aux_vol}
 			daemon_set_volumes(&daemon, volumes)
-			if .Gui in mixologist.features {
-				gui_event_send(Volume_Event{})
-			}
+			gui_event_send(Refresh_Event{})
 			mixologist_write_volume_file(mixologist)
 		case Settings:
 			log.debugf("settings changed: %v", event)
-			if sync.mutex_guard(&mixologist.config_mutex) {
-				mixologist.config.settings = event
-			}
+			mixologist.config.settings = event
 			mixologist_config_write(mixologist)
 		}
 	}
@@ -440,9 +433,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			// [TODO] implement program subscriptions
 			}
 		case Wake:
-			if .Gui in mixologist.features {
-				gui_event_send(Open{})
-			}
+			gui_event_send(Open{})
 		}
 	}
 }
@@ -547,13 +538,4 @@ mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
 	if err != nil {
 		log.errorf("could not write volume file: %s", err)
 	}
-}
-
-mixologist_should_exit :: proc() -> bool {
-	return sync.atomic_load(&mixologist.exit)
-}
-
-mixologist_signal_exit :: proc(caller_loc := #caller_location) {
-	log.infof("mixologist signaling exit by %v", caller_loc)
-	sync.atomic_store(&mixologist.exit, true)
 }
