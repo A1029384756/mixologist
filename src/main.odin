@@ -21,7 +21,7 @@ import "core:time"
 
 Mixologist :: struct {
 	// state
-	statuses:     Statuses,
+	features:     Features,
 	events:       chan.Chan(Event),
 	config_mutex: sync.Mutex,
 	// ipc
@@ -83,8 +83,8 @@ shortcut_from_str :: proc(input: string) -> Shortcut {
 
 CONFIG_FILENAME :: "mixologist.json"
 
-Statuses :: bit_set[Status]
-Status :: enum {
+Features :: bit_set[Feature]
+Feature :: enum {
 	GlobalShortcuts,
 	Daemon,
 	Gui,
@@ -189,9 +189,9 @@ main :: proc() {
 	flags.register_flag_checker(flag_checker)
 	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
 	if cli.opts.daemon {
-		mixologist.statuses += {.Daemon}
+		mixologist.features += {.Daemon}
 	} else if !cli.option_sel {
-		mixologist.statuses += {.Daemon, .Gui}
+		mixologist.features += {.Daemon, .Gui}
 	} else {
 		cli_messages(cli)
 		return
@@ -217,7 +217,7 @@ main :: proc() {
 	)
 	switch gs_err in gs_err {
 	case nil:
-		mixologist.statuses += {.GlobalShortcuts}
+		mixologist.features += {.GlobalShortcuts}
 		GlobalShortcuts_CreateSession(&mixologist.shortcuts)
 		listed_shortcuts, _ := GlobalShortcuts_ListShortcuts(&mixologist.shortcuts)
 		all_shortcuts_bound := true
@@ -257,11 +257,11 @@ main :: proc() {
 	mixologist.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
 
 	// init app state
-	if .Daemon in mixologist.statuses {
+	if .Daemon in mixologist.features {
 		daemon_thread = thread.create_and_start_with_poly_data(&daemon, daemon_proc, context)
 	}
 
-	if .Gui in mixologist.statuses {
+	if .Gui in mixologist.features {
 		gui_thread = thread.create_and_start_with_poly_data(&gui, gui_proc, context)
 	}
 
@@ -270,7 +270,7 @@ main :: proc() {
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
 
-		if .GlobalShortcuts in mixologist.statuses {
+		if .GlobalShortcuts in mixologist.features {
 			Portals_Tick(mixologist.shortcuts.conn)
 		}
 		mixologist_event_process(&mixologist)
@@ -279,16 +279,16 @@ main :: proc() {
 	}
 
 	log.infof("main event loop exiting")
-	if .Daemon in mixologist.statuses {
+	if .Daemon in mixologist.features {
 		daemon_signal_stop(&daemon)
 		thread.join(daemon_thread)
 	}
 
-	if .Gui in mixologist.statuses {
+	if .Gui in mixologist.features {
 		thread.join(gui_thread)
 	}
 
-	if .GlobalShortcuts in mixologist.statuses {
+	if .GlobalShortcuts in mixologist.features {
 		GlobalShortcuts_CloseSession(&mixologist.shortcuts)
 		GlobalShortcuts_Deinit(&mixologist.shortcuts)
 	}
@@ -372,7 +372,7 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 			volumes := [2]f32{def_vol, aux_vol}
 			daemon_set_volumes(&daemon, volumes)
-			if .Gui in mixologist.statuses {
+			if .Gui in mixologist.features {
 				gui_event_send(Volume{})
 			}
 			mixologist_write_volume_file(mixologist)
@@ -441,7 +441,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			// [TODO] implement program subscriptions
 			}
 		case common.Wake:
-			if .Gui in mixologist.statuses {
+			if .Gui in mixologist.features {
 				gui_event_send(Open{})
 			}
 		}
