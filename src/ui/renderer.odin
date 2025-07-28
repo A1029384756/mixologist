@@ -9,10 +9,10 @@ import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
-@(thread_local)
-pipeline: Pipeline
-@(thread_local)
-commands: [dynamic]Command
+Renderer :: struct {
+	pipeline: Pipeline,
+	commands: [dynamic]Command,
+}
 
 Pipeline_Status :: enum {
 	TEXTURE_DIRTY,
@@ -98,8 +98,8 @@ Renderer_init :: proc(ctx: ^Context) {
 			},
 		}
 
-		pipeline.pipeline = sdl.CreateGPUGraphicsPipeline(ctx.device, pipeline_info)
-		pipeline.texture_sampler = sdl.CreateGPUSampler(
+		ctx.renderer.pipeline.pipeline = sdl.CreateGPUGraphicsPipeline(ctx.device, pipeline_info)
+		ctx.renderer.pipeline.texture_sampler = sdl.CreateGPUSampler(
 			ctx.device,
 			{
 				min_filter = .LINEAR,
@@ -110,24 +110,24 @@ Renderer_init :: proc(ctx: ^Context) {
 				address_mode_w = .CLAMP_TO_EDGE,
 			},
 		)
-		pipeline.text_engine = ttf.CreateGPUTextEngine(ctx.device)
-		ttf.SetGPUTextEngineWinding(pipeline.text_engine, .COUNTER_CLOCKWISE)
-		pipeline.instance_buffer = create_buffer(
+		ctx.renderer.pipeline.text_engine = ttf.CreateGPUTextEngine(ctx.device)
+		ttf.SetGPUTextEngineWinding(ctx.renderer.pipeline.text_engine, .COUNTER_CLOCKWISE)
+		ctx.renderer.pipeline.instance_buffer = create_buffer(
 			ctx.device,
 			size_of(Instance) * BUFFER_INIT_SIZE,
 			{.VERTEX},
 		)
-		pipeline.text_vertex_buffer = create_buffer(
+		ctx.renderer.pipeline.text_vertex_buffer = create_buffer(
 			ctx.device,
 			size_of(Text_Vert) * BUFFER_INIT_SIZE,
 			{.VERTEX},
 		)
-		pipeline.text_index_buffer = create_buffer(
+		ctx.renderer.pipeline.text_index_buffer = create_buffer(
 			ctx.device,
 			size_of(i32) * BUFFER_INIT_SIZE,
 			{.INDEX},
 		)
-		pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
+		ctx.renderer.pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
 			ctx.device,
 			sdl.GPUTransferBufferCreateInfo {
 				usage = .UPLOAD,
@@ -143,17 +143,17 @@ Renderer_init :: proc(ctx: ^Context) {
 			num_levels           = 1,
 			format               = .R8G8B8A8_UNORM,
 		}
-		pipeline.dummy_texture = sdl.CreateGPUTexture(ctx.device, dummy_texture_info)
+		ctx.renderer.pipeline.dummy_texture = sdl.CreateGPUTexture(ctx.device, dummy_texture_info)
 	}
 }
 
 Renderer_destroy :: proc(ctx: ^Context) {
-	destroy_buffer(ctx.device, &pipeline.instance_buffer)
-	destroy_buffer(ctx.device, &pipeline.text_index_buffer)
-	destroy_buffer(ctx.device, &pipeline.text_vertex_buffer)
-	sdl.ReleaseGPUTransferBuffer(ctx.device, pipeline.texture_buffer)
-	sdl.ReleaseGPUGraphicsPipeline(ctx.device, pipeline.pipeline)
-	delete(commands)
+	destroy_buffer(ctx.device, &ctx.renderer.pipeline.instance_buffer)
+	destroy_buffer(ctx.device, &ctx.renderer.pipeline.text_index_buffer)
+	destroy_buffer(ctx.device, &ctx.renderer.pipeline.text_vertex_buffer)
+	sdl.ReleaseGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
+	sdl.ReleaseGPUGraphicsPipeline(ctx.device, ctx.renderer.pipeline.pipeline)
+	delete(ctx.renderer.commands)
 }
 
 Renderer_draw :: proc(
@@ -162,7 +162,7 @@ Renderer_draw :: proc(
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 	allocator := context.temp_allocator,
 ) {
-	clear(&commands)
+	clear(&ctx.renderer.commands)
 
 	clamp_corners :: proc(cr: clay.CornerRadius, bounds: clay.BoundingBox) -> clay.CornerRadius {
 		return clay.CornerRadius {
@@ -184,7 +184,7 @@ Renderer_draw :: proc(
 			widget_data := transmute(Data_Flags)cmd.userData
 			if .SHADOW in widget_data {
 				append(
-					&commands,
+					&ctx.renderer.commands,
 					Shadow {
 						pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
 						corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
@@ -193,7 +193,7 @@ Renderer_draw :: proc(
 				)
 			} else {
 				append(
-					&commands,
+					&ctx.renderer.commands,
 					Quad {
 						pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
 						corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
@@ -206,7 +206,7 @@ Renderer_draw :: proc(
 			color := f32_color(config.color)
 			cr := clamp_corners(config.cornerRadius, bounds)
 			append(
-				&commands,
+				&ctx.renderer.commands,
 				Quad {
 					pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
 					corners = {cr.topLeft, cr.topRight, cr.bottomLeft, cr.bottomRight},
@@ -219,11 +219,14 @@ Renderer_draw :: proc(
 			font := retrieve_font(ctx, config.fontId, u16(c.float(config.fontSize) * ctx.scaling))
 			text := string(config.stringContents.chars[:config.stringContents.length])
 			c_text := strings.clone_to_cstring(text, allocator)
-			sdl_text := ttf.CreateText(pipeline.text_engine, font, c_text, 0)
-			append(&commands, Text{sdl_text, {bounds.x, bounds.y}, f32_color(config.textColor)})
+			sdl_text := ttf.CreateText(ctx.renderer.pipeline.text_engine, font, c_text, 0)
+			append(
+				&ctx.renderer.commands,
+				Text{sdl_text, {bounds.x, bounds.y}, f32_color(config.textColor)},
+			)
 		case .ScissorStart:
 			append(
-				&commands,
+				&ctx.renderer.commands,
 				ScissorStart {
 					c.int(bounds.x * ctx.scaling),
 					c.int(bounds.y * ctx.scaling),
@@ -232,7 +235,7 @@ Renderer_draw :: proc(
 				},
 			)
 		case .ScissorEnd:
-			append(&commands, ScissorEnd{})
+			append(&ctx.renderer.commands, ScissorEnd{})
 		case .Image:
 			config := cmd.renderData.image
 
@@ -245,7 +248,7 @@ Renderer_draw :: proc(
 				img       = cast(^_Image)config.imageData,
 				color     = f32_color(config.backgroundColor),
 			}
-			append(&commands, image)
+			append(&ctx.renderer.commands, image)
 		case .Custom:
 		case .None:
 		}
@@ -256,13 +259,13 @@ Renderer_draw :: proc(
 		copy_pass := sdl.BeginGPUCopyPass(cmd_buffer)
 		defer sdl.EndGPUCopyPass(copy_pass)
 
-		instances := make([dynamic]Instance, 0, len(commands), allocator)
-		text_vertices := make([dynamic]Text_Vert, 0, len(commands), allocator)
-		text_indices := make([dynamic]c.int, 0, len(commands), allocator)
-		textures := make([dynamic]^_Image, 0, len(commands), allocator)
+		instances := make([dynamic]Instance, 0, len(ctx.renderer.commands), allocator)
+		text_vertices := make([dynamic]Text_Vert, 0, len(ctx.renderer.commands), allocator)
+		text_indices := make([dynamic]c.int, 0, len(ctx.renderer.commands), allocator)
+		textures := make([dynamic]^_Image, 0, len(ctx.renderer.commands), allocator)
 		curr_texture_buffer_size: int
 
-		for command in commands {
+		for command in ctx.renderer.commands {
 			#partial switch cmd in command {
 			case R_Image:
 				append(
@@ -291,20 +294,20 @@ Renderer_draw :: proc(
 		// instances
 		{
 			size := u32(len(instances) * size_of(Instance))
-			resize_buffer(ctx.device, &pipeline.instance_buffer, size, {.VERTEX})
+			resize_buffer(ctx.device, &ctx.renderer.pipeline.instance_buffer, size, {.VERTEX})
 
 			i_array := sdl.MapGPUTransferBuffer(
 				ctx.device,
-				pipeline.instance_buffer.transfer,
+				ctx.renderer.pipeline.instance_buffer.transfer,
 				false,
 			)
 			mem.copy(i_array, raw_data(instances), int(size))
-			sdl.UnmapGPUTransferBuffer(ctx.device, pipeline.instance_buffer.transfer)
+			sdl.UnmapGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.instance_buffer.transfer)
 
 			sdl.UploadToGPUBuffer(
 				copy_pass,
-				{transfer_buffer = pipeline.instance_buffer.transfer},
-				{buffer = pipeline.instance_buffer.gpu, size = size},
+				{transfer_buffer = ctx.renderer.pipeline.instance_buffer.transfer},
+				{buffer = ctx.renderer.pipeline.instance_buffer.gpu, size = size},
 				false,
 			)
 		}
@@ -314,56 +317,84 @@ Renderer_draw :: proc(
 			vert_size := u32(len(text_vertices) * size_of(Text_Vert))
 			indices_size := u32(len(text_indices) * size_of(c.int))
 
-			resize_buffer(ctx.device, &pipeline.text_vertex_buffer, vert_size, {.VERTEX})
-			resize_buffer(ctx.device, &pipeline.text_index_buffer, indices_size, {.INDEX})
+			resize_buffer(
+				ctx.device,
+				&ctx.renderer.pipeline.text_vertex_buffer,
+				vert_size,
+				{.VERTEX},
+			)
+			resize_buffer(
+				ctx.device,
+				&ctx.renderer.pipeline.text_index_buffer,
+				indices_size,
+				{.INDEX},
+			)
 
 			vertex_array := sdl.MapGPUTransferBuffer(
 				ctx.device,
-				pipeline.text_vertex_buffer.transfer,
+				ctx.renderer.pipeline.text_vertex_buffer.transfer,
 				false,
 			)
 			mem.copy(vertex_array, raw_data(text_vertices), int(vert_size))
-			sdl.UnmapGPUTransferBuffer(ctx.device, pipeline.text_vertex_buffer.transfer)
+			sdl.UnmapGPUTransferBuffer(
+				ctx.device,
+				ctx.renderer.pipeline.text_vertex_buffer.transfer,
+			)
 
 			index_array := sdl.MapGPUTransferBuffer(
 				ctx.device,
-				pipeline.text_index_buffer.transfer,
+				ctx.renderer.pipeline.text_index_buffer.transfer,
 				false,
 			)
 			mem.copy(index_array, raw_data(text_indices), int(indices_size))
-			sdl.UnmapGPUTransferBuffer(ctx.device, pipeline.text_index_buffer.transfer)
+			sdl.UnmapGPUTransferBuffer(
+				ctx.device,
+				ctx.renderer.pipeline.text_index_buffer.transfer,
+			)
 
 			sdl.UploadToGPUBuffer(
 				copy_pass,
-				{transfer_buffer = pipeline.text_vertex_buffer.transfer},
-				{buffer = pipeline.text_vertex_buffer.gpu, offset = 0, size = vert_size},
+				{transfer_buffer = ctx.renderer.pipeline.text_vertex_buffer.transfer},
+				{
+					buffer = ctx.renderer.pipeline.text_vertex_buffer.gpu,
+					offset = 0,
+					size = vert_size,
+				},
 				false,
 			)
 
 			sdl.UploadToGPUBuffer(
 				copy_pass,
-				{transfer_buffer = pipeline.text_index_buffer.transfer},
-				{buffer = pipeline.text_index_buffer.gpu, offset = 0, size = indices_size},
+				{transfer_buffer = ctx.renderer.pipeline.text_index_buffer.transfer},
+				{
+					buffer = ctx.renderer.pipeline.text_index_buffer.gpu,
+					offset = 0,
+					size = indices_size,
+				},
 				false,
 			)
 		}
 
 		// textures
-		if .TEXTURE_DIRTY in pipeline.status {
-			if curr_texture_buffer_size > pipeline.texture_buffer_size {
-				sdl.ReleaseGPUTransferBuffer(ctx.device, pipeline.texture_buffer)
-				pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
+		if .TEXTURE_DIRTY in ctx.renderer.pipeline.status {
+			if curr_texture_buffer_size > ctx.renderer.pipeline.texture_buffer_size {
+				sdl.ReleaseGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
+				ctx.renderer.pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
 					ctx.device,
 					sdl.GPUTransferBufferCreateInfo {
 						usage = .UPLOAD,
 						size = max(BUFFER_INIT_SIZE, u32(curr_texture_buffer_size)),
 					},
 				)
-				pipeline.texture_buffer_size = curr_texture_buffer_size
+				ctx.renderer.pipeline.texture_buffer_size = curr_texture_buffer_size
 			}
 
 			transfer_offset := 0
-			texture_array := sdl.MapGPUTransferBuffer(ctx.device, pipeline.texture_buffer, false)
+			texture_array := sdl.MapGPUTransferBuffer(
+				ctx.device,
+				ctx.renderer.pipeline.texture_buffer,
+				false,
+			)
 			for texture in textures {
 				mem.copy(
 					mem.ptr_offset(cast(^u8)texture_array, transfer_offset),
@@ -372,13 +403,16 @@ Renderer_draw :: proc(
 				)
 				transfer_offset += texture.size
 			}
-			sdl.UnmapGPUTransferBuffer(ctx.device, pipeline.texture_buffer)
+			sdl.UnmapGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
 
 			transfer_offset = 0
 			for texture in textures {
 				sdl.UploadToGPUTexture(
 					copy_pass,
-					{transfer_buffer = pipeline.texture_buffer, offset = u32(transfer_offset)},
+					{
+						transfer_buffer = ctx.renderer.pipeline.texture_buffer,
+						offset = u32(transfer_offset),
+					},
 					{
 						texture = texture.texture,
 						w = u32(texture.surface.w),
@@ -419,10 +453,10 @@ Renderer_draw :: proc(
 
 		// binding
 		{
-			sdl.BindGPUGraphicsPipeline(render_pass, pipeline.pipeline)
+			sdl.BindGPUGraphicsPipeline(render_pass, ctx.renderer.pipeline.pipeline)
 			vertex_buffer_bindings := []sdl.GPUBufferBinding {
-				{buffer = pipeline.instance_buffer.gpu},
-				{buffer = pipeline.text_vertex_buffer.gpu},
+				{buffer = ctx.renderer.pipeline.instance_buffer.gpu},
+				{buffer = ctx.renderer.pipeline.text_vertex_buffer.gpu},
 			}
 			sdl.BindGPUVertexBuffers(
 				render_pass,
@@ -430,14 +464,18 @@ Renderer_draw :: proc(
 				raw_data(vertex_buffer_bindings),
 				u32(len(vertex_buffer_bindings)),
 			)
-			sdl.BindGPUIndexBuffer(render_pass, {buffer = pipeline.text_index_buffer.gpu}, ._32BIT)
+			sdl.BindGPUIndexBuffer(
+				render_pass,
+				{buffer = ctx.renderer.pipeline.text_index_buffer.gpu},
+				._32BIT,
+			)
 
 			sdl.BindGPUFragmentSamplers(
 				render_pass,
 				0,
 				&sdl.GPUTextureSamplerBinding {
-					texture = pipeline.dummy_texture,
-					sampler = pipeline.texture_sampler,
+					texture = ctx.renderer.pipeline.dummy_texture,
+					sampler = ctx.renderer.pipeline.texture_sampler,
 				},
 				1,
 			)
@@ -449,7 +487,7 @@ Renderer_draw :: proc(
 		instance_offset, text_index_offset: u32
 		text_vertex_offset: i32
 
-		for command in commands {
+		for command in ctx.renderer.commands {
 			#partial switch cmd in command {
 			case ScissorStart:
 				sdl.SetGPUScissor(render_pass, cmd)
@@ -461,7 +499,7 @@ Renderer_draw :: proc(
 					0,
 					&sdl.GPUTextureSamplerBinding {
 						texture = cmd.img.texture,
-						sampler = pipeline.texture_sampler,
+						sampler = ctx.renderer.pipeline.texture_sampler,
 					},
 					1,
 				)
@@ -476,7 +514,7 @@ Renderer_draw :: proc(
 							0,
 							&sdl.GPUTextureSamplerBinding {
 								texture = data.atlas_texture,
-								sampler = pipeline.texture_sampler,
+								sampler = ctx.renderer.pipeline.texture_sampler,
 							},
 							1,
 						)
@@ -508,7 +546,7 @@ Renderer_draw :: proc(
 
 	// text cleanup -- [TODO] caching
 	{
-		for command in commands {
+		for command in ctx.renderer.commands {
 			#partial switch cmd in command {
 			case Text:
 				ttf.DestroyText(cmd.ref)

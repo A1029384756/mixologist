@@ -62,6 +62,7 @@ Context :: struct {
 	toggle_entry:        ^sdl.TrayEntry,
 	exit_entry:          ^sdl.TrayEntry,
 	// renderer
+	renderer:            Renderer,
 	device:              ^sdl.GPUDevice,
 	memory_debug:        Memory_Debug_Data,
 }
@@ -205,7 +206,7 @@ retrieve_image :: proc(ctx: ^Context, id: int, size: [2]int) -> ^_Image {
 		texture_size := 4 * int(img_surface.w) * int(img_surface.h)
 		ui_img.image = _Image{img_surface, img_texture, texture_size}
 		ui_img.dimensions = size
-		pipeline.status += {.TEXTURE_DIRTY}
+		ctx.renderer.pipeline.status += {.TEXTURE_DIRTY}
 	}
 	return &ui_img.image
 }
@@ -679,7 +680,7 @@ load_image_mem :: proc(ctx: ^Context, data: []u8, size: [2]int) -> int {
 	log.debugf("loaded image of size: [%v, %v]", img_surface.w, img_surface.h)
 	image := _Image{img_surface, img_texture, texture_size}
 
-	pipeline.status += {.TEXTURE_DIRTY}
+	ctx.renderer.pipeline.status += {.TEXTURE_DIRTY}
 	sa.append(&ctx.images, Image{image = image, dimensions = size, data = data})
 	return sa.len(ctx.images) - 1
 }
