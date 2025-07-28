@@ -8,7 +8,6 @@ import "core:mem/virtual"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:sys/posix"
 import "core:text/match"
 
 Daemon_Context :: struct {
