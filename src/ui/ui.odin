@@ -435,7 +435,7 @@ tick :: proc(
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
 	if .WINDOW_CLOSED in ctx.statuses || .WINDOW_MINIMIZED in ctx.statuses {
-		time.sleep(16 * time.Millisecond)
+		time.sleep(100 * time.Millisecond)
 		return
 	}
 
@@ -511,8 +511,6 @@ tick :: proc(
 	if .WINDOW_JUST_SHOWN in ctx.statuses {
 		ctx.statuses -= {.WINDOW_JUST_SHOWN}
 		ctx.statuses += {.DIRTY}
-		_ = sdl.WaitForGPUSwapchain(ctx.device, ctx.window)
-		_ = sdl.WaitForGPUIdle(ctx.device)
 		return
 	}
 	if .DIRTY in ctx.statuses {

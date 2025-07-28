@@ -100,16 +100,16 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 }
 
 gui_event_send :: proc(event: Event, allocator := context.allocator) {
+	if .Gui not_in mixologist.features do return
+
 	event_clone: Event
 	#partial switch event in event {
 	case Program_Add:
 		event_clone = Program_Add(strings.clone(string(event), allocator))
 	case Program_Remove:
 		event_clone = Program_Remove(strings.clone(string(event), allocator))
-	case Open:
-		event_clone = Open{}
-	case Volume:
-		event_clone = Volume{}
+	case Open, Volume_Event:
+		event_clone = event
 	}
 	log.debugf("gui sending event: %v", event_clone)
 	if !chan.send(gui.events, event_clone) {

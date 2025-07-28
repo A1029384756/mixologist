@@ -1,6 +1,5 @@
 package mixologist
 
-import "../common"
 import "../dbus"
 import "base:runtime"
 import "core:encoding/cbor"
@@ -96,7 +95,7 @@ Event :: union {
 	Rule_Update,
 	Program_Add,
 	Program_Remove,
-	Volume,
+	Volume_Event,
 	Settings,
 	Open,
 }
@@ -108,7 +107,7 @@ Rule_Update :: struct {
 	prev: string,
 	cur:  string,
 }
-Volume :: f32
+Volume_Event :: f32
 Open :: distinct rawptr
 
 mixologist: Mixologist
@@ -140,7 +139,7 @@ main :: proc() {
 
 	when ODIN_DEBUG {
 		context.logger = log.create_console_logger(
-			common.get_log_level(),
+			get_log_level(),
 			log.Default_Console_Logger_Opts + {.Thread_Id},
 		)
 		defer log.destroy_console_logger(context.logger)
@@ -180,7 +179,7 @@ main :: proc() {
 		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
 		context.logger = create_file_logger(
 			log_file,
-			common.get_log_level(),
+			get_log_level(),
 			log.Default_File_Logger_Opts + {.Thread_Id},
 		)
 		defer destroy_file_logger(context.logger)
@@ -200,7 +199,7 @@ main :: proc() {
 	ipc_start_err := IPC_Server_init(&mixologist.ipc)
 	if ipc_start_err != nil {
 		fmt.println("detected active mixologist instance, sending wake command")
-		msg: common.Message = common.Wake{}
+		msg: Message = Wake{}
 		send_message(msg)
 		return
 	}
@@ -274,7 +273,7 @@ main :: proc() {
 			Portals_Tick(mixologist.shortcuts.conn)
 		}
 		mixologist_event_process(&mixologist)
-		time.sleep(time.Millisecond)
+		time.sleep(16 * time.Millisecond)
 		free_all(context.temp_allocator)
 	}
 
@@ -365,7 +364,7 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 				}
 			}
 			mixologist_config_write(mixologist)
-		case Volume:
+		case Volume_Event:
 			log.debugf("setting volume: %v", event)
 			mixologist.volume = event
 			mixologist.volume = clamp(mixologist.volume, -1, 1)
@@ -373,7 +372,7 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 			volumes := [2]f32{def_vol, aux_vol}
 			daemon_set_volumes(&daemon, volumes)
 			if .Gui in mixologist.features {
-				gui_event_send(Volume{})
+				gui_event_send(Volume_Event{})
 			}
 			mixologist_write_volume_file(mixologist)
 		case Settings:
@@ -394,15 +393,15 @@ mixologist_event_send :: proc(event: Event) {
 mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 	for ipc_msg in mixologist.ipc.messages {
 		sender := ipc_msg.sender
-		msg: common.Message
+		msg: Message
 		cbor.unmarshal(string(ipc_msg.msg_bytes), &msg) or_continue
 
 		switch msg in msg {
-		case common.Volume:
+		case Volume:
 			switch msg.act {
 			case .Get:
 				log.debugf("getting volume %v: socket %v", msg.val, sender)
-				vol := common.Volume {
+				vol := Volume {
 					act = .Get,
 					val = mixologist.volume,
 				}
@@ -425,7 +424,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			default, aux := daemon_sink_volumes(mixologist.volume)
 			volumes := [2]f32{default, aux}
 			daemon_set_volumes(&daemon, volumes)
-		case common.Program:
+		case Program:
 			switch msg.act {
 			case .Add:
 				log.infof("adding program %s", msg.val)
@@ -440,7 +439,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 				unimplemented("program subscriptions")
 			// [TODO] implement program subscriptions
 			}
-		case common.Wake:
+		case Wake:
 			if .Gui in mixologist.features {
 				gui_event_send(Open{})
 			}
