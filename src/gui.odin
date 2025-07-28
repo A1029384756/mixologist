@@ -492,25 +492,23 @@ list_separator :: proc(color: clay.Color = SURFACE_0) {
 
 rule_add_modal :: proc(ctx: ^GUI_Context) {
 	if .ADDING in ctx.statuses {
-		res, _ := ui.modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, rule_add_menu, ctx)
-		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
+		if ui.modal()({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+			res, _ := rule_add_menu(ctx)
+			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
+		}
 	}
 }
 
 settings_modal :: proc(ctx: ^GUI_Context) {
 	if .SETTINGS in ctx.statuses {
-		res, _ := ui.modal_escapable(&ctx.ui_ctx, CRUST * {1, 1, 1, 0.75}, settings_menu, ctx)
-		if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
+		if ui.modal()({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+			res, _ := settings_menu(ctx)
+			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
+		}
 	}
 }
 
-rule_add_menu :: proc(
-	ui_ctx: ^ui.Context,
-	ctx: rawptr,
-) -> (
-	res: ui.WidgetResults,
-	id: clay.ElementId,
-) {
+rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.ElementId) {
 	ctx := cast(^GUI_Context)ctx
 	if .ADDING_NEW in ctx.statuses {
 		ctx.statuses -= {.ADDING_NEW}
@@ -749,15 +747,7 @@ rule_add_menu :: proc(
 	return
 }
 
-settings_menu :: proc(
-	ui_ctx: ^ui.Context,
-	ctx: rawptr,
-) -> (
-	res: ui.WidgetResults,
-	id: clay.ElementId,
-) {
-	ctx := cast(^GUI_Context)ctx
-
+settings_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.ElementId) {
 	if clay.UI()(
 	{
 		layout = {

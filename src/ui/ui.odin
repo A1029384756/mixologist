@@ -1707,32 +1707,36 @@ textlabel :: proc(text: string, config: clay.TextElementConfig) {
 	clay.TextDynamic(text, textlabel)
 }
 
-modal_escapable :: proc(
-	ctx: ^Context,
-	bg_color: clay.Color,
-	widget: proc(ctx: ^Context, user_data: rawptr) -> (res: WidgetResults, id: clay.ElementId),
-	user_data: rawptr = nil,
-	attachment: clay.FloatingAttachToElement = .Root,
-) -> (
-	res: WidgetResults,
-	id: clay.ElementId,
-) {
-	if clay.UI()(
-	{
+@(deferred_none = _modal_close)
+modal :: proc() -> proc(config: ModalConfig) -> bool {
+	clay._OpenElement()
+	return modal_configure
+}
+
+ModalConfig :: struct {
+	background_color: clay.Color,
+	attachment:       clay.FloatingAttachToElement,
+	user_data:        rawptr,
+}
+modal_configure :: proc(config: ModalConfig = {{}, .Root, nil}) -> bool {
+	elem_config := clay.ElementDeclaration {
 		floating = {
 			attachment = {element = .CenterCenter, parent = .CenterCenter},
-			attachTo = attachment,
+			attachTo = config.attachment,
 		},
 		layout = {
 			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			childAlignment = {x = .Center, y = .Center},
 		},
-		backgroundColor = bg_color,
-	},
-	) {
-		res, id = widget(ctx, user_data)
+		backgroundColor = config.background_color,
+		userData = config.user_data,
 	}
-	return
+	clay.ConfigureOpenElement(elem_config)
+	return true
+}
+
+_modal_close :: proc() {
+	clay._CloseElement()
 }
 
 icon :: proc(
