@@ -22,14 +22,14 @@ mixologist-dbg:
 	odin build ./src -out:builds/mixologist -debug -show-timings  -internal-cached
 
 shaders:
-	mkdir -p src/resources/shaders/compiled
-	glslangValidator -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
+	mkdir -p src/ui/resources/shaders/compiled
+	glslangValidator -V src/ui/resources/shaders/raw/ui.vert -o src/ui/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -V src/ui/resources/shaders/raw/ui.frag -o src/ui/resources/shaders/compiled/ui.frag.spv
 
 shaders-dbg:
-	mkdir -p src/resources/shaders/compiled
-	glslangValidator -g -V src/resources/shaders/raw/ui.vert -o src/resources/shaders/compiled/ui.vert.spv
-	glslangValidator -g -V src/resources/shaders/raw/ui.frag -o src/resources/shaders/compiled/ui.frag.spv
+	mkdir -p src/ui/resources/shaders/compiled
+	glslangValidator -g -V src/ui/resources/shaders/raw/ui.vert -o src/ui/resources/shaders/compiled/ui.vert.spv
+	glslangValidator -g -V src/ui/resources/shaders/raw/ui.frag -o src/ui/resources/shaders/compiled/ui.frag.spv
 
 flat:
 	flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir ./flatpak/dev.cstring.mixologist.yml
