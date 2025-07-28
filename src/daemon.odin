@@ -5,18 +5,21 @@ import "base:runtime"
 import "core:log"
 import "core:mem"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:sys/linux"
-import "core:sys/posix"
 import "core:text/match"
+import "core:thread"
+
+daemon: Daemon_Context
+daemon_thread: ^thread.Thread
 
 Daemon_Context :: struct {
 	// config state
 	config_file:       string,
 	cache_file:        string,
 	// pipewire required state
-	main_loop:         ^pw.thread_loop,
+	main_loop:         ^pw.main_loop,
 	loop:              ^pw.loop,
 	core:              ^pw.core,
 	pw_context:        ^pw.pw_context,
@@ -33,18 +36,20 @@ Daemon_Context :: struct {
 	// allocations
 	arena:             virtual.Arena,
 	allocator:         mem.Allocator,
-	// control flow/ipc state
-	should_exit:       bool,
+}
+
+daemon_proc :: proc(ctx: ^Daemon_Context) {
+	log.info("daemon starting")
+	daemon_init(&daemon)
+	pw.main_loop_run(ctx.main_loop)
+	daemon_deinit(&daemon)
+	log.info("daemon exiting")
 }
 
 daemon_init :: proc(ctx: ^Daemon_Context) {
-	if virtual.arena_init_growing(&ctx.arena) != nil {
-		panic("Couldn't initialize arena")
-	}
-	ctx.allocator = virtual.arena_allocator(&ctx.arena)
-	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY, ctx.allocator)
-	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY, ctx.allocator)
-	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY, ctx.allocator)
+	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY)
+	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY)
+	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY)
 	ctx.pw_odin_ctx = context
 
 	// initialize pipewire
@@ -59,10 +64,9 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 			pw.get_client_name(),
 		)
 
-		ctx.main_loop = pw.thread_loop_new("main", nil)
+		ctx.main_loop = pw.main_loop_new(nil)
 
-		pw.thread_loop_lock(ctx.main_loop)
-		ctx.loop = pw.thread_loop_get_loop(ctx.main_loop)
+		ctx.loop = pw.main_loop_get_loop(ctx.main_loop)
 
 		// required for flatpak volume control
 		ctx.pw_context_props = pw.properties_new(nil, nil)
@@ -84,23 +88,10 @@ daemon_init :: proc(ctx: ^Daemon_Context) {
 		)
 		sink_init(&ctx.aux_sink, "mixologist-aux", aux_volume, ctx.pw_context, &ctx.arena)
 	}
-
-	setup_exit_handlers(ctx)
-	pw.thread_loop_start(ctx.main_loop)
 }
 
-
-daemon_tick :: proc(ctx: ^Daemon_Context) {
-	// this is a no-op but here for the future
-	time: linux.Time_Spec
-	pw.thread_loop_get_time(ctx.main_loop, &time, 1e4)
-	pw.thread_loop_timed_wait_full(ctx.main_loop, &time)
-}
 
 daemon_deinit :: proc(ctx: ^Daemon_Context) {
-	pw.thread_loop_unlock(ctx.main_loop)
-	pw.thread_loop_stop(ctx.main_loop)
-
 	// pipewire cleanup
 	{
 		reset_links(ctx)
@@ -109,33 +100,16 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 		pw.proxy_destroy(cast(^pw.proxy)ctx.registry)
 		pw.core_disconnect(ctx.core)
 		pw.context_destroy(ctx.pw_context)
-		pw.thread_loop_destroy(ctx.main_loop)
+		pw.main_loop_destroy(ctx.main_loop)
 		pw.deinit()
 	}
 
-	free_all(ctx.allocator)
-}
-
-daemon_should_exit :: proc(ctx: ^Daemon_Context) -> bool {
-	return ctx.should_exit
-}
-
-// this relies on terrible undefined behavior
-// but allows us to avoid using sigqueue or globals
-setup_exit_handlers :: proc(ctx: ^Daemon_Context) {
-	do_quit_with_data(.SIGUSR1, ctx)
-	posix.signal(.SIGINT, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
-	posix.signal(.SIGTERM, transmute(proc "c" (_: posix.Signal))do_quit_with_data)
-}
-
-do_quit_with_data :: proc "c" (signum: posix.Signal, data: rawptr) {
-	@(static) ctx: ^Daemon_Context
-	if ctx == nil {
-		ctx = cast(^Daemon_Context)data
-		return
+	for input in ctx.device_inputs {
+		delete(input)
 	}
-	pw.thread_loop_signal(ctx.main_loop, false)
-	ctx.should_exit = true
+	delete(ctx.device_inputs)
+	delete(ctx.passthrough_nodes)
+	delete(ctx.passthrough_ports)
 }
 
 registry_events := pw.registry_events {
@@ -154,6 +128,7 @@ global_add :: proc "c" (
 ) {
 	ctx := cast(^Daemon_Context)data
 	context = ctx.pw_odin_ctx
+	log.infof("global_add called on id: %d", id)
 
 	switch type {
 	case "PipeWire:Interface:Node":
@@ -171,6 +146,7 @@ global_add :: proc "c" (
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	ctx := cast(^Daemon_Context)data
 	context = ctx.pw_odin_ctx
+	log.debugf("global_destroy called on id: %d", id)
 
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
@@ -188,6 +164,18 @@ global_destroy :: proc "c" (data: rawptr, id: u32) {
 			}
 		}
 	}
+
+	passthrough_node, passthrough_node_exists := &ctx.passthrough_nodes[id]
+	if passthrough_node_exists {
+		delete_key(&ctx.passthrough_nodes, id)
+		for _, port in passthrough_node.ports {
+			if slice.contains(ctx.passthrough_ports[:], port) {
+				unordered_remove(&ctx.passthrough_ports, port)
+			}
+		}
+		node_destroy(passthrough_node)
+		delete_key(&ctx.passthrough_nodes, id)
+	}
 }
 
 check_name :: proc(name: string, checks: []string) -> bool {
@@ -202,34 +190,35 @@ check_name :: proc(name: string, checks: []string) -> bool {
 }
 
 node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, props: ^pw.spa_dict) {
+	log.debugf("node handler called")
 	node_name := pw.spa_dict_get(props, "node.name")
 	log.logf(.Debug, "Attempting to add node name %s", node_name)
 	if node_name == "output.mixologist-default" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str, ctx.allocator)
+		node_init(&node, proxy, props, name_str)
 		ctx.default_sink.loopback_node = node
-		log.logf(.Info, "registered default node with id %d", id)
+		log.infof("registered default node with id %d", id)
 	} else if node_name == "output.mixologist-aux" {
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str, ctx.allocator)
+		node_init(&node, proxy, props, name_str)
 		ctx.aux_sink.loopback_node = node
-		log.logf(.Info, "registered aux node with id %d", id)
+		log.infof("registered aux node with id %d", id)
 	} else {
 		application_name := pw.spa_dict_get(props, "application.name")
 		media_class := pw.spa_dict_get(props, "media.class")
 		if application_name == nil && media_class == nil {
-			log.logf(.Info, "could not find application name for node with id %d", id)
+			log.infof("could not find application name for node with id %d", id)
 			return
 		}
 		if media_class == "Audio/Source/Virtual" {
 			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 			node: Node
 			name_str := strings.clone_from_cstring(node_name)
-			node_init(&node, proxy, props, name_str, ctx.allocator)
+			node_init(&node, proxy, props, name_str)
 			ctx.passthrough_nodes[id] = node
 			return
 		} else if media_class != "Stream/Output/Audio" {
@@ -239,13 +228,22 @@ node_handler :: proc(ctx: ^Daemon_Context, id, version: u32, type: cstring, prop
 		proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
-		node_init(&node, proxy, props, name_str, ctx.allocator)
+		node_init(&node, proxy, props, name_str)
 		if daemon_rule_matches(ctx, string(application_name)) {
 			ctx.aux_sink.associated_nodes[id] = node
+			log.infof(
+				"Registered application node of id %d and name %s to aux sink",
+				id,
+				application_name,
+			)
 		} else {
 			ctx.default_sink.associated_nodes[id] = node
+			log.infof(
+				"Registered application node of id %d and name %s to default sink",
+				id,
+				application_name,
+			)
 		}
-		log.logf(.Info, "Registered application node of id %d and name %s", id, application_name)
 	}
 }
 
@@ -261,6 +259,7 @@ daemon_rule_matches :: proc(ctx: ^Daemon_Context, rule: string) -> bool {
 }
 
 port_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict) {
+	log.debugf("port handler called")
 	path := pw.spa_dict_get(props, "object.path")
 	assert(path != nil)
 	cstr_channel := pw.spa_dict_get(props, "audio.channel")
@@ -335,6 +334,7 @@ port_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 }
 
 link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict) {
+	log.debugf("link handler called")
 	src_node, _ := spa_dict_get_u32(props, "link.output.node")
 	src_port, _ := spa_dict_get_u32(props, "link.output.port")
 	dest_port, _ := spa_dict_get_u32(props, "link.input.port")
@@ -356,6 +356,7 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 	for sink, idx in sinks {
 		associated_node, node_exists := sink.associated_nodes[src_node]
 		if !node_exists {
+			log.debugf("node %d does not exist for sink %v", src_node, sink.loopback_node.name)
 			for _, &link in ctx.device_inputs {
 				if link.src == src_port {
 					link.dest = dest_port
@@ -365,8 +366,7 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 			continue
 		}
 
-		log.logf(
-			.Debug,
+		log.debugf(
 			"found source from %d group from node %d with id %d, prospective ports: %d -> %d",
 			idx,
 			src_node,
@@ -391,7 +391,7 @@ link_handler :: proc(ctx: ^Daemon_Context, id, version: u32, props: ^pw.spa_dict
 		} else {
 			for &link in sink.links {
 				if link.src == src_port && link.dest == dest_port {
-					log.logf(.Info, "setting link id %d", id)
+					log.infof("setting link id %d", id)
 					link.id = id
 				}
 			}
@@ -411,7 +411,7 @@ rebuild_connections :: proc(ctx: ^Daemon_Context) {
 
 				for &link in sink.links {
 					if link.src == n_port && link.dest == 0 {
-						log.logf(.Info, "connecting link %d -> %d", n_port, lb_port)
+						log.infof("connecting link %d -> %d", n_port, lb_port)
 						link.dest = lb_port
 						link_connect(&link, ctx.core)
 					}
@@ -427,19 +427,27 @@ daemon_sink_volumes :: proc(vol: f32) -> (def, aux: f32) {
 	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
 }
 
-daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
-	log.logf(.Info, "adding program %s", program)
+_daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
+	log.debugf("internal adding program %s", program)
 	for id, node in ctx.default_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
-		k, v := delete_key(&ctx.default_sink.associated_nodes, id)
-		ctx.aux_sink.associated_nodes[k] = v
+
+		log.debugf("found addition candidate %v with id %v", node.name, id)
+		delete_key(&ctx.default_sink.associated_nodes, id)
+		map_insert(&ctx.aux_sink.associated_nodes, id, node)
+		log.debugf(
+			"node %v moved to aux sink with key %v",
+			ctx.aux_sink.associated_nodes[id].name,
+			id,
+		)
 
 		#reverse for &link, idx in ctx.default_sink.links {
-			for _, src_id in v.ports {
+			for _, src_id in node.ports {
 				if src_id == link.src {
 					pw.registry_destroy(ctx.registry, link.id)
 
 					link_clone := link
+					// reconnect link to trigger link handler
 					link_connect(&link_clone, ctx.core)
 
 					append(&ctx.aux_sink.links, link_clone)
@@ -450,19 +458,26 @@ daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
 	}
 }
 
-daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
-	log.logf(.Info, "removing program %s", program)
+_daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
+	log.debugf("internal removing program %s", program)
 	for id, node in ctx.aux_sink.associated_nodes {
 		if !check_name(node.name, {program}) do continue
-		k, v := delete_key(&ctx.aux_sink.associated_nodes, id)
-		ctx.default_sink.associated_nodes[k] = v
+		log.debugf("found removal candidate %v with id %v", node.name, id)
+		delete_key(&ctx.aux_sink.associated_nodes, id)
+		map_insert(&ctx.default_sink.associated_nodes, id, node)
+		log.debugf(
+			"node %v moved to default sink with key %v",
+			ctx.default_sink.associated_nodes[id].name,
+			id,
+		)
 
 		#reverse for &link, idx in ctx.aux_sink.links {
-			for _, src_id in v.ports {
+			for _, src_id in node.ports {
 				if src_id == link.src {
 					pw.registry_destroy(ctx.registry, link.id)
 
 					link_clone := link
+					// reconnect link to trigger link handler
 					link_connect(&link_clone, ctx.core)
 
 					append(&ctx.default_sink.links, link_clone)
@@ -471,4 +486,85 @@ daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
 			}
 		}
 	}
+}
+
+daemon_invoke_add_program :: proc "c" (
+	loop: ^pw.loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32 {
+	program := cast(^string)user_data
+	context = daemon.pw_odin_ctx
+	log.debugf("invoke adding program %s", program^)
+	_daemon_add_program(&daemon, program^)
+	delete(program^)
+	free(program)
+	return 0
+}
+
+daemon_invoke_remove_program :: proc "c" (
+	loop: ^pw.loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32 {
+	program := cast(^string)user_data
+	context = daemon.pw_odin_ctx
+	log.debugf("invoke removing program %s", program^)
+	_daemon_remove_program(&daemon, program^)
+	delete(program^)
+	free(program)
+	return 0
+}
+
+daemon_invoke_set_volume :: proc "c" (
+	loop: ^pw.loop,
+	async: bool,
+	seq: u32,
+	data: rawptr,
+	size: uint,
+	user_data: rawptr,
+) -> i32 {
+	volumes := cast(^[2]f32)user_data
+	context = daemon.pw_odin_ctx
+	log.debugf("volume callback executed: %v", volumes)
+	sink_set_volume(&daemon.default_sink, volumes[0])
+	sink_set_volume(&daemon.aux_sink, volumes[1])
+	free(volumes)
+	return 0
+}
+
+daemon_set_volumes :: proc(ctx: ^Daemon_Context, volumes: [2]f32) {
+	log.debugf("setting pipewire volumes: %v", volumes)
+	volumes_ptr := new([2]f32, context.allocator)
+	volumes_ptr^ = volumes
+	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
+}
+
+daemon_add_program :: proc(ctx: ^Daemon_Context, program: string) {
+	assert(len(program) != 0)
+	log.debugf("adding program %s", program)
+	program := strings.clone(program)
+	program_ptr := new(string)
+	program_ptr^ = program
+	pw.loop_invoke(ctx.loop, daemon_invoke_add_program, 0, nil, 0, false, program_ptr)
+}
+
+daemon_remove_program :: proc(ctx: ^Daemon_Context, program: string) {
+	assert(len(program) != 0)
+	log.debugf("removing program %s", program)
+	program := strings.clone(program)
+	program_ptr := new(string)
+	program_ptr^ = program
+	pw.loop_invoke(ctx.loop, daemon_invoke_remove_program, 0, nil, 0, false, program_ptr)
+}
+
+daemon_signal_stop :: proc(ctx: ^Daemon_Context) {
+	log.info("daemon signaling stop")
+	pw.main_loop_quit(ctx.main_loop)
 }

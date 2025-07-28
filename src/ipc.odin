@@ -1,6 +1,5 @@
 package mixologist
 
-import "../common"
 import sa "core:container/small_array"
 import "core:encoding/cbor"
 import "core:log"
@@ -27,6 +26,34 @@ IPC_Message :: struct {
 	msg_bytes: []u8,
 	sender:    linux.Fd,
 }
+
+Message :: union {
+	Volume,
+	Program,
+	Wake,
+}
+
+Volume :: struct {
+	act: enum {
+		Set,
+		Shift,
+		Get,
+		Subscribe,
+	},
+	val: f32,
+}
+
+Program :: struct {
+	act: enum {
+		Add,
+		Remove,
+		Subscribe,
+	},
+	val: string,
+}
+
+Wake :: struct {}
+
 
 IPC_Server_init :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
 	posix.signal(.SIGPIPE, IPC_Server__handle_sigpipe)
@@ -91,7 +118,7 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	}
 }
 
-IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: common.Message) {
+IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: Message) {
 	_, found := slice.linear_search(sa.slice(&ctx._removed_clients), client_fd)
 	if found {
 		log.debugf("attempted to send to removed socket: %v, skipping", client_fd)
@@ -138,7 +165,7 @@ IPC_Server_remove_program_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd
 }
 
 IPC_Server_notify_volume_subscription :: proc(ctx: ^IPC_Server_Context, volume: f32) {
-	msg := common.Volume{.Get, volume}
+	msg := Volume{.Get, volume}
 	for client_fd in sa.slice(&ctx._volume_subscribers) do IPC_Server_send(ctx, client_fd, msg)
 }
 

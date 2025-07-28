@@ -1,6 +1,6 @@
 package mixologist
 
-import "./clay"
+import "ui/clay"
 
 ROSEWATER :: clay.Color{245, 224, 220, 255}
 FLAMINGO :: clay.Color{242, 205, 205, 255}

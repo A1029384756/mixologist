@@ -92,7 +92,7 @@ This is currently a JSON file of the following structure:
 }
 ```
 The rules represent the set of programs you wish to isolate.
-The config file is hot-reloaded and can be modified by the 
+The config file is loaded at startup and can be modified by the 
 GUI or just editing it with your favorite text editor.
 
 Volume falloff controls the curve used to set sink volumes

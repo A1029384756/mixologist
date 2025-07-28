@@ -1,6 +1,5 @@
 package mixologist
 
-import "../common"
 import "core:encoding/cbor"
 import "core:fmt"
 import "core:log"
@@ -65,13 +64,13 @@ flag_checker :: proc(
 
 cli_messages :: proc(cli: CLI_State) {
 	if cli.set_volume {
-		send_message(common.Volume{.Set, cli.opts.set_volume})
+		send_message(Volume{.Set, cli.opts.set_volume})
 	} else if cli.shift_volume {
-		send_message(common.Volume{.Shift, cli.opts.shift_volume})
+		send_message(Volume{.Shift, cli.opts.shift_volume})
 	}
 
 	for program in cli.opts.add_program {
-		msg := common.Program {
+		msg := Program {
 			act = .Add,
 			val = program,
 		}
@@ -79,7 +78,7 @@ cli_messages :: proc(cli: CLI_State) {
 	}
 
 	for program in cli.opts.remove_program {
-		msg := common.Program {
+		msg := Program {
 			act = .Remove,
 			val = program,
 		}
@@ -87,7 +86,7 @@ cli_messages :: proc(cli: CLI_State) {
 	}
 
 	if cli.opts.get_volume {
-		msg := common.Volume {
+		msg := Volume {
 			act = .Get,
 			val = 0,
 		}
@@ -95,7 +94,7 @@ cli_messages :: proc(cli: CLI_State) {
 	}
 }
 
-send_message :: proc(msg: common.Message, recv := false) {
+send_message :: proc(msg: Message, recv := false) {
 	message, encoding_err := cbor.marshal(msg)
 	assert(encoding_err == nil)
 	defer delete(message)
@@ -126,10 +125,10 @@ send_message :: proc(msg: common.Message, recv := false) {
 
 		log.logf(.Debug, "recieved %d bytes from server", bytes_read)
 
-		response: common.Message
+		response: Message
 		response_err := cbor.unmarshal(string(buf[:bytes_read]), &response)
 		if response_err != nil do log.panicf("unmarhal from server failed: %v", response_err)
-		res := response.(common.Volume)
+		res := response.(Volume)
 		fmt.println(res.val)
 		break
 	}

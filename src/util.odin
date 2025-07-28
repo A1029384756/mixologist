@@ -1,6 +1,7 @@
 package mixologist
 
 import pw "../pipewire"
+import "base:runtime"
 import "core:bufio"
 import "core:c"
 import "core:fmt"
@@ -152,10 +153,6 @@ reset_links :: proc(ctx: ^Daemon_Context) {
 	pw.main_loop_destroy(cleanup_loop.main_loop)
 }
 
-inotify_event_name :: proc "contextless" (event: ^linux.Inotify_Event) -> cstring {
-	return transmute(cstring)uintptr(&event.name)
-}
-
 File_Console_Logger_Data :: struct {
 	file_handle: ^os2.File,
 	ident:       string,
@@ -239,5 +236,28 @@ string_subst_bytes :: proc(input: string, og, replacement: byte) {
 	input_bytes := transmute([]u8)input
 	for &input_byte in input_bytes {
 		if input_byte == og do input_byte = replacement
+	}
+}
+
+LOG_LEVEL_DEFAULT :: "debug" when ODIN_DEBUG else "info"
+LOG_LEVEL :: #config(LOG_LEVEL, LOG_LEVEL_DEFAULT)
+
+get_log_level :: #force_inline proc() -> runtime.Logger_Level {
+	when LOG_LEVEL == "debug" {
+		return .Debug
+	} else when LOG_LEVEL == "info" {
+		return .Info
+	} else when LOG_LEVEL == "warning" {
+		return .Warning
+	} else when LOG_LEVEL == "error" {
+		return .Error
+	} else when LOG_LEVEL == "fatal" {
+		return .Fatal
+	} else {
+		#panic(
+			"Unknown `ODIN_TEST_LOG_LEVEL`: \"" +
+			LOG_LEVEL +
+			"\", possible levels are: \"debug\", \"info\", \"warning\", \"error\", or \"fatal\".",
+		)
 	}
 }
