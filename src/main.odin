@@ -21,25 +21,20 @@ import "core:time"
 
 Mixologist :: struct {
 	// state
-	statuses:      Statuses,
-	events:        chan.Chan(Event),
-	config_mutex:  sync.Mutex,
+	statuses:     Statuses,
+	events:       chan.Chan(Event),
+	config_mutex: sync.Mutex,
 	// ipc
-	ipc:           IPC_Server_Context,
-	// subapp states
-	daemon:        Daemon_Context,
-	daemon_thread: ^thread.Thread,
-	gui:           GUI_Context,
-	gui_thread:    ^thread.Thread,
-	shortcuts:     GlobalShortcuts_Session,
+	ipc:          IPC_Server_Context,
+	shortcuts:    GlobalShortcuts_Session,
 	// config
-	config_dir:    string,
-	cache_dir:     string,
-	volume_file:   string,
-	config:        Config,
-	volume:        f32,
+	config_dir:   string,
+	cache_dir:    string,
+	volume_file:  string,
+	config:       Config,
+	volume:       f32,
 	// atomic
-	exit:          bool,
+	exit:         bool,
 }
 
 Config :: struct {
@@ -263,19 +258,11 @@ main :: proc() {
 
 	// init app state
 	if .Daemon in mixologist.statuses {
-		mixologist.daemon_thread = thread.create_and_start_with_poly_data(
-			&mixologist.daemon,
-			daemon_proc,
-			context,
-		)
+		daemon_thread = thread.create_and_start_with_poly_data(&daemon, daemon_proc, context)
 	}
 
 	if .Gui in mixologist.statuses {
-		mixologist.gui_thread = thread.create_and_start_with_poly_data(
-			&mixologist.gui,
-			gui_proc,
-			context,
-		)
+		gui_thread = thread.create_and_start_with_poly_data(&gui, gui_proc, context)
 	}
 
 	for !mixologist_should_exit() {
@@ -293,12 +280,12 @@ main :: proc() {
 
 	log.infof("main event loop exiting")
 	if .Daemon in mixologist.statuses {
-		daemon_signal_stop(&mixologist.daemon)
-		thread.join(mixologist.daemon_thread)
+		daemon_signal_stop(&daemon)
+		thread.join(daemon_thread)
 	}
 
 	if .Gui in mixologist.statuses {
-		thread.join(mixologist.gui_thread)
+		thread.join(gui_thread)
 	}
 
 	if .GlobalShortcuts in mixologist.statuses {
@@ -331,14 +318,14 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 		#partial switch event in event {
 		case Rule_Add:
 			log.debugf("adding rule: %v", event)
-			daemon_add_program(&mixologist.daemon, string(event))
+			daemon_add_program(&daemon, string(event))
 			if sync.mutex_guard(&mixologist.config_mutex) {
 				append(&mixologist.config.rules, string(event))
 			}
 			mixologist_config_write(mixologist)
 		case Rule_Remove:
 			log.debugf("removing rule: %v", event)
-			daemon_remove_program(&mixologist.daemon, string(event))
+			daemon_remove_program(&daemon, string(event))
 			if sync.mutex_guard(&mixologist.config_mutex) {
 				#reverse for rule, idx in mixologist.config.rules {
 					if rule == string(event) {
@@ -352,7 +339,7 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 		case Rule_Update:
 			if len(event.cur) == 0 {
 				log.debugf("updating to zero-length rule: %v", event.prev)
-				daemon_remove_program(&mixologist.daemon, event.prev)
+				daemon_remove_program(&daemon, event.prev)
 				if sync.mutex_guard(&mixologist.config_mutex) {
 					for rule, idx in mixologist.config.rules {
 						if rule == event.prev {
@@ -365,8 +352,8 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 				}
 			} else {
 				log.debugf("updating rule: %v -> %v", event.prev, event.cur)
-				daemon_remove_program(&mixologist.daemon, event.prev)
-				daemon_add_program(&mixologist.daemon, event.cur)
+				daemon_remove_program(&daemon, event.prev)
+				daemon_add_program(&daemon, event.cur)
 				if sync.mutex_guard(&mixologist.config_mutex) {
 					for &rule in mixologist.config.rules {
 						if rule == event.prev {
@@ -384,7 +371,7 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 			mixologist.volume = clamp(mixologist.volume, -1, 1)
 			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
 			volumes := [2]f32{def_vol, aux_vol}
-			daemon_set_volumes(&mixologist.daemon, volumes)
+			daemon_set_volumes(&daemon, volumes)
 			if .Gui in mixologist.statuses {
 				gui_event_send(Volume{})
 			}
@@ -437,7 +424,7 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 
 			default, aux := daemon_sink_volumes(mixologist.volume)
 			volumes := [2]f32{default, aux}
-			daemon_set_volumes(&mixologist.daemon, volumes)
+			daemon_set_volumes(&daemon, volumes)
 		case common.Program:
 			switch msg.act {
 			case .Add:

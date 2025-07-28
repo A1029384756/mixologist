@@ -5,6 +5,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:sync/chan"
+import "core:thread"
 import "ui"
 import "ui/clay"
 
@@ -17,6 +18,9 @@ GUI_Context_Status :: enum u8 {
 	DEBUGGING,
 }
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
+
+gui: GUI_Context
+gui_thread: ^thread.Thread
 
 GUI_Context :: struct {
 	ui_ctx:            ui.Context,
@@ -39,12 +43,12 @@ GUI_Context :: struct {
 
 gui_proc :: proc(ctx: ^GUI_Context) {
 	log.info("gui starting")
-	gui_init(&mixologist.gui, mixologist.config.settings.start_minimized)
-	for !(ui.should_exit(&mixologist.gui.ui_ctx) || mixologist_should_exit()) {
-		gui_tick(&mixologist.gui)
+	gui_init(&gui, mixologist.config.settings.start_minimized)
+	for !(ui.should_exit(&gui.ui_ctx) || mixologist_should_exit()) {
+		gui_tick(&gui)
 		free_all(context.temp_allocator)
 	}
-	gui_deinit(&mixologist.gui)
+	gui_deinit(&gui)
 	log.info("gui exiting")
 	mixologist_signal_exit()
 }
@@ -108,7 +112,7 @@ gui_event_send :: proc(event: Event, allocator := context.allocator) {
 		event_clone = Volume{}
 	}
 	log.debugf("gui sending event: %v", event_clone)
-	if !chan.send(mixologist.gui.events, event_clone) {
+	if !chan.send(gui.events, event_clone) {
 		#partial switch event_clone in event_clone {
 		case Program_Add:
 			delete(string(event_clone))

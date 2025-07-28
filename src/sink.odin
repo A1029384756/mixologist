@@ -197,7 +197,7 @@ volume_falloff :: proc(volume: f32, falloff: Volume_Falloff) -> f32 {
 }
 
 module_destroy :: proc "c" (data: rawptr) {
-	context = mixologist.daemon.pw_odin_ctx
+	context = daemon.pw_odin_ctx
 	sink := transmute(^Sink)data
 	pw.spa_hook_remove(&sink.device.module_listener)
 	for _, &node in sink.associated_nodes {

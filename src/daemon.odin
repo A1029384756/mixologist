@@ -9,6 +9,10 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:text/match"
+import "core:thread"
+
+daemon: Daemon_Context
+daemon_thread: ^thread.Thread
 
 Daemon_Context :: struct {
 	// config state
@@ -36,9 +40,9 @@ Daemon_Context :: struct {
 
 daemon_proc :: proc(ctx: ^Daemon_Context) {
 	log.info("daemon starting")
-	daemon_init(&mixologist.daemon)
+	daemon_init(&daemon)
 	pw.main_loop_run(ctx.main_loop)
-	daemon_deinit(&mixologist.daemon)
+	daemon_deinit(&daemon)
 	log.info("daemon exiting")
 	mixologist_should_exit()
 }
@@ -494,9 +498,9 @@ daemon_invoke_add_program :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	program := cast(^string)user_data
-	context = mixologist.daemon.pw_odin_ctx
+	context = daemon.pw_odin_ctx
 	log.debugf("invoke adding program %s", program^)
-	_daemon_add_program(&mixologist.daemon, program^)
+	_daemon_add_program(&daemon, program^)
 	delete(program^)
 	free(program)
 	return 0
@@ -511,9 +515,9 @@ daemon_invoke_remove_program :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	program := cast(^string)user_data
-	context = mixologist.daemon.pw_odin_ctx
+	context = daemon.pw_odin_ctx
 	log.debugf("invoke removing program %s", program^)
-	_daemon_remove_program(&mixologist.daemon, program^)
+	_daemon_remove_program(&daemon, program^)
 	delete(program^)
 	free(program)
 	return 0
@@ -528,10 +532,10 @@ daemon_invoke_set_volume :: proc "c" (
 	user_data: rawptr,
 ) -> i32 {
 	volumes := cast(^[2]f32)user_data
-	context = mixologist.daemon.pw_odin_ctx
+	context = daemon.pw_odin_ctx
 	log.debugf("volume callback executed: %v", volumes)
-	sink_set_volume(&mixologist.daemon.default_sink, volumes[0])
-	sink_set_volume(&mixologist.daemon.aux_sink, volumes[1])
+	sink_set_volume(&daemon.default_sink, volumes[0])
+	sink_set_volume(&daemon.aux_sink, volumes[1])
 	free(volumes)
 	return 0
 }
