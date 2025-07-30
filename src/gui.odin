@@ -73,6 +73,7 @@ gui_tick :: proc(ctx: ^GUI_Context) {
 }
 
 gui_deinit :: proc(ctx: ^GUI_Context) {
+	gui_event_process(ctx)
 	ui.deinit(&ctx.ui_ctx)
 	for program in ctx.selected_programs {
 		delete(program)
