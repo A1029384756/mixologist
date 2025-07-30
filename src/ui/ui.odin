@@ -324,6 +324,7 @@ deinit :: proc(ctx: ^Context) {
 		sdl.DestroySurface(img.image.surface)
 	}
 
+	sdl.ReleaseWindowFromGPUDevice(ctx.device, ctx.window)
 	Renderer_destroy(ctx)
 
 	sdl.DestroyWindow(ctx.window)
@@ -521,14 +522,7 @@ tick :: proc(
 	if .EVENT in ctx.statuses {
 		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
 		Renderer_draw(ctx, cmd_buffer, &render_commands)
-		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
-		if fence == nil {
-			log.error("fence is nil")
-			return
-		}
-
-		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
-		sdl.ReleaseGPUFence(ctx.device, fence)
+		_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
 		ctx.prev_event_time = time.tick_now()
 	} else {
 		time.sleep(ctx.prev_frametime)
