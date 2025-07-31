@@ -117,72 +117,13 @@ when ODIN_DEBUG {
 }
 
 main :: proc() {
-	// set up data file locations
-	{
-		user_config_dir :=
-			os2.user_config_dir(context.allocator) or_else log.panic(
-				"could not get user config dir",
-			)
-		mixologist.config_dir =
-			os2.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
-				"could not create config path",
-			)
-		mixologist.cache_dir =
-			os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
-		mixologist.volume_file =
-			os2.join_path(
-				{mixologist.cache_dir, "mixologist.volume"},
-				context.allocator,
-			) or_else log.panic("could not create volume path")
-	}
+	mixologist_init_data_files(&mixologist)
 
-	when ODIN_DEBUG {
-		context.logger = log.create_console_logger(
-			get_log_level(),
-			log.Default_Console_Logger_Opts + {.Thread_Id},
-		)
-		defer log.destroy_console_logger(context.logger)
+	context.allocator = mixologist_init_allocator(&mixologist)
+	defer mixologist_deinit_allocator(&mixologist)
 
-		mem.tracking_allocator_init(&track, context.allocator)
-		defer mem.tracking_allocator_destroy(&track)
-		context.allocator = mem.tracking_allocator(&track)
-
-		defer {
-			for _, leak in track.allocation_map {
-				if strings.contains(leak.location.file_path, "mixologist") {
-					log.warnf("%v leaked %m\n", leak.location, leak.size)
-				}
-			}
-		}
-	} else {
-		log_path :=
-			os2.join_path(
-				{mixologist.cache_dir, "mixologist.log"},
-				context.allocator,
-			) or_else log.panic("could not create log path")
-
-		open_flags := os2.File_Flags{.Write, .Create}
-		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
-
-		if os2.exists(log_path) {
-			log_info, stat_err := os2.stat(log_path, context.allocator)
-			defer os2.file_info_delete(log_info, context.allocator)
-
-			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
-				open_flags += {.Trunc}
-			} else if log_info.size <= TRUNC_THRESHOLD {
-				open_flags += {.Append}
-			}
-		}
-
-		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
-		context.logger = create_file_logger(
-			log_file,
-			get_log_level(),
-			log.Default_File_Logger_Opts + {.Thread_Id},
-		)
-		defer destroy_file_logger(context.logger)
-	}
+	context.logger = mixologist_init_logging(&mixologist)
+	defer mixologist_deinit_logging(&mixologist)
 
 	flags.register_flag_checker(flag_checker)
 	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
@@ -537,5 +478,86 @@ mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
 	err := os2.write_entire_file(mixologist.volume_file, transmute([]u8)volume_string)
 	if err != nil {
 		log.errorf("could not write volume file: %s", err)
+	}
+}
+
+mixologist_init_data_files :: proc(mixologist: ^Mixologist) {
+	user_config_dir :=
+		os2.user_config_dir(context.allocator) or_else log.panic("could not get user config dir")
+	mixologist.config_dir =
+		os2.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
+			"could not create config path",
+		)
+	mixologist.cache_dir =
+		os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
+	mixologist.volume_file =
+		os2.join_path(
+			{mixologist.cache_dir, "mixologist.volume"},
+			context.allocator,
+		) or_else log.panic("could not create volume path")
+}
+
+mixologist_init_logging :: proc(mixologist: ^Mixologist) -> (logger: log.Logger) {
+	when ODIN_DEBUG {
+		logger = log.create_console_logger(
+			get_log_level(),
+			log.Default_Console_Logger_Opts + {.Thread_Id},
+		)
+		defer log.destroy_console_logger(context.logger)
+	} else {
+		log_path :=
+			os2.join_path(
+				{mixologist.cache_dir, "mixologist.log"},
+				context.allocator,
+			) or_else log.panic("could not create log path")
+
+		open_flags := os2.File_Flags{.Write, .Create}
+		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
+
+		if os2.exists(log_path) {
+			log_info, stat_err := os2.stat(log_path, context.allocator)
+			defer os2.file_info_delete(log_info, context.allocator)
+
+			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
+				open_flags += {.Trunc}
+			} else if log_info.size <= TRUNC_THRESHOLD {
+				open_flags += {.Append}
+			}
+		}
+
+		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
+		logger = create_file_logger(
+			log_file,
+			get_log_level(),
+			log.Default_File_Logger_Opts + {.Thread_Id},
+		)
+	}
+	return
+}
+
+mixologist_deinit_logging :: proc(mixologist: ^Mixologist) {
+	when ODIN_DEBUG {
+		log.destroy_console_logger(context.logger)
+	} else {
+		destroy_file_logger(context.logger)
+	}
+}
+
+mixologist_init_allocator :: proc(mixologist: ^Mixologist) -> runtime.Allocator {
+	when ODIN_DEBUG {
+		mem.tracking_allocator_init(&track, context.allocator)
+		return mem.tracking_allocator(&track)
+	} else {
+		return context.allocator
+	}
+}
+
+mixologist_deinit_allocator :: proc(mixologist: ^Mixologist) {
+	when ODIN_DEBUG {
+		for _, leak in track.allocation_map {
+			if strings.contains(leak.location.file_path, "mixologist") {
+				log.warnf("%v leaked %m\n", leak.location, leak.size)
+			}
+		}
 	}
 }

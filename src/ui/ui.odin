@@ -437,7 +437,7 @@ tick :: proc(
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
 	if .WINDOW_CLOSED in ctx.statuses || .WINDOW_MINIMIZED in ctx.statuses {
-		time.sleep(100 * time.Millisecond)
+		time.sleep(time.Millisecond)
 		return
 	}
 
