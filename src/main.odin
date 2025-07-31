@@ -497,13 +497,12 @@ mixologist_init_data_files :: proc(mixologist: ^Mixologist) {
 		) or_else log.panic("could not create volume path")
 }
 
-mixologist_init_logging :: proc(mixologist: ^Mixologist) -> (logger: log.Logger) {
+mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 	when ODIN_DEBUG {
-		logger = log.create_console_logger(
+		return log.create_console_logger(
 			get_log_level(),
 			log.Default_Console_Logger_Opts + {.Thread_Id},
 		)
-		defer log.destroy_console_logger(context.logger)
 	} else {
 		log_path :=
 			os2.join_path(
@@ -526,13 +525,12 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> (logger: log.Logger)
 		}
 
 		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
-		logger = create_file_logger(
+		return create_file_logger(
 			log_file,
 			get_log_level(),
 			log.Default_File_Logger_Opts + {.Thread_Id},
 		)
 	}
-	return
 }
 
 mixologist_deinit_logging :: proc(mixologist: ^Mixologist) {
