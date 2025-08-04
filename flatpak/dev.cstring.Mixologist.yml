@@ -7,11 +7,10 @@ sdk-extensions:
 command: dev.cstring.Mixologist
 finish-args:
   - --share=network
+  - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  - --filesystem=xdg-data
-  - --filesystem=xdg-config/mixologist
   - --filesystem=xdg-run/pipewire-0
   # tray icons
   - --filesystem=/tmp

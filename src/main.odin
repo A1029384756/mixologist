@@ -488,8 +488,23 @@ mixologist_init_data_files :: proc(mixologist: ^Mixologist) {
 		os2.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
 			"could not create config path",
 		)
-	mixologist.cache_dir =
+	if !os2.exists(mixologist.config_dir) {
+		config_dir_err := os2.make_directory_all(mixologist.config_dir)
+		if config_dir_err != nil {
+			log.panicf("could not create config dir: %v", config_dir_err)
+		}
+	}
+
+	cache_dir :=
 		os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
+	mixologist.cache_dir, _ = os2.join_path({cache_dir, "mixologist"}, context.allocator)
+	if !os2.exists(mixologist.cache_dir) {
+		cache_dir_err := os2.make_directory_all(mixologist.cache_dir)
+		if cache_dir_err != nil {
+			log.panicf("could not create cache dir: %v", cache_dir_err)
+		}
+	}
+
 	mixologist.volume_file =
 		os2.join_path(
 			{mixologist.cache_dir, "mixologist.volume"},
