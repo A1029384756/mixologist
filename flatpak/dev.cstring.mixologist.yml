@@ -7,7 +7,6 @@ sdk-extensions:
 command: dev.cstring.Mixologist
 finish-args:
   - --share=network
-  - --share=ipc
   - --socket=wayland
   - --device=dri
   - --filesystem=xdg-data
