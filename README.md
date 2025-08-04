@@ -77,7 +77,7 @@ Volume is a single value that can range from -1 to 1 where:
 - -1 is only every other program
 
 ### Configuration
-The config file resides at `~/.config/mixologist/mixologist.json`.
+The config file resides at `${XDG_CONFIG_HOME}/mixologist/mixologist.json`.
 This is currently a JSON file of the following structure:
 ```json
 {
