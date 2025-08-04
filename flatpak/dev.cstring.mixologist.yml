@@ -8,6 +8,7 @@ command: dev.cstring.Mixologist
 finish-args:
   - --share=network
   - --socket=wayland
+  - --socket=fallback-x11
   - --device=dri
   - --filesystem=xdg-data
   - --filesystem=xdg-config/mixologist
