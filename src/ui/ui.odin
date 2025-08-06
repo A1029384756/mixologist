@@ -806,7 +806,16 @@ textbox :: proc(
 	res: WidgetResults,
 	id: clay.ElementId,
 ) {
-	res, id = _textbox(ctx, buf, textlen, placeholder_text, config, border_config, text_config)
+	res, id = _textbox(
+		ctx,
+		buf,
+		textlen,
+		placeholder_text,
+		config,
+		border_config,
+		text_config,
+		enabled,
+	)
 
 	if enabled {
 		active := widget_active(ctx, id)
@@ -1103,6 +1112,7 @@ _textbox :: proc(
 	config: clay.ElementDeclaration,
 	border_config: clay.BorderElementConfig,
 	text_config: clay.TextElementConfig,
+	enabled: bool,
 ) -> (
 	res: WidgetResults,
 	id: clay.ElementId,
@@ -1115,7 +1125,7 @@ _textbox :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		active := widget_active(ctx, local_id)
+		active := widget_active(ctx, local_id) && enabled
 		if !active do border_config.width = {}
 		if !active do config.backgroundColor *= {0.8, 0.8, 0.8, 1}
 		config.border = border_config
