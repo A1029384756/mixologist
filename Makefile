@@ -32,5 +32,5 @@ shaders-dbg:
 	glslangValidator -g -V src/ui/resources/shaders/raw/ui.frag -o src/ui/resources/shaders/compiled/ui.frag.spv
 
 flat:
-	flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir ./flatpak/dev.cstring.mixologist.yml
+	flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir ./flatpak/dev.cstring.Mixologist.yml
 	flatpak build-bundle repo builds/mixologist.flatpak dev.cstring.Mixologist --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
