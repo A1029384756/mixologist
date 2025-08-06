@@ -462,7 +462,9 @@ _GlobalShortcuts_DeserializeShortcuts :: proc(
 			"trigger_description",
 		)
 		if !trigger_description_found {
-			log.panic("could not get trigger description")
+			// [TODO] find out why this only happens on hyprland
+			log.debugf("could not get trigger description for shortcuts: %v", shortcuts)
+			return shortcuts
 		}
 
 		description_cstr, trigger_description_cstr: cstring
