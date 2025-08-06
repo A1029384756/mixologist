@@ -177,7 +177,7 @@ retrieve_font :: proc(ctx: ^Context, id, size: u16) -> ^ttf.Font {
 	if just_inserted {
 		font_stream := sdl.IOFromConstMem(raw_data(sdl_font.data), len(sdl_font.data))
 		font^ = ttf.OpenFontIO(font_stream, true, c.float(size))
-		_ = ttf.SetFontSizeDPI(font^, f32(size), 72 * c.int(ctx.scaling), 72 * c.int(ctx.scaling))
+		_ = ttf.SetFontSizeDPI(font^, f32(size), 72, 72)
 	}
 	return font^
 }
