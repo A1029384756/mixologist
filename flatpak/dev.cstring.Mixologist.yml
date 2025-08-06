@@ -13,7 +13,6 @@ finish-args:
   - --device=dri
   - --filesystem=xdg-run/pipewire-0
   # tray icons
-  - --filesystem=/tmp
   - --talk-name=org.kde.StatusNotifierWatcher
 build-options:
   append-path: /usr/lib/sdk/llvm20/bin
@@ -39,7 +38,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL.git
-        tag: release-3.2.10
+        commit: b139821903b456021011cbc7ca6abaca6ced3f66
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
