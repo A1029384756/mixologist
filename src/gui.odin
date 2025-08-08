@@ -467,8 +467,7 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 			)
 
 			if .RELEASE in button_res {
-				ui.widget_focus(&ctx.ui_ctx, tb_id)
-				ui.status_add(&ctx.ui_ctx, {.TEXTBOX_SELECTED})
+				ui.widget_focus(&ctx.ui_ctx, tb_id, {.TEXTBOX_JUST_SELECTED})
 				ui.textbox_reset(&ctx.ui_ctx, len(rule))
 				copy(ctx.active_line_buf[:], rule)
 				ctx.active_line_len = len(rule)

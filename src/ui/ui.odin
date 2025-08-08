@@ -129,6 +129,8 @@ Context_Status :: enum {
 	DIRTY,
 	EVENT,
 	TEXTBOX_SELECTED,
+	TEXTBOX_JUST_SELECTED,
+	TEXTBOX_JUST_DESELECTED,
 	TEXTBOX_HOVERING,
 	BUTTON_HOVERING,
 	DOUBLE_CLICKED,
@@ -286,8 +288,6 @@ init :: proc(ctx: ^Context, minimized: bool) {
 	HAND_CURSOR = sdl.CreateSystemCursor(.POINTER)
 	DEFAULT_CURSOR = sdl.GetDefaultCursor()
 
-	_ = sdl.StartTextInput(ctx.window)
-
 	window_size: [2]c.int
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	clay.Initialize(
@@ -350,7 +350,7 @@ tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
-		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING}
+		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED}
 	}
 
 	event: sdl.Event
@@ -515,6 +515,16 @@ tick :: proc(
 		ctx.statuses += {.DIRTY}
 		return
 	}
+	if .TEXTBOX_JUST_SELECTED in ctx.statuses {
+		ctx.statuses -= {.TEXTBOX_JUST_SELECTED}
+		ctx.statuses += {.TEXTBOX_SELECTED}
+		log.debugf("starting text input")
+		_ = sdl.StartTextInput(ctx.window)
+	} else if .TEXTBOX_JUST_DESELECTED in ctx.statuses {
+		ctx.statuses -= {.TEXTBOX_JUST_DESELECTED}
+		log.debugf("stopping text input")
+		_ = sdl.StopTextInput(ctx.window)
+	}
 	if .DIRTY in ctx.statuses {
 		ctx.statuses -= {.DIRTY}
 		ctx.statuses += {.EVENT}
@@ -622,8 +632,15 @@ widget_active :: proc(ctx: ^Context, id: clay.ElementId) -> bool {
 	return slice.contains(sa.slice(&ctx.active_widgets), id)
 }
 
-widget_focus :: proc(ctx: ^Context, id: clay.ElementId) {
+widget_focus :: proc(
+	ctx: ^Context,
+	id: clay.ElementId,
+	add_statuses: Context_Statuses = {},
+	remove_statuses: Context_Statuses = {},
+) {
 	if !slice.contains(sa.slice(&ctx.active_widgets), id) do sa.append(&ctx.active_widgets, id)
+	ctx.statuses -= remove_statuses
+	ctx.statuses += add_statuses
 }
 
 status_add :: proc(ctx: ^Context, statuses: Context_Statuses) {
@@ -634,13 +651,26 @@ textbox_reset :: proc(ctx: ^Context, textlen: int) {
 	ctx.textbox_state.selection = {textlen, textlen}
 }
 
-unfocus :: proc(ctx: ^Context, id: clay.ElementId) {
+unfocus :: proc(
+	ctx: ^Context,
+	id: clay.ElementId,
+	add_statuses: Context_Statuses = {},
+	remove_statuses: Context_Statuses = {},
+) {
 	idx, found := slice.linear_search(sa.slice(&ctx.active_widgets), id)
 	if found do sa.unordered_remove(&ctx.active_widgets, idx)
+	ctx.statuses -= remove_statuses
+	ctx.statuses += add_statuses
 }
 
-unfocus_all :: proc(ctx: ^Context) {
+unfocus_all :: proc(
+	ctx: ^Context,
+	add_statuses: Context_Statuses = {},
+	remove_statuses: Context_Statuses = {},
+) {
 	sa.clear(&ctx.active_widgets)
+	ctx.statuses -= remove_statuses
+	ctx.statuses += add_statuses
 }
 
 window_closed :: proc(ctx: ^Context) -> bool {
@@ -817,16 +847,25 @@ textbox :: proc(
 		enabled,
 	)
 
+	active := widget_active(ctx, id)
 	if enabled {
-		active := widget_active(ctx, id)
 		if .HOVER in res do ctx.statuses += {.TEXTBOX_HOVERING}
 
 		if active {
-			if .CANCEL in res do unfocus(ctx, id)
-			if .SUBMIT in res && textlen^ > 0 do unfocus(ctx, id)
+			if .CANCEL in res {
+				ctx.statuses += {.TEXTBOX_JUST_DESELECTED}
+				unfocus(ctx, id)
+			}
+			if .SUBMIT in res && textlen^ > 0 {
+				ctx.statuses += {.TEXTBOX_JUST_DESELECTED}
+				unfocus(ctx, id)
+			}
 		}
 	}
-	if .HOVER not_in res && .LEFT in ctx.mouse_pressed do unfocus(ctx, id)
+	if active && .HOVER not_in res && .LEFT in ctx.mouse_pressed {
+		ctx.statuses += {.TEXTBOX_JUST_DESELECTED}
+		unfocus(ctx, id)
+	}
 	return
 }
 
@@ -1138,6 +1177,7 @@ _textbox :: proc(
 
 			if .LEFT in ctx.mouse_pressed && !active {
 				widget_focus(ctx, id)
+				ctx.statuses += {.TEXTBOX_JUST_SELECTED}
 				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
 				ctx.click_count = 1
 				res += {.PRESS, .FOCUS}
@@ -1169,6 +1209,7 @@ _textbox :: proc(
 				boundingbox := elem_loc_data.boundingBox
 
 				if active {
+					ctx.statuses += {.TEXTBOX_SELECTED}
 					builder := strings.builder_from_bytes(buf)
 					non_zero_resize(&builder.buf, textlen^)
 					ctx.textbox_state.builder = &builder
