@@ -1523,6 +1523,9 @@ _slider :: proc(
 				pos^ -= scroll / 10
 				pos^ = clamp(pos^, min_val, max_val)
 				res += {.CHANGE}
+			} else if clay.Hovered() && .DOUBLE_CLICKED in ctx.statuses {
+				pos^ = default_val
+				res += {.DOUBLE_PRESS, .CHANGE}
 			}
 
 			selected_color := color
