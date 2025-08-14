@@ -1175,7 +1175,7 @@ _textbox :: proc(
 			ctx.hovered_widget = id
 			res += {.HOVER}
 
-			if .LEFT in ctx.mouse_pressed && !active {
+			if .LEFT in ctx.mouse_pressed && !active && enabled {
 				widget_focus(ctx, id)
 				ctx.statuses += {.TEXTBOX_JUST_SELECTED}
 				ctx.statuses -= {.DOUBLE_CLICKED, .TRIPLE_CLICKED}
