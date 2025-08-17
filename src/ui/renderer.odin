@@ -52,15 +52,15 @@ Renderer_init :: proc(ctx: ^Context) {
 	
 	  // odinfmt:disable
 		vert_attrs := []sdl.GPUVertexAttribute {
-			{buffer_slot = 0, location = 0, format = .FLOAT4, offset = 0 * size_of([4]f32)}, // i_pos_scale
-			{buffer_slot = 0, location = 1, format = .FLOAT4, offset = 1 * size_of([4]f32)}, // i_corners
-			{buffer_slot = 0, location = 2, format = .FLOAT4, offset = 2 * size_of([4]f32)}, // i_color
-			{buffer_slot = 0, location = 3, format = .FLOAT4, offset = 3 * size_of([4]f32)}, // i_border_color
-			{buffer_slot = 0, location = 4, format = .FLOAT, offset = 4 * size_of([4]f32)}, // i_border_width
-			{buffer_slot = 0, location = 5, format = .FLOAT2, offset = size_of(f32) + 4 * size_of([4]f32)}, // i_text_pos
-			{buffer_slot = 0, location = 6, format = .FLOAT, offset = 3 * size_of(f32) + 4 * size_of([4]f32)}, // i_type
-			{buffer_slot = 1, location = 7, format = .FLOAT4, offset = 0 * size_of([4]f32)}, // i_text_pos_uv
-			{buffer_slot = 1, location = 8, format = .FLOAT4, offset = 1 * size_of([4]f32)}, // i_text_color
+			{buffer_slot = 0, location = 0, format = .FLOAT4, offset = cast(u32)offset_of(Quad, pos_scale)}, // i_pos_scale
+			{buffer_slot = 0, location = 1, format = .FLOAT4, offset = cast(u32)offset_of(Quad, corners)}, // i_corners
+			{buffer_slot = 0, location = 2, format = .FLOAT4, offset = cast(u32)offset_of(Quad, color)}, // i_color
+			{buffer_slot = 0, location = 3, format = .FLOAT4, offset = cast(u32)offset_of(Quad, border_color)}, // i_border_color
+			{buffer_slot = 0, location = 4, format = .FLOAT, offset = cast(u32)offset_of(Quad, border_width)}, // i_border_width
+			{buffer_slot = 0, location = 5, format = .FLOAT2, offset = cast(u32)offset_of(Instance, text_pos)}, // i_text_pos
+			{buffer_slot = 0, location = 6, format = .FLOAT, offset = cast(u32)offset_of(Instance, type)}, // i_type
+			{buffer_slot = 1, location = 7, format = .FLOAT4, offset = cast(u32)offset_of(Text_Vert, pos_uv)}, // i_text_pos_uv
+			{buffer_slot = 1, location = 8, format = .FLOAT4, offset = cast(u32)offset_of(Text_Vert, color)}, // i_text_color
 		}
     // odinfmt:enable
 
