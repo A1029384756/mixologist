@@ -1,16 +1,19 @@
 package mixologist
 
+import "base:runtime"
 import "core:encoding/cbor"
 import "core:fmt"
 import "core:log"
+import "core:strings"
 import "core:sys/linux"
 
+Program_List :: distinct [dynamic]string
 
 CLI_Args :: struct {
 	set_volume:     f32 `usage:"volume to assign nodes"`,
 	shift_volume:   f32 `usage:"volume to increment nodes"`,
-	add_program:    [dynamic]string `usage:"name of program to add to aux"`,
-	remove_program: [dynamic]string `usage:"name of program to remove from aux"`,
+	add_program:    Program_List `usage:"name of program to add to aux"`,
+	remove_program: Program_List `usage:"name of program to remove from aux"`,
 	get_volume:     bool `usage:"the current mixologist volume"`,
 	daemon:         bool `usage:"start mixologist in daemon mode (no window)"`,
 }
@@ -21,6 +24,27 @@ CLI_State :: struct {
 	set_volume:   bool,
 	shift_volume: bool,
 	opts:         CLI_Args,
+}
+
+type_setter :: proc(
+	data: rawptr,
+	data_type: typeid,
+	unparsed_value: string,
+	args_tag: string,
+) -> (
+	error: string,
+	handled: bool,
+	alloc_error: runtime.Allocator_Error,
+) {
+	if data_type == Program_List {
+		handled = true
+		list := cast(^Program_List)data
+		programs := unparsed_value
+		for program in strings.split_iterator(&programs, ",") {
+			append(list, program)
+		}
+	}
+	return
 }
 
 flag_checker :: proc(
@@ -60,6 +84,11 @@ flag_checker :: proc(
 	cli.option_sel = true
 
 	return
+}
+
+cli_deinit :: proc() {
+	delete(cli.opts.add_program)
+	delete(cli.opts.remove_program)
 }
 
 cli_messages :: proc(cli: CLI_State) {

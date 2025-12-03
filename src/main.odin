@@ -125,8 +125,10 @@ main :: proc() {
 	context.logger = mixologist_init_logging(&mixologist)
 	defer mixologist_deinit_logging(&mixologist)
 
+	flags.register_type_setter(type_setter)
 	flags.register_flag_checker(flag_checker)
 	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
+	defer cli_deinit()
 	if cli.opts.daemon {
 		mixologist.features += {.Daemon}
 	} else if !cli.option_sel {
@@ -459,6 +461,7 @@ mixologist_globalshortcuts_handler :: proc "c" (
 mixologist_read_volume_file :: proc(mixologist: ^Mixologist) {
 	if os2.exists(mixologist.volume_file) {
 		volume_bytes, volume_err := os2.read_entire_file(mixologist.volume_file, context.allocator)
+		defer delete(volume_bytes)
 		if volume_err != nil {
 			log.errorf("could not read volume file: %s", volume_err)
 		} else {
