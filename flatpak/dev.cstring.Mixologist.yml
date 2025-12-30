@@ -71,6 +71,15 @@ modules:
       - '/lib/cmake'
       - '/share/aclocal'
       - '/lib/pkgconfig'
+    config-opts:
+      - "-DSDLTTF_PLUTOSVG_ENABLED=true"
+    modules:
+      - name: plutosvg
+        buildsystem: cmake-ninja
+        sources:
+          - type: git
+            url: https://github.com/sammycage/plutosvg.git
+            tag: v0.0.7
   - name: SDL_image
     buildsystem: cmake-ninja
     builddir: true
