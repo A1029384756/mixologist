@@ -1,6 +1,6 @@
 app-id: dev.cstring.Mixologist
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm20
@@ -19,19 +19,6 @@ build-options:
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
 modules:
   - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
-  - name: pipewire
-    buildsystem: meson
-    sources:
-      - type: git
-        url: https://gitlab.freedesktop.org/pipewire/pipewire.git
-        tag: "1.4"
-    config-opts:
-      - "-Dsystemd=disabled"
-      - "-Dudev=disabled"
-      - "-Dalsa=disabled"
-      - "-Ddocs=disabled"
-      - "-Dtests=disabled"
-      - "-Dsession-managers=[]"
   - name: SDL3
     buildsystem: cmake-ninja
     builddir: true
@@ -50,15 +37,6 @@ modules:
       - '/lib/cmake'
       - '/share/aclocal'
       - '/lib/pkgconfig'
-    modules:
-      - name: libdecor
-        buildsystem: meson
-        config-opts:
-          - -Ddemo=false
-        sources:
-          - type: git
-            url: https://gitlab.freedesktop.org/libdecor/libdecor.git
-            tag: 0.2.2
   - name: SDL_ttf
     buildsystem: cmake-ninja
     builddir: true
