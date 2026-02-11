@@ -6,7 +6,7 @@ import "core:bufio"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:os/os2"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
@@ -154,12 +154,12 @@ reset_links :: proc(ctx: ^Daemon_Context) {
 }
 
 File_Console_Logger_Data :: struct {
-	file_handle: ^os2.File,
+	file_handle: ^os.File,
 	ident:       string,
 }
 
 create_file_logger :: proc(
-	h: ^os2.File,
+	h: ^os.File,
 	lowest := log.Level.Debug,
 	opt := log.Default_File_Logger_Opts,
 	ident := "",
@@ -173,7 +173,7 @@ create_file_logger :: proc(
 destroy_file_logger :: proc(log: log.Logger) {
 	data := cast(^File_Console_Logger_Data)log.data
 	if data.file_handle != nil {
-		os2.close(data.file_handle)
+		os.close(data.file_handle)
 	}
 	free(data)
 }
@@ -186,7 +186,7 @@ file_console_logger_proc :: proc(
 	location := #caller_location,
 ) {
 	data := cast(^File_Console_Logger_Data)logger_data
-	h := os2.stdout if level <= log.Level.Error else os2.stderr
+	h := os.stdout if level <= log.Level.Error else os.stderr
 	if data.file_handle != nil {
 		h = data.file_handle
 	}
@@ -216,7 +216,7 @@ file_console_logger_proc :: proc(
 }
 
 fprintf :: proc(
-	fd: ^os2.File,
+	fd: ^os.File,
 	format: string,
 	args: ..any,
 	flush := true,
@@ -226,7 +226,7 @@ fprintf :: proc(
 	b: bufio.Writer
 	defer bufio.writer_flush(&b)
 
-	bufio.writer_init_with_buf(&b, os2.to_stream(fd), buf[:])
+	bufio.writer_init_with_buf(&b, os.to_stream(fd), buf[:])
 
 	w := bufio.writer_to_writer(&b)
 	return fmt.wprintf(w, format, ..args, flush = flush, newline = newline)

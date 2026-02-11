@@ -8,14 +8,12 @@ import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:mem"
-import "core:os/os2"
-import "core:slice"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
-import "core:time"
 import "ui"
 
 Mixologist :: struct {
@@ -127,7 +125,7 @@ main :: proc() {
 
 	flags.register_type_setter(type_setter)
 	flags.register_flag_checker(flag_checker)
-	flags.parse_or_exit(&cli.opts, os2.args, .Odin)
+	flags.parse_or_exit(&cli.opts, os.args, .Odin)
 	defer cli_deinit()
 	if cli.opts.daemon {
 		mixologist.features += {.Daemon}
@@ -382,11 +380,11 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 }
 
 mixologist_config_read :: proc(mixologist: ^Mixologist) {
-	config_path, _ := os2.join_path(
+	config_path, _ := os.join_path(
 		{mixologist.config_dir, CONFIG_FILENAME},
 		context.temp_allocator,
 	)
-	config_data, read_err := os2.read_entire_file(config_path, context.temp_allocator)
+	config_data, read_err := os.read_entire_file(config_path, context.temp_allocator)
 	if read_err != nil {
 		log.errorf("could not read config file: %v, err: %v", config_path, read_err)
 		return
@@ -400,7 +398,7 @@ mixologist_config_read :: proc(mixologist: ^Mixologist) {
 }
 
 mixologist_config_write :: proc(mixologist: ^Mixologist) {
-	config_path, _ := os2.join_path(
+	config_path, _ := os.join_path(
 		{mixologist.config_dir, CONFIG_FILENAME},
 		context.temp_allocator,
 	)
@@ -414,7 +412,7 @@ mixologist_config_write :: proc(mixologist: ^Mixologist) {
 		log.errorf("could not marshal json: %v", json_err)
 		return
 	}
-	write_err := os2.write_entire_file(config_path, config_json)
+	write_err := os.write_entire_file(config_path, config_json)
 	if write_err != nil {
 		log.errorf("could not write to file: %v, err: %v", config_path, write_err)
 	}
@@ -459,8 +457,8 @@ mixologist_globalshortcuts_handler :: proc "c" (
 }
 
 mixologist_read_volume_file :: proc(mixologist: ^Mixologist) {
-	if os2.exists(mixologist.volume_file) {
-		volume_bytes, volume_err := os2.read_entire_file(mixologist.volume_file, context.allocator)
+	if os.exists(mixologist.volume_file) {
+		volume_bytes, volume_err := os.read_entire_file(mixologist.volume_file, context.allocator)
 		defer delete(volume_bytes)
 		if volume_err != nil {
 			log.errorf("could not read volume file: %s", volume_err)
@@ -478,7 +476,7 @@ mixologist_read_volume_file :: proc(mixologist: ^Mixologist) {
 mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
 	volume_buf: [312]byte
 	volume_string := fmt.bprintf(volume_buf[:], "%f", mixologist.volume)
-	err := os2.write_entire_file(mixologist.volume_file, transmute([]u8)volume_string)
+	err := os.write_entire_file(mixologist.volume_file, transmute([]u8)volume_string)
 	if err != nil {
 		log.errorf("could not write volume file: %s", err)
 	}
@@ -486,30 +484,30 @@ mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
 
 mixologist_init_data_files :: proc(mixologist: ^Mixologist) {
 	user_config_dir :=
-		os2.user_config_dir(context.allocator) or_else log.panic("could not get user config dir")
+		os.user_config_dir(context.allocator) or_else log.panic("could not get user config dir")
 	mixologist.config_dir =
-		os2.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
+		os.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
 			"could not create config path",
 		)
-	if !os2.exists(mixologist.config_dir) {
-		config_dir_err := os2.make_directory_all(mixologist.config_dir)
+	if !os.exists(mixologist.config_dir) {
+		config_dir_err := os.make_directory_all(mixologist.config_dir)
 		if config_dir_err != nil {
 			log.panicf("could not create config dir: %v", config_dir_err)
 		}
 	}
 
 	cache_dir :=
-		os2.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
-	mixologist.cache_dir, _ = os2.join_path({cache_dir, "mixologist"}, context.allocator)
-	if !os2.exists(mixologist.cache_dir) {
-		cache_dir_err := os2.make_directory_all(mixologist.cache_dir)
+		os.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
+	mixologist.cache_dir, _ = os.join_path({cache_dir, "mixologist"}, context.allocator)
+	if !os.exists(mixologist.cache_dir) {
+		cache_dir_err := os.make_directory_all(mixologist.cache_dir)
 		if cache_dir_err != nil {
 			log.panicf("could not create cache dir: %v", cache_dir_err)
 		}
 	}
 
 	mixologist.volume_file =
-		os2.join_path(
+		os.join_path(
 			{mixologist.cache_dir, "mixologist.volume"},
 			context.allocator,
 		) or_else log.panic("could not create volume path")
@@ -523,17 +521,17 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 		)
 	} else {
 		log_path :=
-			os2.join_path(
+			os.join_path(
 				{mixologist.cache_dir, "mixologist.log"},
 				context.allocator,
 			) or_else log.panic("could not create log path")
 
-		open_flags := os2.File_Flags{.Write, .Create}
+		open_flags := os.File_Flags{.Write, .Create}
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
 
-		if os2.exists(log_path) {
-			log_info, stat_err := os2.stat(log_path, context.allocator)
-			defer os2.file_info_delete(log_info, context.allocator)
+		if os.exists(log_path) {
+			log_info, stat_err := os.stat(log_path, context.allocator)
+			defer os.file_info_delete(log_info, context.allocator)
 
 			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
@@ -542,7 +540,7 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 			}
 		}
 
-		log_file := os2.open(log_path, open_flags) or_else log.panic("could not access log file")
+		log_file := os.open(log_path, open_flags) or_else log.panic("could not access log file")
 		return create_file_logger(
 			log_file,
 			get_log_level(),

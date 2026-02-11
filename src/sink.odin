@@ -5,7 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:mem/virtual"
-import "core:os/os2"
+import "core:os"
 import "core:strings"
 
 DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
@@ -117,7 +117,7 @@ sink_init :: proc(
 	group_name := fmt.aprintf(
 		"%s-%d-default",
 		pw.get_client_name(),
-		os2.get_pid(),
+		os.get_pid(),
 		allocator = ally,
 	)
 

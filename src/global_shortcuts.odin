@@ -5,7 +5,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math/rand"
-import "core:os/os2"
+import "core:os"
 import "core:strings"
 import "core:time"
 
@@ -480,7 +480,7 @@ _GlobalShortcuts_DeserializeShortcuts :: proc(
 }
 
 _is_sandboxed :: proc() -> bool {
-	return os2.exists("/.flatpak-info")
+	return os.exists("/.flatpak-info")
 }
 
 Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> (dbus.MessageIter, bool) {
