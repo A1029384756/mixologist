@@ -4,7 +4,6 @@ import "base:intrinsics"
 import "base:runtime"
 import "clay"
 import "core:c"
-import sa "core:container/small_array"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -25,7 +24,7 @@ Context :: struct {
 	textbox_input:       strings.Builder,
 	textbox_state:       edit.State,
 	textbox_offset:      int,
-	active_widgets:      sa.Small_Array(16, clay.ElementId),
+	active_widgets:      [dynamic; 16]clay.ElementId,
 	hovered_widget:      clay.ElementId,
 	prev_hovered_widget: clay.ElementId,
 	statuses:            Context_Statuses,
@@ -46,8 +45,8 @@ Context :: struct {
 	// allocated
 	clay_memory:         []u8,
 	font_allocator:      virtual.Arena,
-	fonts:               sa.Small_Array(16, Font),
-	images:              sa.Small_Array(16, Image),
+	fonts:               [dynamic; 16]Font,
+	images:              [dynamic; 16]Image,
 	// sdl3
 	window:              ^sdl.Window,
 	window_size:         [2]c.float,
@@ -174,7 +173,7 @@ Image :: struct {
 }
 
 retrieve_font :: proc(ctx: ^Context, id, size: u16) -> ^ttf.Font {
-	sdl_font := sa.get_ptr(&ctx.fonts, int(id))
+	sdl_font := &ctx.fonts[id]
 	_, font, just_inserted, _ := map_entry(&sdl_font.font, size)
 	if just_inserted {
 		font_stream := sdl.IOFromConstMem(raw_data(sdl_font.data), len(sdl_font.data))
@@ -185,7 +184,7 @@ retrieve_font :: proc(ctx: ^Context, id, size: u16) -> ^ttf.Font {
 }
 
 retrieve_image :: proc(ctx: ^Context, id: int, size: [2]int) -> ^_Image {
-	ui_img := sa.get_ptr(&ctx.images, id)
+	ui_img := &ctx.images[id]
 	if ui_img.dimensions.x < size.x || ui_img.dimensions.y < size.y {
 		log.infof("resizing image %v from %v to %v", id, ui_img.dimensions, size)
 		sdl.ReleaseGPUTexture(ctx.device, ui_img.image.texture)
@@ -319,7 +318,7 @@ deinit :: proc(ctx: ^Context) {
 
 	sdl.DestroyTray(ctx.tray)
 
-	for img in sa.slice(&ctx.images) {
+	for img in ctx.images[:] {
 		sdl.ReleaseGPUTexture(ctx.device, img.image.texture)
 		sdl.DestroySurface(img.image.surface)
 	}
@@ -629,7 +628,7 @@ _input_mouse_up :: proc(ctx: ^Context, button: Mouse_Button) {
 }
 
 widget_active :: proc(ctx: ^Context, id: clay.ElementId) -> bool {
-	return slice.contains(sa.slice(&ctx.active_widgets), id)
+	return slice.contains(ctx.active_widgets[:], id)
 }
 
 widget_focus :: proc(
@@ -638,7 +637,7 @@ widget_focus :: proc(
 	add_statuses: Context_Statuses = {},
 	remove_statuses: Context_Statuses = {},
 ) {
-	if !slice.contains(sa.slice(&ctx.active_widgets), id) do sa.append(&ctx.active_widgets, id)
+	if !slice.contains(ctx.active_widgets[:], id) do append(&ctx.active_widgets, id)
 	ctx.statuses -= remove_statuses
 	ctx.statuses += add_statuses
 }
@@ -657,8 +656,8 @@ unfocus :: proc(
 	add_statuses: Context_Statuses = {},
 	remove_statuses: Context_Statuses = {},
 ) {
-	idx, found := slice.linear_search(sa.slice(&ctx.active_widgets), id)
-	if found do sa.unordered_remove(&ctx.active_widgets, idx)
+	idx, found := slice.linear_search(ctx.active_widgets[:], id)
+	if found do unordered_remove(&ctx.active_widgets, idx)
 	ctx.statuses -= remove_statuses
 	ctx.statuses += add_statuses
 }
@@ -668,7 +667,7 @@ unfocus_all :: proc(
 	add_statuses: Context_Statuses = {},
 	remove_statuses: Context_Statuses = {},
 ) {
-	sa.clear(&ctx.active_widgets)
+	clear(&ctx.active_widgets)
 	ctx.statuses -= remove_statuses
 	ctx.statuses += add_statuses
 }
@@ -705,8 +704,8 @@ load_image_mem :: proc(ctx: ^Context, data: []u8, size: [2]int) -> int {
 	image := _Image{img_surface, img_texture, texture_size}
 
 	ctx.renderer.pipeline.status += {.TEXTURE_DIRTY}
-	sa.append(&ctx.images, Image{image = image, dimensions = size, data = data})
-	return sa.len(ctx.images) - 1
+	append(&ctx.images, Image{image = image, dimensions = size, data = data})
+	return len(ctx.images) - 1
 }
 
 load_font_mem :: proc(ctx: ^Context, data: []u8, fontsize: u16) -> u16 {
@@ -721,8 +720,8 @@ load_font_mem :: proc(ctx: ^Context, data: []u8, fontsize: u16) -> u16 {
 		data = data,
 	}
 
-	sa.append(&ctx.fonts, ui_font)
-	return u16(sa.len(ctx.fonts) - 1)
+	append(&ctx.fonts, ui_font)
+	return u16(len(ctx.fonts) - 1)
 }
 
 load_font :: proc(ctx: ^Context, fontsize: u16, path: cstring) -> u16 {
@@ -892,7 +891,11 @@ slider :: proc(
 		press_color,
 		line_color,
 		line_highlight,
-		{sizing = {clay.SizingGrow(), clay.SizingFixed(16)}},
+		// multi-click + click and drag
+
+
+		// cursor
+		clay.LayoutConfig{sizing = {clay.SizingGrow(), clay.SizingFixed(16)}}, // selection box
 		..notches,
 	)
 
@@ -1215,7 +1218,7 @@ _textbox :: proc(
 					ctx.textbox_state.builder = &builder
 
 					textbox_selected: bool
-					for widget in sa.slice(&ctx.active_widgets) {
+					for widget in ctx.active_widgets[:] {
 						if ctx.textbox_state.id == u64(widget.id) {
 							textbox_selected = true
 							break
@@ -1331,7 +1334,7 @@ _textbox :: proc(
 						res += {.CANCEL}
 					}
 
-					// multi-click + click and drag
+
 					{
 						if .DOUBLE_CLICKED in ctx.statuses {
 							edit.move_to(&ctx.textbox_state, .Word_Start)
@@ -1411,7 +1414,7 @@ _textbox :: proc(
 					ctx.textbox_offset = clamp(ctx.textbox_offset, int(ofmin), int(ofmax))
 					ctx.textbox_offset = clamp(ctx.textbox_offset, min(int), 0)
 
-					// cursor
+
 					if head_size.width - tail_size.width == 0 {
 						if clay.UI()(
 						{
@@ -1443,7 +1446,7 @@ _textbox :: proc(
 						) {
 							if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
-					} else { 	// selection box
+					} else {
 						x_offset := f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)
 						selection_width := abs(head_size.width - tail_size.width)
 
