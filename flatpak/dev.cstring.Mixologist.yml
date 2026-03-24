@@ -75,9 +75,9 @@ modules:
     build-commands:
       # install odin
       - mkdir -p /run/build/mixologist/odin
-      - unzip odin-linux-amd64-dev-2025-06.zip
-      - tar -xzf dist.tar.gz -C /run/build/mixologist/odin --strip-components=1
-      - rm dist.tar.gz
+      - ls
+      - tar -xzf odin-linux-amd64-nightly%2B2026-03-23.tar.gz -C /run/build/mixologist/odin --strip-components=1
+      - rm odin-linux-amd64-nightly%2B2026-03-23.tar.gz
 
       # create build directory
       - mkdir -p builds
@@ -100,5 +100,5 @@ modules:
       - type: dir
         path: ..
       - type: file
-        url: https://github.com/odin-lang/Odin/releases/download/dev-2025-06/odin-linux-amd64-dev-2025-06.zip
-        sha256: 4a44bb3cb4b566f7442c5daa05fc5444385802b24efe94a2ffd6b2159d6ec83d
+        url: https://f001.backblazeb2.com/file/odin-binaries/nightly/odin-linux-amd64-nightly%2B2026-03-23.tar.gz
+        sha256: 42a779b01a6777e3a05a6a0d6fb07afe20b3b3b0bbb34c180e8a47bf6d651d98
