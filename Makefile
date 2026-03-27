@@ -15,11 +15,11 @@ clean:
 
 mixologist:
 	mkdir -p builds/
-	odin build ./src -out:builds/mixologist -show-timings -vet-unused-variables -define:LOG_LEVEL=info -internal-cached
+	odin build ./src -out:builds/mixologist -show-timings -vet-unused-variables -define:LOG_LEVEL=info
 
 mixologist-dbg:
 	mkdir -p builds/
-	odin build ./src -out:builds/mixologist -debug -show-timings  -internal-cached
+	odin build ./src -out:builds/mixologist -debug -show-timings
 
 shaders:
 	mkdir -p src/ui/resources/shaders/compiled
