@@ -117,11 +117,12 @@ when ODIN_DEBUG {
 main :: proc() {
 	mixologist_init_data_files(&mixologist)
 
+	default_heap := context.allocator
+	context.logger = mixologist_init_logging(&mixologist)
+	defer mixologist_deinit_logging(&mixologist, default_heap)
+
 	context.allocator = mixologist_init_allocator(&mixologist)
 	defer mixologist_deinit_allocator(&mixologist)
-
-	context.logger = mixologist_init_logging(&mixologist)
-	defer mixologist_deinit_logging(&mixologist)
 
 	flags.register_type_setter(type_setter)
 	flags.register_flag_checker(flag_checker)
@@ -541,7 +542,7 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 		}
 
 		log_file := os.open(log_path, open_flags) or_else log.panic("could not access log file")
-		return create_file_logger(
+		return log.create_file_logger(
 			log_file,
 			get_log_level(),
 			log.Default_File_Logger_Opts + {.Thread_Id},
@@ -549,11 +550,11 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 	}
 }
 
-mixologist_deinit_logging :: proc(mixologist: ^Mixologist) {
+mixologist_deinit_logging :: proc(mixologist: ^Mixologist, allocator := context.allocator) {
 	when ODIN_DEBUG {
-		log.destroy_console_logger(context.logger)
+		log.destroy_console_logger(context.logger, allocator)
 	} else {
-		destroy_file_logger(context.logger)
+		log.destroy_file_logger(context.logger, allocator)
 	}
 }
 
