@@ -1,6 +1,0 @@
-cmake-build-debug/
-cmake-build-release/
-.DS_Store
-.idea/
-build/
-node_modules/

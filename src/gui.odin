@@ -1,5 +1,7 @@
 package mixologist
 
+import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:slice"
 import "core:strings"
@@ -516,6 +518,20 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		clear(&ctx.selected_programs)
 	}
 
+	slide_up :: proc "c" (
+		initial_state: clay.TransitionData,
+		properties: clay.TransitionPropertyFlags,
+	) -> clay.TransitionData {
+		context = runtime.default_context()
+		target_state := initial_state
+		fmt.println("transitioning")
+		if .Y in properties {
+			fmt.println("target y:", target_state.boundingBox.y)
+			target_state.boundingBox.y += 20
+			fmt.println("target y:", target_state.boundingBox.y)
+		}
+		return target_state
+	}
 	if clay.UI()(
 	{
 		layout = {
@@ -524,7 +540,7 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		},
 	},
 	) {
-		if clay.UI()(
+		if clay.UI(clay.ID("rule add menu"))(
 		{
 			layout = {
 				sizing = {clay.SizingGrow(), clay.SizingFit()},
@@ -535,6 +551,13 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 			},
 			backgroundColor = BASE,
 			cornerRadius = clay.CornerRadiusAll(10),
+			transition = {
+				handler = clay.EaseOut,
+				duration = 1,
+				properties = clay.TransitionPropertyBoundingBox,
+				enter = {setInitialState = slide_up},
+				exit = {setFinalState = slide_up},
+			},
 		},
 		) {
 			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {

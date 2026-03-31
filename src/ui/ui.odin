@@ -1804,7 +1804,7 @@ icon :: proc(
 			},
 		},
 		image = {imageData = retrieve_image(ctx, image_id, image_size)},
-		backgroundColor = tint,
+		overlayColor = tint,
 	},
 	) {}
 	return

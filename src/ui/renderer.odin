@@ -163,6 +163,7 @@ Renderer_draw :: proc(
 	allocator := context.temp_allocator,
 ) {
 	clear(&ctx.renderer.commands)
+	overlay_colors := make([dynamic]clay.Color, allocator)
 
 	clamp_corners :: proc(cr: clay.CornerRadius, bounds: clay.BoundingBox) -> clay.CornerRadius {
 		return clay.CornerRadius {
@@ -246,9 +247,14 @@ Renderer_draw :: proc(
 			image := R_Image {
 				pos_scale = {bounds.x, bounds.y, bounds.width, bounds.height},
 				img       = cast(^_Image)config.imageData,
-				color     = f32_color(config.backgroundColor),
+				color     = f32_color(overlay_colors[len(overlay_colors) - 1]),
 			}
 			append(&ctx.renderer.commands, image)
+		case .OverlayColorStart:
+			config := cmd.renderData.overlayColor
+			append(&overlay_colors, config.color)
+		case .OverlayColorEnd:
+			pop(&overlay_colors)
 		case .Custom:
 		case .None:
 		}
