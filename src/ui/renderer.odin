@@ -176,7 +176,7 @@ Renderer_draw :: proc(
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
 		bounds := cmd.boundingBox
-		switch cmd.commandType {
+		#partial switch cmd.commandType {
 		case .Rectangle:
 			config := cmd.renderData.rectangle
 			color := f32_color(config.backgroundColor)

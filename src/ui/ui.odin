@@ -1018,12 +1018,11 @@ _scrollbar :: proc(
 
 	bar_width := bar_width
 	if scroll_container_data.contentDimensions.height <= scroll_container_data.scrollContainerDimensions.height do bar_width = 0
-	if clay.UI()(
+	if clay.UI(local_id)(
 	{
 		layout = {sizing = {clay.SizingFixed(c.float(bar_width)), clay.SizingGrow()}},
 		floating = {attachment = {element = .RightTop, parent = .RightTop}, attachTo = .Parent},
 		backgroundColor = bar_color,
-		id = local_id,
 	},
 	) {
 		scroll_res, scroll_id := _scroll_target(
@@ -1116,9 +1115,8 @@ _scroll_target :: proc(
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
 
-		if clay.UI()(
+		if clay.UI(local_id)(
 		{
-			id = local_id,
 			layout = {
 				sizing = {clay.SizingFixed(c.float(size.x)), clay.SizingFixed(c.float(size.y))},
 			},
@@ -1162,7 +1160,7 @@ _textbox :: proc(
 ) {
 	config := config
 	border_config := border_config
-	text_config := clay.TextConfig(text_config)
+	text_config := text_config
 
 	if clay.UI()({layout = {sizing = config.layout.sizing}}) {
 		local_id := clay.ID_LOCAL(#procedure)
@@ -1196,9 +1194,8 @@ _textbox :: proc(
 		}
 
 		if clay.UI()(config) {
-			if clay.UI()(
+			if clay.UI(local_id)(
 			{
-				id = local_id,
 				layout = {
 					sizing = {clay.SizingGrow(), clay.SizingGrow()},
 					childAlignment = {y = .Center},
@@ -1354,7 +1351,7 @@ _textbox :: proc(
 										clay_str.chars,
 										clay_str.chars,
 									},
-									text_config,
+									&text_config,
 									ctx,
 								)
 
@@ -1380,7 +1377,7 @@ _textbox :: proc(
 							text_clay_str.chars,
 							text_clay_str.chars,
 						},
-						text_config,
+						&text_config,
 						ctx,
 					)
 
@@ -1391,7 +1388,7 @@ _textbox :: proc(
 							head_clay_str.chars,
 							head_clay_str.chars,
 						},
-						text_config,
+						&text_config,
 						ctx,
 					)
 					tail_clay_str := clay.MakeString(text_str[:ctx.textbox_state.selection[1]])
@@ -1401,7 +1398,7 @@ _textbox :: proc(
 							tail_clay_str.chars,
 							tail_clay_str.chars,
 						},
-						text_config,
+						&text_config,
 						ctx,
 					)
 
@@ -1504,9 +1501,8 @@ _slider :: proc(
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if clay.Hovered() && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
-		if clay.UI()(
+		if clay.UI(local_id)(
 		{
-			id = local_id,
 			layout = {
 				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				childAlignment = {y = .Center},
@@ -1659,9 +1655,8 @@ _button :: proc(
 		if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
 		if clay.Hovered() && active && .LEFT in ctx.mouse_released do res += {.RELEASE}
 
-		if clay.UI()(
+		if clay.UI(local_id)(
 		{
-			id = local_id,
 			layout = {
 				sizing = {clay.SizingGrow(), clay.SizingGrow()},
 				padding = clay.PaddingAll(padding),
@@ -1677,9 +1672,10 @@ _button :: proc(
 				case IconConfig:
 					icon(ctx, element.id, element.size, element.color)
 				case TextConfig:
-					clay_textconfig := clay.TextConfig(
-						{textColor = element.color, fontSize = element.size},
-					)
+					clay_textconfig := clay.TextElementConfig {
+						textColor = element.color,
+						fontSize  = element.size,
+					}
 					clay.TextDynamic(element.text, clay_textconfig)
 				case HorzSpacerConfig:
 					horz_spacer(ctx, element.size)
@@ -1744,7 +1740,7 @@ spacer :: proc(
 	if clay.UI()({layout = {sizing = {clay.SizingGrow(horz_constraints), clay.SizingGrow()}}}) {
 		local_id := clay.ID_LOCAL(#procedure)
 		id = local_id
-		if clay.UI()({id = local_id}) {
+		if clay.UI(local_id)({}) {
 			if clay.Hovered() do ctx.hovered_widget = id
 			if clay.Hovered() do res += {.HOVER}
 			if clay.Hovered() && .LEFT in ctx.mouse_pressed do res += {.PRESS}
@@ -1755,8 +1751,7 @@ spacer :: proc(
 }
 
 textlabel :: proc(text: string, config: clay.TextElementConfig) {
-	textlabel := clay.TextConfig(config)
-	clay.TextDynamic(text, textlabel)
+	clay.TextDynamic(text, config)
 }
 
 @(deferred_none = _modal_close)
@@ -1852,7 +1847,7 @@ _dropdown :: proc(
 ) {
 	local_id := clay.ID_LOCAL(#procedure)
 	id = local_id
-	if clay.UI()({id = id, layout = {childAlignment = {x = .Left, y = .Center}}}) {
+	if clay.UI(id)({layout = {childAlignment = {x = .Left, y = .Center}}}) {
 		textlabel(
 			options[selected^],
 			{
@@ -1928,9 +1923,8 @@ _dropdown_options :: proc(
 
 	attachment: clay.FloatingAttachPoints =
 		open_up ? {element = .CenterBottom, parent = .CenterTop} : {element = .CenterTop, parent = .CenterBottom}
-	if clay.UI()(
+	if clay.UI(dropdown_id)(
 	{
-		id = dropdown_id,
 		floating = {
 			attachment = attachment,
 			attachTo = .Parent,
@@ -1965,9 +1959,8 @@ _dropdown_options :: proc(
 
 			for option, idx in options {
 				option_id := clay.ID(option, u32(idx))
-				if clay.UI()(
+				if clay.UI(option_id)(
 				{
-					id = option_id,
 					layout = {
 						sizing = {clay.SizingGrow(), clay.SizingFit()},
 						padding = clay.PaddingAll(8),
@@ -2060,7 +2053,7 @@ when ODIN_DEBUG {
 				{textColor = 255, fontSize = 16},
 			)
 			id := clay.ID("memory_debug_list")
-			if clay.UI()({id = id, layout = {sizing = {width = clay.SizingPercent(1)}}}) {
+			if clay.UI(id)({layout = {sizing = {width = clay.SizingPercent(1)}}}) {
 				data := clay.GetElementData(id)
 				bounding_box := data.boundingBox
 
@@ -2104,9 +2097,8 @@ when ODIN_DEBUG {
 								x_offset = -min_x + 4
 							}
 
-							if clay.UI()(
+							if clay.UI(info_id)(
 							{
-								id = info_id,
 								layout = {
 									layoutDirection = .TopToBottom,
 									childAlignment = {x = .Center},

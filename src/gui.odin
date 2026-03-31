@@ -3,8 +3,8 @@ package mixologist
 import "core:log"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:sync/chan"
+import "core:time"
 import "ui"
 import "ui/clay"
 
@@ -132,11 +132,9 @@ gui_create_layout :: proc(
 }
 
 create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
+	now := time.now()
 	clay.BeginLayout()
-
-	if clay.UI()(
-	{id = clay.ID("root"), layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}},
-	) {
+	if clay.UI(clay.ID("root"))({layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}}) {
 		if clay.UI()(
 		{
 			layout = {
@@ -148,9 +146,8 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 		},
 		) {
 			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}}) {
-				if clay.UI()(
+				if clay.UI(clay.ID("rules"))(
 				{
-					id = clay.ID("rules"),
 					layout = {
 						sizing = {clay.SizingGrow(), clay.SizingFit()},
 						padding = clay.PaddingAll(16),
@@ -208,7 +205,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 		ui.memory_debug(&ctx.ui_ctx, track)
 	}
 
-	return clay.EndLayout()
+	return clay.EndLayout(f32(time.duration_milliseconds(time.since(now))))
 }
 
 volume_slider :: proc(ctx: ^GUI_Context) {
@@ -579,9 +576,8 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 					cornerRadius = clay.CornerRadiusAll(10),
 				},
 				) {
-					if clay.UI()(
+					if clay.UI(clay.ID("open_programs"))(
 					{
-						id = clay.ID("open_programs"),
 						layout = {
 							layoutDirection = .TopToBottom,
 							sizing = {clay.SizingGrow(), clay.SizingFit()},
