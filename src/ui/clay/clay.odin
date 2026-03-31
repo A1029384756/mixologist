@@ -57,16 +57,17 @@ CornerRadius :: struct {
 	bottomRight: c.float,
 }
 
-BorderData :: struct {
-	width: u32,
-	color: Color,
-}
-
 ElementId :: struct {
 	id:       u32,
 	offset:   u32,
 	baseId:   u32,
 	stringId: String,
+}
+
+ElementIdArray :: struct {
+	capacity: i32,
+	length: i32,
+	internalArray: [^]ElementId,
 }
 
 when ODIN_OS == .Windows {
@@ -173,11 +174,6 @@ TransitionProperty :: enum c.int {
 }
 
 TransitionPropertyFlags :: bit_set[TransitionProperty; c.int]
-TransitionPropertyPosition :: TransitionPropertyFlags { .X, .Y }
-TransitionPropertyDimensions :: TransitionPropertyFlags { .Width, .Height }
-TransitiionPropertyBoundingBox :: TransitionPropertyPosition + TransitionPropertyDimensions
-TransitionPropertyBorder :: TransitionPropertyFlags { .BorderColor, .BorderWidth }
-TransitionPropertyAll :: TransitionPropertyFlags { .None, .X, .Y, .Width, .Height, .BackgroundColor, .OverlayColor, .CornerRadius, .BorderColor, .BorderWidth }
 
 TransitionCallbackArguments :: struct {
 	transitionState: TransitionState,
@@ -460,6 +456,7 @@ ErrorType :: enum EnumBackingType {
 	FloatingContainerParentNotFound,
 	PercentageOver1,
 	InternalError,
+	UnbalancedOpenClose,
 }
 
 ErrorData :: struct {
@@ -498,6 +495,7 @@ foreign Clay {
 	Hovered :: proc() -> bool ---
 	OnHover :: proc(onHoverFunction: proc "c" (id: ElementId, pointerData: PointerData, userData: rawptr), userData: rawptr) ---
 	PointerOver :: proc(id: ElementId) -> bool ---
+	GetPointerOverIds :: proc() -> ElementIdArray ---
 	GetScrollOffset :: proc() -> Vector2 ---
 	GetScrollContainerData :: proc(id: ElementId) -> ScrollContainerData ---
 	SetMeasureTextFunction :: proc(measureTextFunction: proc "c" (text: StringSlice, config: ^TextElementConfig, userData: rawptr) -> Dimensions, userData: rawptr) ---
@@ -511,7 +509,7 @@ foreign Clay {
 	GetMaxMeasureTextCacheWordCount :: proc() -> i32 ---
 	SetMaxMeasureTextCacheWordCount :: proc(maxMeasureTextCacheWordCount: i32) ---
 	ResetMeasureTextCache :: proc() ---
-	EaseOut :: proc(arguements: TransitionCallbackArguments) -> bool ---
+	EaseOut :: proc(arguments: TransitionCallbackArguments) -> bool ---
 }
 
 @(link_prefix = "Clay_", default_calling_convention = "c", private)
