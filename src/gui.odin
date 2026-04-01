@@ -1,12 +1,11 @@
 package mixologist
 
 import "base:runtime"
-import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:slice"
 import "core:strings"
 import "core:sync/chan"
-import "core:time"
 import "ui"
 import "ui/clay"
 
@@ -125,16 +124,16 @@ gui_event_process :: proc(ctx: ^GUI_Context) {
 
 gui_create_layout :: proc(
 	ctx: ^ui.Context,
+	delta_time: f32,
 	userdata: rawptr,
 ) -> clay.ClayArray(clay.RenderCommand) {
 	mgst_ctx := cast(^GUI_Context)userdata
-	layout := create_layout(mgst_ctx)
+	layout := create_layout(mgst_ctx, delta_time)
 	mixologist_event_process(&mixologist)
 	return layout
 }
 
-create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
-	now := time.now()
+create_layout :: proc(ctx: ^GUI_Context, delta_time: f32) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
 	if clay.UI(clay.ID("root"))({layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}}) {
 		if clay.UI()(
@@ -166,6 +165,11 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 						},
 						backgroundColor = MANTLE,
 						cornerRadius = clay.CornerRadiusAll(10),
+						transition = {
+							handler = clay.EaseOut,
+							duration = 0.125,
+							properties = clay.TransitionPropertyBoundingBox,
+						},
 					},
 					) {
 						if clay.UI()(
@@ -207,7 +211,7 @@ create_layout :: proc(ctx: ^GUI_Context) -> clay.ClayArray(clay.RenderCommand) {
 		ui.memory_debug(&ctx.ui_ctx, track)
 	}
 
-	return clay.EndLayout(f32(time.duration_milliseconds(time.since(now))))
+	return clay.EndLayout(delta_time)
 }
 
 volume_slider :: proc(ctx: ^GUI_Context) {
@@ -491,7 +495,7 @@ list_separator :: proc(color: clay.Color = SURFACE_0) {
 
 rule_add_modal :: proc(ctx: ^GUI_Context) {
 	if .ADDING in ctx.statuses {
-		if ui.modal()({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
 			res, _ := rule_add_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
 		}
@@ -500,11 +504,61 @@ rule_add_modal :: proc(ctx: ^GUI_Context) {
 
 settings_modal :: proc(ctx: ^GUI_Context) {
 	if .SETTINGS in ctx.statuses {
-		if ui.modal()({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
 			res, _ := settings_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
 		}
 	}
+}
+
+
+modal_ease_out :: proc "c" (arguments: clay.TransitionCallbackArguments) -> bool {
+	ratio := f32(1.0)
+	if arguments.duration > 0 {
+		ratio = min(arguments.elapsedTime / arguments.duration, 1)
+	}
+	inverse := 1.0 - ratio
+	lerp_amount := 1.0 - (inverse * inverse * inverse)
+	if .X in arguments.properties {
+		arguments.current.boundingBox.x = math.lerp(
+			arguments.initial.boundingBox.x,
+			arguments.target.boundingBox.x,
+			lerp_amount,
+		)
+	}
+	if .Y in arguments.properties {
+		arguments.current.boundingBox.y = math.lerp(
+			arguments.initial.boundingBox.y,
+			arguments.target.boundingBox.y,
+			lerp_amount,
+		)
+	}
+	if .Width in arguments.properties {
+		arguments.current.boundingBox.width = math.lerp(
+			arguments.initial.boundingBox.width,
+			arguments.target.boundingBox.width,
+			lerp_amount,
+		)
+	}
+	if .Height in arguments.properties {
+		arguments.current.boundingBox.height = math.lerp(
+			arguments.initial.boundingBox.height,
+			arguments.target.boundingBox.height,
+			lerp_amount,
+		)
+	}
+	return ratio >= 1
+}
+
+modal_slide_up :: proc "c" (
+	initial_state: clay.TransitionData,
+	properties: clay.TransitionPropertyFlags,
+) -> clay.TransitionData {
+	target_state := initial_state
+	if .Y in properties {
+		target_state.boundingBox.y += gui.ui_ctx.window_size.y
+	}
+	return target_state
 }
 
 rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.ElementId) {
@@ -518,20 +572,6 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		clear(&ctx.selected_programs)
 	}
 
-	slide_up :: proc "c" (
-		initial_state: clay.TransitionData,
-		properties: clay.TransitionPropertyFlags,
-	) -> clay.TransitionData {
-		context = runtime.default_context()
-		target_state := initial_state
-		fmt.println("transitioning")
-		if .Y in properties {
-			fmt.println("target y:", target_state.boundingBox.y)
-			target_state.boundingBox.y += 20
-			fmt.println("target y:", target_state.boundingBox.y)
-		}
-		return target_state
-	}
 	if clay.UI()(
 	{
 		layout = {
@@ -540,7 +580,7 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		},
 	},
 	) {
-		if clay.UI(clay.ID("rule add menu"))(
+		if clay.UI()(
 		{
 			layout = {
 				sizing = {clay.SizingGrow(), clay.SizingFit()},
@@ -552,11 +592,11 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 			backgroundColor = BASE,
 			cornerRadius = clay.CornerRadiusAll(10),
 			transition = {
-				handler = clay.EaseOut,
-				duration = 1,
+				handler = modal_ease_out,
+				duration = 0.25,
 				properties = clay.TransitionPropertyBoundingBox,
-				enter = {setInitialState = slide_up},
-				exit = {setFinalState = slide_up},
+				enter = {setInitialState = modal_slide_up, trigger = .TriggerOnFirstParentFrame},
+				exit = {setFinalState = modal_slide_up, trigger = .TriggerWhenParentExits},
 			},
 		},
 		) {
@@ -778,6 +818,13 @@ settings_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		},
 		backgroundColor = BASE,
 		cornerRadius = clay.CornerRadiusAll(10),
+		transition = {
+			handler = modal_ease_out,
+			duration = 0.25,
+			properties = clay.TransitionPropertyBoundingBox,
+			enter = {setInitialState = modal_slide_up, trigger = .TriggerOnFirstParentFrame},
+			exit = {setFinalState = modal_slide_up, trigger = .TriggerWhenParentExits},
+		},
 	},
 	) {
 		if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {

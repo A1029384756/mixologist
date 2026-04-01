@@ -338,7 +338,11 @@ set_tray_icon :: proc(ctx: ^Context, icon: []u8) {
 
 tick :: proc(
 	ctx: ^Context,
-	ui_create_layout: proc(ctx: ^Context, userdata: rawptr) -> clay.ClayArray(clay.RenderCommand),
+	ui_create_layout: proc(
+		ctx: ^Context,
+		delta_time: f32,
+		userdata: rawptr,
+	) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
 	frame_start := time.tick_now()
@@ -478,7 +482,7 @@ tick :: proc(
 
 	// run layout twice to avoid 1-frame
 	// delay of immediate mode
-	_ = ui_create_layout(ctx, userdata)
+	_ = ui_create_layout(ctx, 0, userdata)
 	{
 		strings.builder_reset(&ctx.textbox_input)
 		ctx.mouse_pressed = {}
@@ -491,9 +495,13 @@ tick :: proc(
 	clay.UpdateScrollContainers(
 		false,
 		ctx.scroll_delta * 5,
-		c.float(time.tick_since(ctx.prev_frame_time) / time.Second),
+		f32(time.duration_seconds(time.tick_since(ctx.prev_frame_time))),
 	)
-	render_commands := ui_create_layout(ctx, userdata)
+	render_commands := ui_create_layout(
+		ctx,
+		f32(time.duration_seconds(time.tick_since(ctx.prev_frame_time))),
+		userdata,
+	)
 
 	when ODIN_DEBUG {
 		layout_time := time.since(layout_start)
@@ -1755,8 +1763,8 @@ textlabel :: proc(text: string, config: clay.TextElementConfig) {
 }
 
 @(deferred_none = _modal_close)
-modal :: proc() -> proc(config: ModalConfig) -> bool {
-	clay._OpenElement()
+modal :: proc(id: clay.ElementId) -> proc(config: ModalConfig) -> bool {
+	clay._OpenElementWithId(id)
 	return modal_configure
 }
 
