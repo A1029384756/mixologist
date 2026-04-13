@@ -165,11 +165,6 @@ create_layout :: proc(ctx: ^GUI_Context, delta_time: f32) -> clay.ClayArray(clay
 						},
 						backgroundColor = MANTLE,
 						cornerRadius = clay.CornerRadiusAll(10),
-						transition = {
-							handler = clay.EaseOut,
-							duration = 0.125,
-							properties = clay.TransitionPropertyBoundingBox,
-						},
 					},
 					) {
 						if clay.UI()(
@@ -511,56 +506,6 @@ settings_modal :: proc(ctx: ^GUI_Context) {
 	}
 }
 
-
-modal_ease_out :: proc "c" (arguments: clay.TransitionCallbackArguments) -> bool {
-	ratio := f32(1.0)
-	if arguments.duration > 0 {
-		ratio = min(arguments.elapsedTime / arguments.duration, 1)
-	}
-	inverse := 1.0 - ratio
-	lerp_amount := 1.0 - (inverse * inverse * inverse)
-	if .X in arguments.properties {
-		arguments.current.boundingBox.x = math.lerp(
-			arguments.initial.boundingBox.x,
-			arguments.target.boundingBox.x,
-			lerp_amount,
-		)
-	}
-	if .Y in arguments.properties {
-		arguments.current.boundingBox.y = math.lerp(
-			arguments.initial.boundingBox.y,
-			arguments.target.boundingBox.y,
-			lerp_amount,
-		)
-	}
-	if .Width in arguments.properties {
-		arguments.current.boundingBox.width = math.lerp(
-			arguments.initial.boundingBox.width,
-			arguments.target.boundingBox.width,
-			lerp_amount,
-		)
-	}
-	if .Height in arguments.properties {
-		arguments.current.boundingBox.height = math.lerp(
-			arguments.initial.boundingBox.height,
-			arguments.target.boundingBox.height,
-			lerp_amount,
-		)
-	}
-	return ratio >= 1
-}
-
-modal_slide_up :: proc "c" (
-	initial_state: clay.TransitionData,
-	properties: clay.TransitionPropertyFlags,
-) -> clay.TransitionData {
-	target_state := initial_state
-	if .Y in properties {
-		target_state.boundingBox.y += gui.ui_ctx.window_size.y
-	}
-	return target_state
-}
-
 rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.ElementId) {
 	ctx := cast(^GUI_Context)ctx
 	if .ADDING_NEW in ctx.statuses {
@@ -591,13 +536,6 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 			},
 			backgroundColor = BASE,
 			cornerRadius = clay.CornerRadiusAll(10),
-			transition = {
-				handler = modal_ease_out,
-				duration = 0.25,
-				properties = clay.TransitionPropertyBoundingBox,
-				enter = {setInitialState = modal_slide_up, trigger = .TriggerOnFirstParentFrame},
-				exit = {setFinalState = modal_slide_up, trigger = .TriggerWhenParentExits},
-			},
 		},
 		) {
 			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
@@ -818,13 +756,6 @@ settings_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 		},
 		backgroundColor = BASE,
 		cornerRadius = clay.CornerRadiusAll(10),
-		transition = {
-			handler = modal_ease_out,
-			duration = 0.25,
-			properties = clay.TransitionPropertyBoundingBox,
-			enter = {setInitialState = modal_slide_up, trigger = .TriggerOnFirstParentFrame},
-			exit = {setFinalState = modal_slide_up, trigger = .TriggerWhenParentExits},
-		},
 	},
 	) {
 		if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
