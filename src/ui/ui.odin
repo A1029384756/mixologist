@@ -337,7 +337,6 @@ tick :: proc(
 	) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
-	frame_start := time.tick_now()
 	// input reset
 	{
 		strings.builder_reset(&ctx.textbox_input)
