@@ -2,7 +2,6 @@ package mixologist
 
 import "base:runtime"
 import "core:log"
-import "core:math"
 import "core:slice"
 import "core:strings"
 import "core:sync/chan"
@@ -103,7 +102,6 @@ gui_event_send :: proc(event: Event, allocator := context.allocator) {
 
 gui_event_process :: proc(ctx: ^GUI_Context) {
 	for event in chan.try_recv(ctx.events) {
-		ctx.ui_ctx.statuses += {.DIRTY}
 		#partial switch event in event {
 		case Program_Add:
 			log.infof("gui adding program %s", event)

@@ -2,16 +2,22 @@ package ui
 
 import "clay"
 import "core:c"
+import "core:hash"
 import "core:log"
 import "core:mem"
+import "core:slice"
 import "core:strings"
 import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
+BUCKET_PIXEL_SCALE :: 1000
 Renderer :: struct {
-	pipeline: Pipeline,
-	commands: [dynamic]Command,
+	pipeline:     Pipeline,
+	commands:     [dynamic]Command,
+	prev_buckets: [dynamic]u32,
+	buckets:      [dynamic]u32,
+	bucket_count: [2]int,
 }
 
 Pipeline_Status :: enum {
@@ -20,131 +26,143 @@ Pipeline_Status :: enum {
 Pipeline_Statuses :: bit_set[Pipeline_Status]
 
 Renderer_init :: proc(ctx: ^Context) {
-	// create pipeline
-	{
-		VERT :: #load("resources/shaders/compiled/ui.vert.spv")
-		FRAG :: #load("resources/shaders/compiled/ui.frag.spv")
+	VERT :: #load("resources/shaders/compiled/ui.vert.spv")
+	FRAG :: #load("resources/shaders/compiled/ui.frag.spv")
 
-		vert_info := sdl.GPUShaderCreateInfo {
-			code_size           = len(VERT),
-			code                = raw_data(VERT),
-			entrypoint          = "main",
-			format              = {.SPIRV},
-			stage               = .VERTEX,
-			num_uniform_buffers = 1,
-		}
-		vert_shader := sdl.CreateGPUShader(ctx.device, vert_info)
-		defer sdl.ReleaseGPUShader(ctx.device, vert_shader)
-
-		frag_info := sdl.GPUShaderCreateInfo {
-			code_size    = len(FRAG),
-			code         = raw_data(FRAG),
-			entrypoint   = "main",
-			format       = {.SPIRV},
-			stage        = .FRAGMENT,
-			num_samplers = 1,
-		}
-		frag_shader := sdl.CreateGPUShader(ctx.device, frag_info)
-		defer sdl.ReleaseGPUShader(ctx.device, frag_shader)
-
-
-		
-	
-	  // odinfmt:disable
-		vert_attrs := []sdl.GPUVertexAttribute {
-			{buffer_slot = 0, location = 0, format = .FLOAT4, offset = u32(offset_of(Quad, pos_scale))}, // i_pos_scale
-			{buffer_slot = 0, location = 1, format = .FLOAT4, offset = u32(offset_of(Quad, corners))}, // i_corners
-			{buffer_slot = 0, location = 2, format = .FLOAT4, offset = u32(offset_of(Quad, color))}, // i_color
-			{buffer_slot = 0, location = 3, format = .FLOAT4, offset = u32(offset_of(Quad, border_color))}, // i_border_color
-			{buffer_slot = 0, location = 4, format = .FLOAT, offset = u32(offset_of(Quad, border_width))}, // i_border_width
-			{buffer_slot = 0, location = 5, format = .FLOAT2, offset = u32(offset_of(Instance, text_pos))}, // i_text_pos
-			{buffer_slot = 0, location = 6, format = .FLOAT, offset = u32(offset_of(Instance, type))}, // i_type
-			{buffer_slot = 1, location = 7, format = .FLOAT4, offset = u32(offset_of(Text_Vert, pos_uv))}, // i_text_pos_uv
-			{buffer_slot = 1, location = 8, format = .FLOAT4, offset = u32(offset_of(Text_Vert, color))}, // i_text_color
-		}
-    // odinfmt:enable
-
-		vertex_buffers := []sdl.GPUVertexBufferDescription {
-			{slot = 0, input_rate = .INSTANCE, pitch = size_of(Instance)},
-			{slot = 1, input_rate = .VERTEX, pitch = size_of(Text_Vert)},
-		}
-
-		pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
-			vertex_shader = vert_shader,
-			fragment_shader = frag_shader,
-			primitive_type = .TRIANGLELIST,
-			target_info = {
-				color_target_descriptions = &sdl.GPUColorTargetDescription {
-					format = sdl.GetGPUSwapchainTextureFormat(ctx.device, ctx.window),
-					blend_state = {
-						src_color_blendfactor = .SRC_ALPHA,
-						dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
-						color_blend_op = .ADD,
-						src_alpha_blendfactor = .ONE,
-						dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
-						alpha_blend_op = .ADD,
-						color_write_mask = {.R, .G, .B, .A},
-						enable_blend = true,
-						enable_color_write_mask = true,
-					},
-				},
-				num_color_targets = 1,
-			},
-			vertex_input_state = {
-				vertex_buffer_descriptions = raw_data(vertex_buffers),
-				num_vertex_buffers = u32(len(vertex_buffers)),
-				vertex_attributes = raw_data(vert_attrs),
-				num_vertex_attributes = u32(len(vert_attrs)),
-			},
-		}
-
-		ctx.renderer.pipeline.pipeline = sdl.CreateGPUGraphicsPipeline(ctx.device, pipeline_info)
-		ctx.renderer.pipeline.texture_sampler = sdl.CreateGPUSampler(
-			ctx.device,
-			{
-				min_filter = .LINEAR,
-				mag_filter = .LINEAR,
-				mipmap_mode = .LINEAR,
-				address_mode_u = .CLAMP_TO_EDGE,
-				address_mode_v = .CLAMP_TO_EDGE,
-				address_mode_w = .CLAMP_TO_EDGE,
-			},
-		)
-		ctx.renderer.pipeline.text_engine = ttf.CreateGPUTextEngine(ctx.device)
-		ttf.SetGPUTextEngineWinding(ctx.renderer.pipeline.text_engine, .COUNTER_CLOCKWISE)
-		ctx.renderer.pipeline.instance_buffer = create_buffer(
-			ctx.device,
-			size_of(Instance) * BUFFER_INIT_SIZE,
-			{.VERTEX},
-		)
-		ctx.renderer.pipeline.text_vertex_buffer = create_buffer(
-			ctx.device,
-			size_of(Text_Vert) * BUFFER_INIT_SIZE,
-			{.VERTEX},
-		)
-		ctx.renderer.pipeline.text_index_buffer = create_buffer(
-			ctx.device,
-			size_of(i32) * BUFFER_INIT_SIZE,
-			{.INDEX},
-		)
-		ctx.renderer.pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
-			ctx.device,
-			sdl.GPUTransferBufferCreateInfo {
-				usage = .UPLOAD,
-				size = 128 * 128 * 4 * BUFFER_INIT_SIZE,
-			},
-		)
-
-		dummy_texture_info := sdl.GPUTextureCreateInfo {
-			usage                = {.SAMPLER},
-			width                = 1,
-			height               = 1,
-			layer_count_or_depth = 1,
-			num_levels           = 1,
-			format               = .R8G8B8A8_UNORM,
-		}
-		ctx.renderer.pipeline.dummy_texture = sdl.CreateGPUTexture(ctx.device, dummy_texture_info)
+	vert_info := sdl.GPUShaderCreateInfo {
+		code_size           = len(VERT),
+		code                = raw_data(VERT),
+		entrypoint          = "main",
+		format              = {.SPIRV},
+		stage               = .VERTEX,
+		num_uniform_buffers = 1,
 	}
+	vert_shader := sdl.CreateGPUShader(ctx.device, vert_info)
+	defer sdl.ReleaseGPUShader(ctx.device, vert_shader)
+
+	frag_info := sdl.GPUShaderCreateInfo {
+		code_size    = len(FRAG),
+		code         = raw_data(FRAG),
+		entrypoint   = "main",
+		format       = {.SPIRV},
+		stage        = .FRAGMENT,
+		num_samplers = 1,
+	}
+	frag_shader := sdl.CreateGPUShader(ctx.device, frag_info)
+	defer sdl.ReleaseGPUShader(ctx.device, frag_shader)
+
+
+	
+
+	// odinfmt:disable
+	vert_attrs := []sdl.GPUVertexAttribute {
+		{buffer_slot = 0, location = 0, format = .FLOAT4, offset = u32(offset_of(Quad, pos_scale))}, // i_pos_scale
+		{buffer_slot = 0, location = 1, format = .FLOAT4, offset = u32(offset_of(Quad, corners))}, // i_corners
+		{buffer_slot = 0, location = 2, format = .FLOAT4, offset = u32(offset_of(Quad, color))}, // i_color
+		{buffer_slot = 0, location = 3, format = .FLOAT4, offset = u32(offset_of(Quad, border_color))}, // i_border_color
+		{buffer_slot = 0, location = 4, format = .FLOAT, offset = u32(offset_of(Quad, border_width))}, // i_border_width
+		{buffer_slot = 0, location = 5, format = .FLOAT2, offset = u32(offset_of(Instance, text_pos))}, // i_text_pos
+		{buffer_slot = 0, location = 6, format = .FLOAT, offset = u32(offset_of(Instance, type))}, // i_type
+		{buffer_slot = 1, location = 7, format = .FLOAT4, offset = u32(offset_of(Text_Vert, pos_uv))}, // i_text_pos_uv
+		{buffer_slot = 1, location = 8, format = .FLOAT4, offset = u32(offset_of(Text_Vert, color))}, // i_text_color
+	}
+  // odinfmt:enable
+
+	vertex_buffers := []sdl.GPUVertexBufferDescription {
+		{slot = 0, input_rate = .INSTANCE, pitch = size_of(Instance)},
+		{slot = 1, input_rate = .VERTEX, pitch = size_of(Text_Vert)},
+	}
+
+	pipeline_info := sdl.GPUGraphicsPipelineCreateInfo {
+		vertex_shader = vert_shader,
+		fragment_shader = frag_shader,
+		primitive_type = .TRIANGLELIST,
+		target_info = {
+			color_target_descriptions = &sdl.GPUColorTargetDescription {
+				format = sdl.GetGPUSwapchainTextureFormat(ctx.device, ctx.window),
+				blend_state = {
+					src_color_blendfactor = .SRC_ALPHA,
+					dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+					color_blend_op = .ADD,
+					src_alpha_blendfactor = .ONE,
+					dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
+					alpha_blend_op = .ADD,
+					color_write_mask = {.R, .G, .B, .A},
+					enable_blend = true,
+					enable_color_write_mask = true,
+				},
+			},
+			num_color_targets = 1,
+		},
+		vertex_input_state = {
+			vertex_buffer_descriptions = raw_data(vertex_buffers),
+			num_vertex_buffers = u32(len(vertex_buffers)),
+			vertex_attributes = raw_data(vert_attrs),
+			num_vertex_attributes = u32(len(vert_attrs)),
+		},
+	}
+
+	ctx.renderer.pipeline.pipeline = sdl.CreateGPUGraphicsPipeline(ctx.device, pipeline_info)
+	ctx.renderer.pipeline.texture_sampler = sdl.CreateGPUSampler(
+		ctx.device,
+		{
+			min_filter = .LINEAR,
+			mag_filter = .LINEAR,
+			mipmap_mode = .LINEAR,
+			address_mode_u = .CLAMP_TO_EDGE,
+			address_mode_v = .CLAMP_TO_EDGE,
+			address_mode_w = .CLAMP_TO_EDGE,
+		},
+	)
+	ctx.renderer.pipeline.text_engine = ttf.CreateGPUTextEngine(ctx.device)
+	ttf.SetGPUTextEngineWinding(ctx.renderer.pipeline.text_engine, .COUNTER_CLOCKWISE)
+	ctx.renderer.pipeline.instance_buffer = create_buffer(
+		ctx.device,
+		size_of(Instance) * BUFFER_INIT_SIZE,
+		{.VERTEX},
+	)
+	ctx.renderer.pipeline.text_vertex_buffer = create_buffer(
+		ctx.device,
+		size_of(Text_Vert) * BUFFER_INIT_SIZE,
+		{.VERTEX},
+	)
+	ctx.renderer.pipeline.text_index_buffer = create_buffer(
+		ctx.device,
+		size_of(i32) * BUFFER_INIT_SIZE,
+		{.INDEX},
+	)
+	ctx.renderer.pipeline.texture_buffer = sdl.CreateGPUTransferBuffer(
+		ctx.device,
+		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = 128 * 128 * 4 * BUFFER_INIT_SIZE},
+	)
+
+	dummy_texture_info := sdl.GPUTextureCreateInfo {
+		usage                = {.SAMPLER},
+		width                = 1,
+		height               = 1,
+		layer_count_or_depth = 1,
+		num_levels           = 1,
+		format               = .R8G8B8A8_UNORM,
+	}
+	ctx.renderer.pipeline.dummy_texture = sdl.CreateGPUTexture(ctx.device, dummy_texture_info)
+
+	n_buckets := _num_buckets(ctx)
+	ctx.renderer.prev_buckets = make([dynamic]u32, 0, n_buckets.x * n_buckets.y)
+	ctx.renderer.buckets = make([dynamic]u32, 0, n_buckets.x * n_buckets.y)
+	_resize_buckets(ctx)
+}
+
+_num_buckets :: proc(ctx: ^Context) -> [2]int {
+	x := int(ctx.window_size.x / BUCKET_PIXEL_SCALE) + 1
+	y := int(ctx.window_size.y / BUCKET_PIXEL_SCALE) + 1
+	return {x, y}
+}
+
+_resize_buckets :: proc(ctx: ^Context) {
+	ctx.renderer.bucket_count = _num_buckets(ctx)
+	ctx.renderer.prev_buckets, ctx.renderer.buckets =
+		ctx.renderer.buckets, ctx.renderer.prev_buckets
+	resize(&ctx.renderer.buckets, ctx.renderer.bucket_count.x * ctx.renderer.bucket_count.y)
 }
 
 Renderer_destroy :: proc(ctx: ^Context) {
@@ -154,6 +172,26 @@ Renderer_destroy :: proc(ctx: ^Context) {
 	sdl.ReleaseGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
 	sdl.ReleaseGPUGraphicsPipeline(ctx.device, ctx.renderer.pipeline.pipeline)
 	delete(ctx.renderer.commands)
+	delete(ctx.renderer.buckets)
+	delete(ctx.renderer.prev_buckets)
+}
+
+_update_overlapping_cells :: proc(ctx: ^Context, bb: clay.BoundingBox, h: ^u32) {
+	tl := [2]f32{bb.x, bb.y}
+	br := tl + [2]f32{bb.width, bb.height}
+	h_slice := slice.bytes_from_ptr(h, size_of(u32))
+
+	cell_tl := tl / BUCKET_PIXEL_SCALE
+	cell_br := br / BUCKET_PIXEL_SCALE
+	for y in cell_tl.y ..= cell_br.y {
+		for x in cell_tl.x ..= cell_br.x {
+			// TODO fix clay debug inspector crash
+			ctx.renderer.buckets[int(x) + int(y) * ctx.renderer.bucket_count.x] = hash.fnv32a(
+				h_slice,
+				ctx.renderer.buckets[int(x) + int(y) * ctx.renderer.bucket_count.x],
+			)
+		}
+	}
 }
 
 Renderer_draw :: proc(
@@ -161,7 +199,7 @@ Renderer_draw :: proc(
 	cmd_buffer: ^sdl.GPUCommandBuffer,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 	allocator := context.temp_allocator,
-) {
+) -> bool {
 	clear(&ctx.renderer.commands)
 	overlay_colors := make([dynamic]clay.Color, allocator)
 
@@ -174,9 +212,17 @@ Renderer_draw :: proc(
 		}
 	}
 
+	_resize_buckets(ctx)
+	slice.zero(ctx.renderer.buckets[:])
+
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
 		bounds := cmd.boundingBox
+
+		cmd_bytes := slice.bytes_from_ptr(cmd, size_of(clay.RenderCommand))
+		h := hash.fnv32a(cmd_bytes)
+		_update_overlapping_cells(ctx, bounds, &h)
+
 		#partial switch cmd.commandType {
 		case .Rectangle:
 			config := cmd.renderData.rectangle
@@ -259,6 +305,18 @@ Renderer_draw :: proc(
 		case .None:
 		}
 	}
+
+	buckets_match := true
+	find_bucket_mismatch: for y in 0 ..< ctx.renderer.bucket_count.y {
+		for x in 0 ..< ctx.renderer.bucket_count.x {
+			idx := x + y * ctx.renderer.bucket_count.x
+			if ctx.renderer.buckets[idx] != ctx.renderer.prev_buckets[idx] {
+				buckets_match = false
+				break find_bucket_mismatch
+			}
+		}
+	}
+	if buckets_match do return false
 
 	// upload to gpu
 	{
@@ -437,11 +495,11 @@ Renderer_draw :: proc(
 	w, h: u32
 	if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, ctx.window, &swapchain_texture, &w, &h) {
 		log.error("failed to acquire swapchain texture")
-		return
+		return false
 	}
 	if swapchain_texture == nil {
 		log.error("swapchain texture is nil")
-		return
+		return false
 	}
 
 	if swapchain_texture != nil {
@@ -559,6 +617,7 @@ Renderer_draw :: proc(
 			}
 		}
 	}
+	return true
 }
 
 ScissorStart :: sdl.Rect

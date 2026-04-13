@@ -50,10 +50,9 @@ Context :: struct {
 	// sdl3
 	window:              ^sdl.Window,
 	window_size:         [2]c.float,
+	prev_window_size:    [2]c.float,
 	start_time:          time.Tick,
 	prev_frame_time:     time.Tick,
-	prev_frametime:      time.Duration,
-	prev_event_time:     time.Tick,
 	scaling:             c.float,
 	tray:                ^sdl.Tray,
 	tray_menu:           ^sdl.TrayMenu,
@@ -125,8 +124,6 @@ DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 DEBUG_PREV_TIME: time.Tick
 
 Context_Status :: enum {
-	DIRTY,
-	EVENT,
 	TEXTBOX_SELECTED,
 	TEXTBOX_JUST_SELECTED,
 	TEXTBOX_JUST_DESELECTED,
@@ -135,8 +132,8 @@ Context_Status :: enum {
 	DOUBLE_CLICKED,
 	TRIPLE_CLICKED,
 	WINDOW_CLOSED,
+	WINDOW_RESIZED,
 	WINDOW_MINIMIZED,
-	WINDOW_JUST_SHOWN,
 	APP_EXIT,
 	MEMORY_DEBUG,
 }
@@ -297,12 +294,7 @@ init :: proc(ctx: ^Context, minimized: bool) {
 	)
 
 	clay.SetMeasureTextFunction(_measure_text, ctx)
-	ctx.prev_event_time = time.tick_now()
 	ctx.prev_frame_time = time.tick_now()
-
-	// reasonable 60fps default for initial redraw rate
-	ctx.prev_frametime = 16 * time.Millisecond
-	ctx.statuses += {.WINDOW_JUST_SHOWN}
 
 	when ODIN_DEBUG {
 		ctx.memory_debug.memory = make(map[rawptr]MemEntry, 1e3)
@@ -354,7 +346,7 @@ tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
-		ctx.statuses -= {.EVENT, .TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED}
+		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED}
 	}
 
 	event: sdl.Event
@@ -369,20 +361,16 @@ tick :: proc(
 		case .WINDOW_CLOSE_REQUESTED:
 			toggle_window(ctx, ctx.toggle_entry)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
-			ctx.statuses += {.EVENT}
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 		case .WINDOW_RESIZED:
-			ctx.statuses += {.EVENT}
+			ctx.statuses += {.WINDOW_RESIZED}
 		case .MOUSE_MOTION:
 			ctx.mouse_pos = {event.motion.x, event.motion.y}
 		case .MOUSE_WHEEL:
-			ctx.statuses += {.EVENT}
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
-			ctx.statuses += {.EVENT}
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
-			ctx.statuses += {.EVENT}
 			fn := event.type == .MOUSE_BUTTON_UP ? _input_mouse_up : _input_mouse_down
 			switch event.button.button {
 			case 1:
@@ -397,7 +385,6 @@ tick :: proc(
 				fn(ctx, .SIDE_2)
 			}
 		case .KEY_UP, .KEY_DOWN:
-			ctx.statuses += {.EVENT}
 			fn := event.type == .KEY_UP ? _input_key_up : _input_key_down
 			#partial switch event.key.scancode {
 			case .LSHIFT, .RSHIFT:
@@ -473,7 +460,8 @@ tick :: proc(
 	clay.SetPointerState(ctx.mouse_pos, .LEFT in ctx.mouse_down)
 	window_size: [2]c.int
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
-	ctx.window_size = {c.float(window_size.x), c.float(window_size.y)}
+	ctx.prev_window_size, ctx.window_size =
+		ctx.window_size, {c.float(window_size.x), c.float(window_size.y)}
 	clay.SetLayoutDimensions({ctx.window_size.x, ctx.window_size.y})
 
 	when ODIN_DEBUG {
@@ -508,8 +496,6 @@ tick :: proc(
 		render_start := time.tick_now()
 	}
 
-	if ctx.hovered_widget != ctx.prev_hovered_widget do ctx.statuses += {.EVENT}
-
 	if ctx.statuses >= {.TEXTBOX_HOVERING, .TEXTBOX_SELECTED} {
 		_ = sdl.SetCursor(TEXT_CURSOR)
 	} else if .BUTTON_HOVERING in ctx.statuses || .TEXTBOX_HOVERING in ctx.statuses {
@@ -518,11 +504,6 @@ tick :: proc(
 		_ = sdl.SetCursor(DEFAULT_CURSOR)
 	}
 
-	if .WINDOW_JUST_SHOWN in ctx.statuses {
-		ctx.statuses -= {.WINDOW_JUST_SHOWN}
-		ctx.statuses += {.DIRTY}
-		return
-	}
 	if .TEXTBOX_JUST_SELECTED in ctx.statuses {
 		ctx.statuses -= {.TEXTBOX_JUST_SELECTED}
 		ctx.statuses += {.TEXTBOX_SELECTED}
@@ -533,21 +514,13 @@ tick :: proc(
 		log.debugf("stopping text input")
 		_ = sdl.StopTextInput(ctx.window)
 	}
-	if .DIRTY in ctx.statuses {
-		ctx.statuses -= {.DIRTY}
-		ctx.statuses += {.EVENT}
-	}
-	if .EVENT in ctx.statuses {
-		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
-		Renderer_draw(ctx, cmd_buffer, &render_commands)
+	cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
+	rendered := Renderer_draw(ctx, cmd_buffer, &render_commands)
+	if rendered {
 		_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
-		ctx.prev_event_time = time.tick_now()
-	} else {
-		time.sleep(ctx.prev_frametime)
 	}
 
 	when ODIN_DEBUG {
-		ctx.statuses += {.DIRTY}
 		render_time := time.tick_since(render_start)
 		if clay.IsDebugModeEnabled() {
 			if time.tick_since(DEBUG_PREV_TIME) > DEBUG_LAYOUT_TIMER_INTERVAL {
@@ -568,12 +541,10 @@ tick :: proc(
 	}
 
 	ctx.prev_frame_time = time.tick_now()
-	ctx.prev_frametime = time.tick_since(frame_start)
 }
 
 open_window :: proc(ctx: ^Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
-	ctx.statuses += {.WINDOW_JUST_SHOWN}
 	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
@@ -791,7 +762,6 @@ scrollbar :: proc(
 		active = true
 	}
 	if active && .LEFT in ctx.mouse_down {
-		if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 		res += {.CHANGE}
 
 		data := clay.GetElementData(id)
@@ -925,7 +895,6 @@ slider :: proc(
 		}
 	}
 
-	if .CHANGE in res && time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 	return
 }
 
@@ -1053,7 +1022,6 @@ _scrollbar :: proc(
 			scroll_active = true
 		}
 		if scroll_active {
-			ctx.statuses += {.EVENT}
 			scroll_res += {.CHANGE}
 
 			ratio := clay.Vector2 {
@@ -1450,7 +1418,6 @@ _textbox :: proc(
 								},
 						},
 						) {
-							if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					} else {
 						x_offset := f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)
@@ -1474,7 +1441,6 @@ _textbox :: proc(
 							backgroundColor = text_config.textColor * {1, 1, 1, 0.25},
 						},
 						) {
-							if time.tick_since(ctx.prev_event_time) > EVENT_DELAY do ctx.statuses += {.EVENT}
 						}
 					}
 
