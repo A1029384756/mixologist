@@ -345,7 +345,7 @@ tick :: proc(
 		ctx.scroll_delta = {}
 		ctx.keys_pressed = {}
 		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
-		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED}
+		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
 	}
 
 	event: sdl.Event
@@ -362,6 +362,8 @@ tick :: proc(
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 		case .WINDOW_RESIZED:
+			ctx.statuses += {.WINDOW_RESIZED}
+		case .WINDOW_EXPOSED:
 			ctx.statuses += {.WINDOW_RESIZED}
 		case .MOUSE_MOTION:
 			ctx.mouse_pos = {event.motion.x, event.motion.y}
@@ -513,9 +515,9 @@ tick :: proc(
 		log.debugf("stopping text input")
 		_ = sdl.StopTextInput(ctx.window)
 	}
-	cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
-	rendered := Renderer_draw(ctx, cmd_buffer, &render_commands)
-	if rendered {
+	if Renderer_should_redraw(ctx, &render_commands) {
+		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
+		Renderer_draw(ctx, cmd_buffer, &render_commands)
 		_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
 	}
 

@@ -194,12 +194,41 @@ _update_overlapping_cells :: proc(ctx: ^Context, bb: clay.BoundingBox, h: ^u32) 
 	}
 }
 
+Renderer_should_redraw :: proc(
+	ctx: ^Context,
+	render_commands: ^clay.ClayArray(clay.RenderCommand),
+) -> bool {
+	_resize_buckets(ctx)
+	slice.zero(ctx.renderer.buckets[:])
+
+	for i in 0 ..< i32(render_commands.length) {
+		cmd := clay.RenderCommandArray_Get(render_commands, i)
+		bounds := cmd.boundingBox
+
+		cmd_bytes := slice.bytes_from_ptr(cmd, size_of(clay.RenderCommand))
+		h := hash.fnv32a(cmd_bytes)
+		_update_overlapping_cells(ctx, bounds, &h)
+	}
+
+	buckets_match := true
+	find_bucket_mismatch: for y in 0 ..< ctx.renderer.bucket_count.y {
+		for x in 0 ..< ctx.renderer.bucket_count.x {
+			idx := x + y * ctx.renderer.bucket_count.x
+			if ctx.renderer.buckets[idx] != ctx.renderer.prev_buckets[idx] {
+				buckets_match = false
+				break find_bucket_mismatch
+			}
+		}
+	}
+	return !buckets_match || .WINDOW_RESIZED in ctx.statuses
+}
+
 Renderer_draw :: proc(
 	ctx: ^Context,
 	cmd_buffer: ^sdl.GPUCommandBuffer,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 	allocator := context.temp_allocator,
-) -> bool {
+) {
 	clear(&ctx.renderer.commands)
 	overlay_colors := make([dynamic]clay.Color, allocator)
 
@@ -212,16 +241,9 @@ Renderer_draw :: proc(
 		}
 	}
 
-	_resize_buckets(ctx)
-	slice.zero(ctx.renderer.buckets[:])
-
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
 		bounds := cmd.boundingBox
-
-		cmd_bytes := slice.bytes_from_ptr(cmd, size_of(clay.RenderCommand))
-		h := hash.fnv32a(cmd_bytes)
-		_update_overlapping_cells(ctx, bounds, &h)
 
 		#partial switch cmd.commandType {
 		case .Rectangle:
@@ -305,18 +327,6 @@ Renderer_draw :: proc(
 		case .None:
 		}
 	}
-
-	buckets_match := true
-	find_bucket_mismatch: for y in 0 ..< ctx.renderer.bucket_count.y {
-		for x in 0 ..< ctx.renderer.bucket_count.x {
-			idx := x + y * ctx.renderer.bucket_count.x
-			if ctx.renderer.buckets[idx] != ctx.renderer.prev_buckets[idx] {
-				buckets_match = false
-				break find_bucket_mismatch
-			}
-		}
-	}
-	if buckets_match do return false
 
 	// upload to gpu
 	{
@@ -495,11 +505,11 @@ Renderer_draw :: proc(
 	w, h: u32
 	if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd_buffer, ctx.window, &swapchain_texture, &w, &h) {
 		log.error("failed to acquire swapchain texture")
-		return false
+		return
 	}
 	if swapchain_texture == nil {
 		log.error("swapchain texture is nil")
-		return false
+		return
 	}
 
 	if swapchain_texture != nil {
@@ -617,7 +627,6 @@ Renderer_draw :: proc(
 			}
 		}
 	}
-	return true
 }
 
 ScissorStart :: sdl.Rect

@@ -24,8 +24,8 @@ modules:
     builddir: true
     sources:
       - type: git
-        url: https://github.com/libsdl-org/SDL.git
-        tag: release-3.4.0
+        url: https://github.com/A1029384756/SDL.git
+        branch: 'wayland-expose-event'
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
@@ -64,7 +64,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL_image.git
-        tag: release-3.2.4
+        tag: release-3.4.2
     cleanup:
       - '/include'
       - '/lib/cmake'
