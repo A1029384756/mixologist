@@ -24,8 +24,8 @@ modules:
     builddir: true
     sources:
       - type: git
-        url: https://github.com/A1029384756/SDL.git
-        branch: 'wayland-expose-event'
+        url: https://github.com/libsdl-org/SDL.git
+        commit: '59ee54d136b59cc0aa4c3c4cce9bc962085ad525'
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
