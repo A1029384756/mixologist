@@ -18,14 +18,13 @@ build-options:
   append-path: /usr/lib/sdk/llvm20/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
 modules:
-  - shared-modules/libappindicator/libappindicator-gtk3-12.10.json
   - name: SDL3
     buildsystem: cmake-ninja
     builddir: true
     sources:
       - type: git
-        url: https://github.com/libsdl-org/SDL.git
-        commit: '59ee54d136b59cc0aa4c3c4cce9bc962085ad525'
+        url: https://github.com/A1029384756/SDL.git
+        commit: '174c4a7399c32f76b7ff753bc243c7189cf04646'
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
