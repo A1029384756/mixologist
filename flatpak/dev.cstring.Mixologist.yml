@@ -23,8 +23,8 @@ modules:
     builddir: true
     sources:
       - type: git
-        url: https://github.com/A1029384756/SDL.git
-        commit: '174c4a7399c32f76b7ff753bc243c7189cf04646'
+        url: https://github.com/libsdl-org/SDL.git
+        commit: '1675c8267ede3d12d26a362161eed2dda0813079'
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
