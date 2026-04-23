@@ -4,7 +4,6 @@ runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm20
-  - org.freedesktop.Sdk.Extension.odin
 command: dev.cstring.Mixologist
 finish-args:
   - --share=network
@@ -37,8 +36,21 @@ modules:
       - '/lib/cmake'
       - '/share/aclocal'
       - '/lib/pkgconfig'
+  - name: odin
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/sdk/odin
+      - cp -r ./* /app/sdk/odin
+    cleanup:
+      - '*'
+    sources:
+      - type: archive
+        url: https://github.com/odin-lang/Odin/releases/download/dev-2026-04/odin-linux-amd64-dev-2026-04.tar.gz
+        sha256: 8bfa62d459f505609cd0343746b4116f3e6866eb2d5b4b91bb8365db72f04e47
   - name: mixologist
     buildsystem: simple
+    build-options:
+      append-path: /app/sdk/odin
     build-commands:
       # create build directory
       - mkdir -p builds
