@@ -1,6 +1,5 @@
 package mixologist
 
-import "../dbus"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
@@ -8,6 +7,7 @@ import "core:math/rand"
 import "core:os"
 import "core:strings"
 import "core:time"
+import "dbus"
 
 GlobalShortcuts_odin_ctx: runtime.Context
 

@@ -1,6 +1,5 @@
 package mixologist
 
-import pw "../pipewire"
 import "base:runtime"
 import "core:log"
 import "core:mem"
@@ -10,6 +9,7 @@ import "core:strconv"
 import "core:strings"
 import "core:text/match"
 import "core:thread"
+import pw "pipewire"
 
 daemon: Daemon_Context
 daemon_thread: ^thread.Thread

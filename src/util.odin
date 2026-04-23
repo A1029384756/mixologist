@@ -1,17 +1,13 @@
 package mixologist
 
-import pw "../pipewire"
 import "base:runtime"
-import "core:bufio"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:os"
 import "core:strconv"
 import "core:strings"
-import "core:sys/linux"
 import "core:sys/posix"
-import "core:time"
+import pw "pipewire"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 	item := pw.spa_dict_get(d, id)

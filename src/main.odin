@@ -1,6 +1,5 @@
 package mixologist
 
-import "../dbus"
 import "base:runtime"
 import "core:encoding/cbor"
 import "core:encoding/json"
@@ -14,6 +13,7 @@ import "core:strings"
 import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
+import "dbus"
 import "ui"
 
 Mixologist :: struct {
