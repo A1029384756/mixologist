@@ -517,10 +517,10 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 
 	if clay.UI()(
 	{
-		layout = {
-			padding = clay.PaddingAll(16),
-			sizing = {clay.SizingPercent(0.7), clay.SizingFit()},
-		},
+		layout = {sizing = {clay.SizingPercent(0.7), clay.SizingFit()}},
+		backgroundColor = {10, 10, 10, 255},
+		cornerRadius = clay.CornerRadiusAll(10),
+		userData = transmute(rawptr)ui.Data_Flags{.SHADOW},
 	},
 	) {
 		if clay.UI()(
@@ -745,80 +745,89 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 settings_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.ElementId) {
 	if clay.UI()(
 	{
-		layout = {
-			sizing = {clay.SizingPercent(0.8), clay.SizingFit()},
-			childAlignment = {x = .Left, y = .Center},
-			layoutDirection = .TopToBottom,
-			padding = clay.PaddingAll(16),
-			childGap = 16,
-		},
-		backgroundColor = BASE,
+		layout = {sizing = {clay.SizingPercent(0.8), clay.SizingFit()}},
+		backgroundColor = {10, 10, 10, 255},
 		cornerRadius = clay.CornerRadiusAll(10),
+		userData = transmute(rawptr)ui.Data_Flags{.SHADOW},
 	},
 	) {
-		if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
-			ui.textlabel("Settings", {textColor = TEXT, fontSize = 20})
-			ui.spacer(&ctx.ui_ctx)
-			close_res, _ := ui.button(
-				&ctx.ui_ctx,
-				{ui.IconConfig{9, 20, TEXT}},
-				{},
-				clay.CornerRadiusAll(max(f32)),
-				SURFACE_2,
-				SURFACE_1,
-				SURFACE_0,
-				2,
-			)
-
-			if .RELEASE in close_res {
-				res += {.CANCEL}
-			}
-		}
-
 		if clay.UI()(
 		{
 			layout = {
-				sizing = {clay.SizingPercent(1), clay.SizingFit()},
+				sizing = {clay.SizingGrow(), clay.SizingFit()},
+				childAlignment = {x = .Left, y = .Center},
 				layoutDirection = .TopToBottom,
+				padding = clay.PaddingAll(16),
+				childGap = 16,
 			},
-			backgroundColor = SURFACE_0,
+			backgroundColor = BASE,
 			cornerRadius = clay.CornerRadiusAll(10),
 		},
 		) {
-			settings := mixologist.config.settings
-			res, _ := switch_row(
-				ctx,
-				{text = "Minimize on Start", color = TEXT, size = 16},
-				&settings.start_minimized,
-			)
-			if .RELEASE in res {
-				mixologist_event_send(settings)
+			if clay.UI()({layout = {sizing = {clay.SizingGrow(), clay.SizingFit()}}}) {
+				ui.textlabel("Settings", {textColor = TEXT, fontSize = 20})
+				ui.spacer(&ctx.ui_ctx)
+				close_res, _ := ui.button(
+					&ctx.ui_ctx,
+					{ui.IconConfig{9, 20, TEXT}},
+					{},
+					clay.CornerRadiusAll(max(f32)),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					2,
+				)
+
+				if .RELEASE in close_res {
+					res += {.CANCEL}
+				}
 			}
 
-			list_separator(SURFACE_1)
+			if clay.UI()(
+			{
+				layout = {
+					sizing = {clay.SizingPercent(1), clay.SizingFit()},
+					layoutDirection = .TopToBottom,
+				},
+				backgroundColor = SURFACE_0,
+				cornerRadius = clay.CornerRadiusAll(10),
+			},
+			) {
+				settings := mixologist.config.settings
+				res, _ := switch_row(
+					ctx,
+					{text = "Minimize on Start", color = TEXT, size = 16},
+					&settings.start_minimized,
+				)
+				if .RELEASE in res {
+					mixologist_event_send(settings)
+				}
 
-			remember_res, _ := switch_row(
-				ctx,
-				{text = "Remember Volume", color = TEXT, size = 16},
-				&settings.remember_volume,
-			)
-			if .RELEASE in remember_res {
-				mixologist_event_send(settings)
-			}
+				list_separator(SURFACE_1)
 
-			list_separator(SURFACE_1)
+				remember_res, _ := switch_row(
+					ctx,
+					{text = "Remember Volume", color = TEXT, size = 16},
+					&settings.remember_volume,
+				)
+				if .RELEASE in remember_res {
+					mixologist_event_send(settings)
+				}
 
-			volume_mode := transmute(^int)&settings.volume_falloff
-			dropdown_res, _ := dropdown_row(
-				ctx,
-				{text = "Volume Falloff Curve", color = TEXT, size = 16},
-				{"Linear", "Quadratic", "Power", "Cubic"},
-				volume_mode,
-			)
+				list_separator(SURFACE_1)
 
-			if .CHANGE in dropdown_res {
-				mixologist_event_send(settings)
-				mixologist_event_send(mixologist.volume)
+				volume_mode := transmute(^int)&settings.volume_falloff
+				dropdown_res, _ := dropdown_row(
+					ctx,
+					{text = "Volume Falloff Curve", color = TEXT, size = 16},
+					{"Linear", "Quadratic", "Power", "Cubic"},
+					volume_mode,
+				)
+
+				if .CHANGE in dropdown_res {
+					mixologist_event_send(settings)
+					mixologist_event_send(mixologist.volume)
+				}
 			}
 		}
 	}

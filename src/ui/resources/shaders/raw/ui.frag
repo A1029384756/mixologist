@@ -13,7 +13,7 @@ layout(location = 0) out vec4 o_color;
 layout(set = 2, binding = 0) uniform sampler2D atlas;
 
 const float AA_THRESHOLD = 1.0;
-const float SHADOW_SOFTNESS = 10.0;
+const float SHADOW_SOFTNESS = 12.5;
 
 float rounded_box(vec2 p, vec2 b, in vec4 r) {
     r.xy = (p.x > 0.0) ? r.xy : r.zw;
@@ -49,16 +49,11 @@ void main() {
         vec4 texture_color = texture(atlas, i_uv);
         o_color = i_color * texture_color.a;
     } else if (i_type == 3.0) { // shadow
-        if (i_corners == vec4(0.0)) {
-            o_color = i_color;
-        } else {
-            float d = rounded_box(gl_FragCoord.xy - i_center_scale.xy, i_center_scale.zw / 2, i_corners);
-            if (d > AA_THRESHOLD) {
-                discard;
-            }
-            d += 8.0;
-            float alpha = 1 - smoothstep(-SHADOW_SOFTNESS, SHADOW_SOFTNESS, d);
-            o_color = vec4(i_color.rgb, i_color.a * alpha);
+        float d = rounded_box(gl_FragCoord.xy - i_center_scale.xy, i_center_scale.zw / 2, i_corners);
+        if (d > SHADOW_SOFTNESS) {
+            discard;
         }
+        float alpha = 1.0 - smoothstep(-SHADOW_SOFTNESS, SHADOW_SOFTNESS, d);
+        o_color = vec4(i_color.rgb, i_color.a * alpha);
     }
 }

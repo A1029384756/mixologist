@@ -5,5 +5,5 @@ Icon=mixologist
 Exec=mixologist
 StartupWMClass=mixologist
 Terminal=false
-Comment=GUI for audio mixing
+Comment=Configurable audio mixing
 Categories=AudioVideo;Utility;Mixer

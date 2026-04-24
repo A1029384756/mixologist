@@ -27,6 +27,8 @@ layout(set = 1, binding = 0) uniform UniformBlock {
     float dpi_scale;
 };
 
+const float SHADOW_SOFTNESS = 12.5;
+
 const vec2 positions[6] = vec2[](
         vec2(1.0, 1.0), // top left
         vec2(1.0, 0.0), // top right
@@ -59,9 +61,13 @@ void main() {
         vec2 position = i_pos_scale.xy * dpi_scale;
         vec2 scale = i_pos_scale.zw * dpi_scale;
 
+        vec2 inflate = vec2(0.0);
+        if (i_type == 3.0) {
+            inflate = vec2(SHADOW_SOFTNESS * dpi_scale);
+        }
+
         vec2 local_pos = positions[gl_VertexIndex];
-        local_pos *= scale;
-        local_pos += position;
+        local_pos = local_pos * (scale + inflate * 2.0) + position - inflate;
 
         o_color = i_color;
         o_corners = corner_radii * dpi_scale;

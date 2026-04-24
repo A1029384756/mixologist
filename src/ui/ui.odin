@@ -1905,7 +1905,6 @@ _dropdown_options :: proc(
 			attachTo = .Parent,
 			pointerCaptureMode = .Capture,
 			offset = {0, open_up ? -4 : 4},
-			expand = {4, 4},
 		},
 		backgroundColor = {0, 0, 0, 255},
 		cornerRadius = clay.CornerRadiusAll(14),

@@ -608,10 +608,7 @@ Renderer_draw :: proc(
 					text_vertex_offset += data.num_vertices
 				}
 				instance_offset += 1
-			case Quad:
-				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
-				instance_offset += 1
-			case Shadow:
+			case Quad, Shadow:
 				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
 				instance_offset += 1
 			}
