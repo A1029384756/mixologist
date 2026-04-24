@@ -33,7 +33,6 @@ modules:
       - '/lib/libSDL3_test.a'
       - '/lib/libSDL3_test.la'
       - '/lib/cmake'
-      - '/lib/debug'
       - '/share/aclocal'
       - '/lib/pkgconfig'
   - name: odin
@@ -65,4 +64,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/A1029384756/mixologist.git
-        branch: master
+        commit: 0406e43ec90b0b75b6a547134b82f54e1ef0376a
