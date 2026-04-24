@@ -4,7 +4,7 @@ PREFIX = /usr
 all: shaders mixologist
 
 install: shaders mixologist
-	install -Dm0755 builds/mixologist $(DESTDIR)$(PREFIX)/bin/$(APP_ID)
+	install -Dm0755 builds/$(APP_ID) $(DESTDIR)$(PREFIX)/bin/$(APP_ID)
 	install -Dm0644 data/mixologist.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(APP_ID).svg                                               
 	install -Dm0644 data/mixologist.desktop $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop     
 
