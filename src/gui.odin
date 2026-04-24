@@ -488,7 +488,7 @@ list_separator :: proc(color: clay.Color = SURFACE_0) {
 
 rule_add_modal :: proc(ctx: ^GUI_Context) {
 	if .ADDING in ctx.statuses {
-		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root}) {
 			res, _ := rule_add_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.ADDING}
 		}
@@ -497,7 +497,7 @@ rule_add_modal :: proc(ctx: ^GUI_Context) {
 
 settings_modal :: proc(ctx: ^GUI_Context) {
 	if .SETTINGS in ctx.statuses {
-		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root, nil}) {
+		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root}) {
 			res, _ := settings_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.SETTINGS}
 		}

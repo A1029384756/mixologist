@@ -1735,23 +1735,36 @@ modal :: proc(id: clay.ElementId) -> proc(config: ModalConfig) -> bool {
 	return modal_configure
 }
 
+@(private)
+modal_fade_in_out :: proc "c" (
+	initial: clay.TransitionData,
+	properties: clay.TransitionPropertyFlags,
+) -> clay.TransitionData {
+	final := initial
+	if .BackgroundColor in properties {
+		final.backgroundColor.a = 0
+	}
+	return final
+}
 ModalConfig :: struct {
 	background_color: clay.Color,
 	attachment:       clay.FloatingAttachToElement,
-	user_data:        rawptr,
 }
-modal_configure :: proc(config: ModalConfig = {{}, .Root, nil}) -> bool {
+modal_configure :: proc(config: ModalConfig = {{}, .Root}) -> bool {
 	elem_config := clay.ElementDeclaration {
-		floating = {
-			attachment = {element = .CenterCenter, parent = .CenterCenter},
-			attachTo = config.attachment,
-		},
+		floating = {attachTo = config.attachment},
 		layout = {
 			sizing = {clay.SizingGrow(), clay.SizingGrow()},
 			childAlignment = {x = .Center, y = .Center},
 		},
 		backgroundColor = config.background_color,
-		userData = config.user_data,
+		transition = {
+			handler = clay.EaseOut,
+			duration = 0.25,
+			properties = {.BackgroundColor},
+			enter = {setInitialState = modal_fade_in_out, trigger = .TriggerOnFirstParentFrame},
+			exit = {setFinalState = modal_fade_in_out, trigger = .TriggerWhenParentExits},
+		},
 	}
 	clay.ConfigureOpenElement(elem_config)
 	return true
