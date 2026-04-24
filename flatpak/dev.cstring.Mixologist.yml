@@ -24,7 +24,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/libsdl-org/SDL.git
-        commit: '1675c8267ede3d12d26a362161eed2dda0813079'
+        commit: '01a7588f8e593b93c75ca7adbc6ec595e84e9bce'
     cleanup:
       - '/bin/sdl3-config'
       - '/include'
