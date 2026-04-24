@@ -1,21 +1,24 @@
-all: mixologist
+APP_ID = mixologist
+PREFIX = /usr
 
-install:
-	install -d $(DESTDIR)/usr/bin
-	install -m 0755 builds/mixologist $(DESTDIR)/usr/bin/mixologist
+all: shaders mixologist
 
-	install -d $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
-	install -m 0644 data/mixologist.svg $(DESTDIR)/usr/share/icons/hicolor/scalable/apps
-	install -d $(DESTDIR)/usr/share/applications
-	install -m 0644 data/mixologist.desktop $(desktop)/usr/share/applications
+install: shaders mixologist
+	install -Dm0755 builds/mixologist $(DESTDIR)$(PREFIX)/bin/$(APP_ID)
+	install -Dm0644 data/mixologist.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(APP_ID).svg                                               
+	install -Dm0644 data/mixologist.desktop $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop     
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(APP_ID)                                                                                                               
+	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/$(APP_ID).svg                                                                             
+	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(APP_ID).desktop                                                                                        
 
 clean:
-	rm builds/mixcli
 	rm builds/mixologist
 
 mixologist:
 	mkdir -p builds/
-	odin build ./src -out:builds/mixologist -show-timings -vet-unused-variables -define:LOG_LEVEL=info
+	odin build ./src -out:builds/$(APP_ID) -show-timings -vet-unused-variables -define:LOG_LEVEL=info $(EXTRA_ODIN_FLAGS)
 
 mixologist-dbg:
 	mkdir -p builds/

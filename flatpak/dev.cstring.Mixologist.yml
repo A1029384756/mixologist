@@ -52,20 +52,8 @@ modules:
     build-options:
       append-path: /app/sdk/odin
     build-commands:
-      # create build directory
-      - mkdir -p builds
-      # compile shaders
-      - mkdir -p src/ui/resources/shaders/compiled
-      - glslangValidator -V src/ui/resources/shaders/raw/ui.vert -o src/ui/resources/shaders/compiled/ui.vert.spv
-      - glslangValidator -V src/ui/resources/shaders/raw/ui.frag -o src/ui/resources/shaders/compiled/ui.frag.spv
-      # build mixologist
-      - odin build src -out:builds/mixologist -show-timings -vet-unused-variables -define:LOG_LEVEL=info -extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath
-      # install binaries
-      - install -Dm0755 builds/mixologist /app/bin/dev.cstring.Mixologist
-      # install icons and desktop file
-      - install -Dm0644 data/mixologist.svg /app/share/icons/hicolor/scalable/apps/dev.cstring.Mixologist.svg
-      - install -Dm0644 data/mixologist.desktop /app/share/applications/dev.cstring.Mixologist.desktop
-      - desktop-file-edit --set-key="Exec" --set-value="dev.cstring.Mixologist" --set-icon=$FLATPAK_ID /app/share/applications/dev.cstring.Mixologist.desktop
+      - make install EXTRA_ODIN_FLAGS='-extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath' PREFIX='/app' APP_ID='dev.cstring.Mixologist'
+      - desktop-file-edit --set-key="Exec" --set-value=$FLATPAK_ID --set-icon=$FLATPAK_ID /app/share/applications/dev.cstring.Mixologist.desktop
     sources:
       - type: dir
         path: ..
