@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright [2026] [Hayden Gray] -->
+<component type="desktop-application">
+  <id>dev.cstring.mixologist</id>
+	<developer id="dev.cstring">
+		<name>Hayden Gray</name>
+	</developer>
+
+	<name>Mixologist</name>
+	<summary>Configurable audio mixing</summary>
+
+	<metadata_license>MIT</metadata_license>
+	<project_license>MIT</project_license>
+
+	<description>
+		<p>
+			Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+		</p>
+	</description>
+
+	<launchable type="desktop-id">dev.cstring.mixologist.desktop</launchable>
+	<url type="homepage">https://github.com/A1029384756/mixologist</url>
+  <content_rating type="oars-1.1" />
+
+	<releases>
+		<release version="dev-24-04-2026" date="2026-04-24">
+			<url type="details">https://example.org/changelog.html#version_1.0.1</url>
+			<description>
+				<p>Release description</p>
+				<ul>
+					<li>List of changes</li>
+					<li>List of changes</li>
+				</ul>
+			</description>
+		</release>
+	</releases>
+</component>

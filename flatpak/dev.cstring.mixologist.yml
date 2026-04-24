@@ -1,10 +1,10 @@
-app-id: dev.cstring.Mixologist
+app-id: dev.cstring.mixologist
 runtime: org.freedesktop.Platform
 runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm20
-command: dev.cstring.Mixologist
+command: dev.cstring.mixologist
 finish-args:
   - --share=network
   - --share=ipc
@@ -33,6 +33,7 @@ modules:
       - '/lib/libSDL3_test.a'
       - '/lib/libSDL3_test.la'
       - '/lib/cmake'
+      - '/lib/debug'
       - '/share/aclocal'
       - '/lib/pkgconfig'
   - name: odin
@@ -58,8 +59,10 @@ modules:
     build-options:
       append-path: /app/sdk/odin
     build-commands:
-      - make install EXTRA_ODIN_FLAGS='-extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath' PREFIX='/app' APP_ID='dev.cstring.Mixologist'
-      - desktop-file-edit --set-key="Exec" --set-value=$FLATPAK_ID --set-icon=$FLATPAK_ID /app/share/applications/dev.cstring.Mixologist.desktop
+      - make install EXTRA_ODIN_FLAGS='-extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath' PREFIX='/app' APP_ID=$FLATPAK_ID
+      - desktop-file-edit --set-key="Exec" --set-value=$FLATPAK_ID --set-icon=$FLATPAK_ID /app/share/applications/$FLATPAK_ID.desktop
+      - install -Dm0644 data/$FLATPAK_ID.metainfo.xml /app/share/metainfo/$FLATPAK_ID.metainfo.xml
     sources:
-      - type: dir
-        path: ..
+      - type: git
+        url: https://github.com/A1029384756/mixologist.git
+        branch: master

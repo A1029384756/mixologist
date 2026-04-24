@@ -18,7 +18,7 @@ clean:
 
 mixologist:
 	mkdir -p builds/
-	odin build ./src -out:builds/$(APP_ID) -show-timings -vet-unused-variables -define:LOG_LEVEL=info $(EXTRA_ODIN_FLAGS)
+	odin build ./src -o:speed -out:builds/$(APP_ID) -show-timings -vet-unused-variables -define:LOG_LEVEL=info $(EXTRA_ODIN_FLAGS)
 
 mixologist-dbg:
 	mkdir -p builds/
@@ -35,5 +35,5 @@ shaders-dbg:
 	glslangValidator -g -V src/ui/resources/shaders/raw/ui.frag -o src/ui/resources/shaders/compiled/ui.frag.spv
 
 flat:
-	flatpak-builder --disable-rofiles-fuse --force-clean --user --install-deps-from=flathub --repo=repo builddir ./flatpak/dev.cstring.Mixologist.yml
-	flatpak build-bundle repo builds/mixologist.flatpak dev.cstring.Mixologist --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+	flatpak-builder --disable-rofiles-fuse --force-clean --user --install-deps-from=flathub --repo=repo builddir ./flatpak/dev.cstring.mixologist.yml
+	flatpak build-bundle repo builds/mixologist.flatpak dev.cstring.mixologist --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo

@@ -148,7 +148,7 @@ main :: proc() {
 	// configure global shortcuts
 	gs_err := GlobalShortcuts_Init(
 		&mixologist.shortcuts,
-		"dev.cstring.Mixologist",
+		"dev.cstring.mixologist",
 		"mixologist",
 		{.ACTIVATED},
 		mixologist_globalshortcuts_handler,

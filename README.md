@@ -68,7 +68,7 @@ Shift + F11 -> mixologist -shift-volume:-0.1 #balance one way
 Shift + F12 -> mixologist -shift-volume:0.1 #balance the other way
 ```
 If you are instead running the Flatpak, you should use
-`flatpak run dev.cstring.Mixologist <flag>` to accomplish
+`flatpak run dev.cstring.mixologist <flag>` to accomplish
 the same result.
 
 Volume is a single value that can range from -1 to 1 where:
