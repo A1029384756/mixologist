@@ -1753,20 +1753,31 @@ ModalConfig :: struct {
 modal_configure :: proc(config: ModalConfig = {{}, .Root}) -> bool {
 	elem_config := clay.ElementDeclaration {
 		floating = {attachTo = config.attachment},
-		layout = {
-			sizing = {clay.SizingGrow(), clay.SizingGrow()},
-			childAlignment = {x = .Center, y = .Center},
-		},
+		layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}},
 		backgroundColor = config.background_color,
 		transition = {
 			handler = clay.EaseOut,
-			duration = 0.25,
+			duration = 0.125,
 			properties = {.BackgroundColor},
-			enter = {setInitialState = modal_fade_in_out, trigger = .TriggerOnFirstParentFrame},
-			exit = {setFinalState = modal_fade_in_out, trigger = .TriggerWhenParentExits},
+			enter = {setInitialState = modal_fade_in_out},
+			exit = {setFinalState = modal_fade_in_out},
 		},
 	}
 	clay.ConfigureOpenElement(elem_config)
+	open_modal_id := clay.GetOpenElementId()
+	clay._CloseElement()
+
+	// "child" floating element
+	clay._OpenElement()
+	clay.ConfigureOpenElement(
+		{
+			floating = {attachTo = .ElementWithId, parentId = open_modal_id},
+			layout = {
+				sizing = {clay.SizingGrow(), clay.SizingGrow()},
+				childAlignment = {x = .Center, y = .Center},
+			},
+		},
+	)
 	return true
 }
 
