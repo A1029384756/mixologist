@@ -64,4 +64,4 @@ modules:
     sources:
       - type: git
         url: https://github.com/A1029384756/mixologist.git
-        commit: 0406e43ec90b0b75b6a547134b82f54e1ef0376a
+        commit: 7cc3a24971f411da5fac6c9e97bbbacb9bfa9abf
