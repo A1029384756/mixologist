@@ -25,8 +25,8 @@ GlobalShortcut :: struct {
 
 @(private = "file")
 GlobalShortcut_OutMetadata :: struct {
-	description:         string `dbus:"s" dbus_name:"description"`,
-	trigger_description: string `dbus:"s" dbus_name:"trigger_description"`,
+	description:         string `dbus:"s"`,
+	trigger_description: string `dbus:"s"`,
 }
 @(private = "file")
 GlobalShortcut_Out :: struct {
@@ -36,8 +36,8 @@ GlobalShortcut_Out :: struct {
 
 @(private = "file")
 GlobalShortcut_InMetadata :: struct {
-	description:       string `dbus:"s" dbus_name:"description"`,
-	preferred_trigger: string `dbus:"s" dbus_name:"preferred_trigger"`,
+	description:       string `dbus:"s"`,
+	preferred_trigger: string `dbus:"s"`,
 }
 @(private = "file")
 GlobalShortcut_In :: struct {
@@ -61,11 +61,11 @@ GlobalShortcuts_SignalType :: enum {
 GlobalShortcuts_SignalTypes :: bit_set[GlobalShortcuts_SignalType]
 
 GlobalShortcuts_CreateSessionReq :: struct {
-	handle_token:         string `dbus:"s" dbus_name:"handle_token"`,
-	session_handle_token: string `dbus:"s" dbus_name:"session_handle_token"`,
+	handle_token:         string `dbus:"s"`,
+	session_handle_token: string `dbus:"s"`,
 }
 GlobalShortcuts_CreateSessionResults :: struct {
-	session_handle: string `dbus:"o" dbus_name:"session_handle"`,
+	session_handle: string `dbus:"o"`,
 }
 GlobalShortcuts_CreateSessionResp :: struct {
 	response: u32 `dbus:"u"`,
@@ -73,7 +73,7 @@ GlobalShortcuts_CreateSessionResp :: struct {
 }
 
 GlobalShortcuts_HandleTokenOptions :: struct {
-	handle_token: string `dbus:"s" dbus_name:"handle_token"`,
+	handle_token: string `dbus:"s"`,
 }
 
 GlobalShortcuts_BindShortcutsReq :: struct {
@@ -89,7 +89,7 @@ GlobalShortcuts_ListShortcutsReq :: struct {
 }
 
 GlobalShortcuts_ShortcutsResults :: struct {
-	shortcuts: []GlobalShortcut_Out `dbus:"a(sa{sv})" dbus_name:"shortcuts"`,
+	shortcuts: []GlobalShortcut_Out `dbus:"a(sa{sv})"`,
 }
 GlobalShortcuts_ShortcutsResp :: struct {
 	response: u32 `dbus:"u"`,

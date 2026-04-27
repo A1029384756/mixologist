@@ -279,8 +279,11 @@ marshal_a_sv_struct :: proc(
 		field := reflect.struct_field_at(val.id, i)
 		dbus_tag := reflect.struct_tag_get(field.tag, "dbus")
 		name_tag := reflect.struct_tag_get(field.tag, "dbus_name")
-		if len(dbus_tag) == 0 || len(name_tag) == 0 {
+		if len(dbus_tag) == 0 {
 			return .Missing_Tag
+		}
+		if len(name_tag) == 0 {
+			name_tag = field.name
 		}
 
 		entry: MessageIter
@@ -507,7 +510,11 @@ unmarshal_a_sv_struct :: proc(
 		field_idx := -1
 		for i in 0 ..< int(s.field_count) {
 			f := reflect.struct_field_at(val.id, i)
-			if reflect.struct_tag_get(f.tag, "dbus_name") == key {
+			name_tag := reflect.struct_tag_get(f.tag, "dbus_name")
+			if name_tag == key {
+				field_idx = i
+				break
+			} else if len(name_tag) == 0 && f.name == key {
 				field_idx = i
 				break
 			}
