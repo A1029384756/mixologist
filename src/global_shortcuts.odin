@@ -23,10 +23,30 @@ GlobalShortcut :: struct {
 	trigger_description: string,
 }
 
+@(private = "file")
+GlobalShortcut_OutMetadata :: struct {
+	description:         string `dbus:"s" dbus_name:"description"`,
+	trigger_description: string `dbus:"s" dbus_name:"trigger_description"`,
+}
+@(private = "file")
+GlobalShortcut_Out :: struct {
+	id:       string `dbus:"s"`,
+	metadata: GlobalShortcut_OutMetadata `dbus:"a{sv}"`,
+}
+
+@(private = "file")
+GlobalShortcut_InMetadata :: struct {
+	description:       string `dbus:"s" dbus_name:"description"`,
+	preferred_trigger: string `dbus:"s" dbus_name:"preferred_trigger"`,
+}
+@(private = "file")
+GlobalShortcut_In :: struct {
+	id:       string `dbus:"s"`,
+	metadata: GlobalShortcut_InMetadata `dbus:"a{sv}"`,
+}
+
 GlobalShortcuts_ResponseContext :: struct {
-	// possible values
 	shortcuts:     []GlobalShortcut,
-	// status fields
 	completed:     bool,
 	response_code: u32,
 	match_rule:    cstring,
@@ -39,6 +59,48 @@ GlobalShortcuts_SignalType :: enum {
 	SHORTCUTS_CHANGED,
 }
 GlobalShortcuts_SignalTypes :: bit_set[GlobalShortcuts_SignalType]
+
+GlobalShortcuts_CreateSessionReq :: struct {
+	handle_token:         string `dbus:"s" dbus_name:"handle_token"`,
+	session_handle_token: string `dbus:"s" dbus_name:"session_handle_token"`,
+}
+GlobalShortcuts_CreateSessionResults :: struct {
+	session_handle: string `dbus:"o" dbus_name:"session_handle"`,
+}
+GlobalShortcuts_CreateSessionResp :: struct {
+	response: u32 `dbus:"u"`,
+	results:  GlobalShortcuts_CreateSessionResults `dbus:"a{sv}"`,
+}
+
+GlobalShortcuts_HandleTokenOptions :: struct {
+	handle_token: string `dbus:"s" dbus_name:"handle_token"`,
+}
+
+GlobalShortcuts_BindShortcutsReq :: struct {
+	session_handle: string `dbus:"o"`,
+	shortcuts:      []GlobalShortcut_In `dbus:"a(sa{sv})"`,
+	parent_window:  string `dbus:"s"`,
+	options:        GlobalShortcuts_HandleTokenOptions `dbus:"a{sv}"`,
+}
+
+GlobalShortcuts_ListShortcutsReq :: struct {
+	session_handle: string `dbus:"o"`,
+	options:        GlobalShortcuts_HandleTokenOptions `dbus:"a{sv}"`,
+}
+
+GlobalShortcuts_ShortcutsResults :: struct {
+	shortcuts: []GlobalShortcut_Out `dbus:"a(sa{sv})" dbus_name:"shortcuts"`,
+}
+GlobalShortcuts_ShortcutsResp :: struct {
+	response: u32 `dbus:"u"`,
+	results:  GlobalShortcuts_ShortcutsResults `dbus:"a{sv}"`,
+}
+
+Registry_RegisterReq :: struct {
+	appid:   string `dbus:"s"`,
+	options: struct{} `dbus:"a{sv}"`,
+}
+
 
 Error :: union {
 	cstring,
@@ -59,11 +121,9 @@ Registry_Register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
 	)
 	defer dbus.message_unref(msg)
 
-	appid_cstr := strings.clone_to_cstring(appid, context.temp_allocator)
-	args, dict: dbus.MessageIter
+	args: dbus.MessageIter
 	dbus.message_iter_init_append(msg, &args)
-	dbus.message_iter_append_basic(&args, .STRING, &appid_cstr)
-	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &dict) {}
+	dbus.marshal(&args, "sa{sv}", Registry_RegisterReq{appid = appid}, context.temp_allocator)
 
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
 	if dbus.error_is_set(&err) do return err.message
@@ -146,20 +206,15 @@ GlobalShortcuts_CreateSession :: proc(
 
 	args, dict: dbus.MessageIter
 	dbus.message_iter_init_append(msg, &args)
-	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &dict) {
-		_dict_append_entry(
-			&dict,
-			"handle_token",
+	dbus.marshal(
+		&args,
+		"a{sv}",
+		GlobalShortcuts_CreateSessionReq {
 			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
-			temp_allocator,
-		)
-		_dict_append_entry(
-			&dict,
-			"session_handle_token",
 			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
-			temp_allocator,
-		)
-	}
+		},
+		temp_allocator,
+	)
 
 	reply := dbus.connection_send_with_reply_and_block(
 		gs.conn,
@@ -190,17 +245,17 @@ GlobalShortcuts_CreateSession :: proc(
 			session_handle: cstring
 
 			dbus.message_iter_init(signal_msg, &signal_args)
-			dbus.message_iter_get_basic(&signal_args, &response_code)
-
-			dbus.message_iter_next(&signal_args)
-			dbus.message_iter_recurse(&signal_args, &results)
-
-			handle_iter, handle_found := Dict_GetKey(&results, "session_handle")
-			if !handle_found {
+			createsession_resp: GlobalShortcuts_CreateSessionResp
+			if err := dbus.unmarshal(
+				&signal_args,
+				"ua{sv}",
+				&createsession_resp,
+				context.allocator,
+			); err != nil {
 				log.error("could not get session handle")
 			}
-			dbus.message_iter_get_basic(&handle_iter, &session_handle)
-			gs.session_handle = strings.clone_from_cstring(session_handle, allocator)
+			gs.session_handle = createsession_resp.results.session_handle
+			log.debugf("obtained session handle: %s", gs.session_handle)
 			return nil
 		}
 	}
@@ -274,40 +329,27 @@ GlobalShortcuts_BindShortcuts :: proc(
 	)
 	defer dbus.message_unref(msg)
 
-	args: dbus.MessageIter
-	dbus.message_iter_init_append(msg, &args)
-
-	session_handle_cstr := strings.clone_to_cstring(gs.session_handle, temp_allocator)
-	dbus.message_iter_append_basic(&args, .OBJECT_PATH, &session_handle_cstr)
-
-	shortcuts_array: dbus.MessageIter
-	if dbus.message_iter_push_container(&args, .ARRAY, "(sa{sv})", &shortcuts_array) {
-		for shortcut in shortcuts {
-			shortcut_iter: dbus.MessageIter
-			if dbus.message_iter_push_container(&shortcuts_array, .STRUCT, nil, &shortcut_iter) {
-				shortcut_id_cstr := strings.clone_to_cstring(shortcut.id, temp_allocator)
-				dbus.message_iter_append_basic(&shortcut_iter, .STRING, &shortcut_id_cstr)
-
-				metadata: dbus.MessageIter
-				if dbus.message_iter_push_container(&shortcut_iter, .ARRAY, "{sv}", &metadata) {
-					_dict_append_entry(&metadata, "description", shortcut.description)
-					_dict_append_entry(
-						&metadata,
-						"preferred_trigger",
-						shortcut.trigger_description,
-					)
-				}
-			}
+	wire_shortcuts := make([]GlobalShortcut_In, len(shortcuts), temp_allocator)
+	for s, i in shortcuts {
+		wire_shortcuts[i] = {
+			id = s.id,
+			metadata = {description = s.description, preferred_trigger = s.trigger_description},
 		}
 	}
 
-	parent_window := cstring("")
-	dbus.message_iter_append_basic(&args, .STRING, &parent_window)
-
-	options: dbus.MessageIter
-	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &options) {
-		_dict_append_entry(&options, "handle_token", handle_token, temp_allocator)
-	}
+	args: dbus.MessageIter
+	dbus.message_iter_init_append(msg, &args)
+	dbus.marshal(
+		&args,
+		"oa(sa{sv})sa{sv}",
+		GlobalShortcuts_BindShortcutsReq {
+			session_handle = gs.session_handle,
+			shortcuts = wire_shortcuts,
+			parent_window = "",
+			options = {handle_token = handle_token},
+		},
+		temp_allocator,
+	)
 
 	reply := dbus.connection_send_with_reply_and_block(
 		gs.conn,
@@ -380,15 +422,17 @@ GlobalShortcuts_ListShortcuts :: proc(
 	)
 	defer dbus.message_unref(msg)
 
-	args, dict: dbus.MessageIter
+	args: dbus.MessageIter
 	dbus.message_iter_init_append(msg, &args)
-
-	session_handle_cstr := strings.clone_to_cstring(gs.session_handle, temp_allocator)
-	dbus.message_iter_append_basic(&args, .OBJECT_PATH, &session_handle_cstr)
-
-	if dbus.message_iter_push_container(&args, .ARRAY, "{sv}", &dict) {
-		_dict_append_entry(&dict, "handle_token", handle_token)
-	}
+	dbus.marshal(
+		&args,
+		"oa{sv}",
+		GlobalShortcuts_ListShortcutsReq {
+			session_handle = gs.session_handle,
+			options = {handle_token = handle_token},
+		},
+		temp_allocator,
+	)
 
 	reply := dbus.connection_send_with_reply_and_block(
 		gs.conn,
@@ -431,96 +475,8 @@ GlobalShortcuts_SliceDelete :: proc(shortcuts: []GlobalShortcut, allocator := co
 	delete(shortcuts, allocator)
 }
 
-_GlobalShortcuts_DeserializeShortcuts :: proc(
-	iter: ^dbus.MessageIter,
-	allocator := context.allocator,
-) -> []GlobalShortcut {
-	shortcuts_len := dbus.message_iter_get_element_count(iter)
-	shortcuts := make([]GlobalShortcut, shortcuts_len, allocator)
-
-	shortcuts_array: dbus.MessageIter
-	dbus.message_iter_recurse(iter, &shortcuts_array)
-
-	for &elem in shortcuts {
-		shortcut_struct: dbus.MessageIter
-		dbus.message_iter_recurse(&shortcuts_array, &shortcut_struct)
-
-		shortcut_id: cstring
-		dbus.message_iter_get_basic(&shortcut_struct, &shortcut_id)
-		elem.id = strings.clone_from_cstring(shortcut_id, allocator)
-
-		dbus.message_iter_next(&shortcut_struct)
-		metadata_dict: dbus.MessageIter
-		dbus.message_iter_recurse(&shortcut_struct, &metadata_dict)
-
-		description_iter, description_found := Dict_GetKey(&metadata_dict, "description")
-		if !description_found {
-			log.panic("could not get description")
-		}
-		trigger_description_iter, trigger_description_found := Dict_GetKey(
-			&metadata_dict,
-			"trigger_description",
-		)
-		if !trigger_description_found {
-			// [TODO] find out why this only happens on hyprland
-			log.debugf("could not get trigger description for shortcuts: %v", shortcuts)
-			return shortcuts
-		}
-
-		description_cstr, trigger_description_cstr: cstring
-		dbus.message_iter_get_basic(&description_iter, &description_cstr)
-		dbus.message_iter_get_basic(&trigger_description_iter, &trigger_description_cstr)
-
-		elem.description = strings.clone_from_cstring(description_cstr, allocator)
-		elem.trigger_description = strings.clone_from_cstring(trigger_description_cstr, allocator)
-
-		dbus.message_iter_next(&shortcuts_array)
-	}
-	return shortcuts
-}
-
 _is_sandboxed :: proc() -> bool {
 	return os.exists("/.flatpak-info")
-}
-
-Dict_GetKey :: proc(dict_iter: ^dbus.MessageIter, get: cstring) -> (dbus.MessageIter, bool) {
-	for dbus.message_iter_get_arg_type(dict_iter) == .DICT_ENTRY {
-		key_iter, val_iter: dbus.MessageIter
-		key: cstring
-
-		dbus.message_iter_recurse(dict_iter, &key_iter)
-		dbus.message_iter_get_basic(&key_iter, &key)
-		dbus.message_iter_next(&key_iter)
-		dbus.message_iter_recurse(&key_iter, &val_iter)
-
-		log.debugf("message key: %v", key)
-
-		if key == get {
-			return val_iter, true
-		}
-
-		dbus.message_iter_next(dict_iter)
-	}
-
-	log.errorf("could not get key: %v", get)
-	return {}, false
-}
-
-_dict_append_entry :: proc(
-	dict: ^dbus.MessageIter,
-	k, v: string,
-	temp_allocator := context.temp_allocator,
-) {
-	entry, variant: dbus.MessageIter
-	key_cstr := strings.clone_to_cstring(k, temp_allocator)
-	val_cstr := strings.clone_to_cstring(v, temp_allocator)
-
-	if dbus.message_iter_push_container(dict, .DICT_ENTRY, nil, &entry) {
-		dbus.message_iter_append_basic(&entry, .STRING, &key_cstr)
-		if dbus.message_iter_push_container(&entry, .VARIANT, "s", &variant) {
-			dbus.message_iter_append_basic(&variant, .STRING, &val_cstr)
-		}
-	}
 }
 
 GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
@@ -532,33 +488,29 @@ GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
 	response_context := cast(^GlobalShortcuts_ResponseContext)user_data
 
 	if dbus.message_is_signal(msg, "org.freedesktop.portal.Request", "Response") {
-		signal_args, results: dbus.MessageIter
+		signal_args: dbus.MessageIter
 		dbus.message_iter_init(msg, &signal_args)
-		dbus.message_iter_get_basic(&signal_args, &response_context.response_code)
-
-		log.debugf("response code: %v", response_context.response_code)
-		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&signal_args))
-		dbus.message_iter_next(&signal_args)
-		dbus.message_iter_recurse(&signal_args, &results)
-
-		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&signal_args))
-		log.debugf("arg type: %v", dbus.message_iter_get_arg_type(&results))
-		shortcuts_iter, shortcuts_found := Dict_GetKey(&results, "shortcuts")
-		if !shortcuts_found {
+		resp: GlobalShortcuts_ShortcutsResp
+		if err := dbus.unmarshal(&signal_args, "ua{sv}", &resp, response_context.allocator);
+		   err != nil {
 			response_context.completed = true
 			return .NOT_YET_HANDLED
-		} else if dbus.message_iter_get_arg_type(&shortcuts_iter) == .ARRAY {
-			response_context.shortcuts = _GlobalShortcuts_DeserializeShortcuts(
-				&shortcuts_iter,
-				response_context.allocator,
-			)
-		} else {
-			log.errorf(
-				"expected ARRAY for 'shortcuts', got %v",
-				dbus.message_iter_get_arg_type(&shortcuts_iter),
-			)
 		}
+		response_context.response_code = resp.response
 
+		// Move wire entries into the flat public shape. String headers are
+		// shared, so freeing the wire's outer slice header is enough — the
+		// underlying string bytes live on through the flat slice.
+		flat := make([]GlobalShortcut, len(resp.results.shortcuts), response_context.allocator)
+		for w, i in resp.results.shortcuts {
+			flat[i] = {
+				id                  = w.id,
+				description         = w.metadata.description,
+				trigger_description = w.metadata.trigger_description,
+			}
+		}
+		delete(resp.results.shortcuts, response_context.allocator)
+		response_context.shortcuts = flat
 		response_context.completed = true
 		return .HANDLED
 	}
