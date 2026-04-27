@@ -13,7 +13,7 @@ GlobalShortcuts_odin_ctx: runtime.Context
 
 GlobalShortcuts_Session :: struct {
 	conn:           ^dbus.Connection,
-	session_handle: string,
+	session_handle: dbus.ObjectPath,
 	base:           string,
 }
 
@@ -25,23 +25,23 @@ GlobalShortcut :: struct {
 
 @(private = "file")
 GlobalShortcut_OutMetadata :: struct {
-	description:         string `dbus:"s"`,
-	trigger_description: string `dbus:"s"`,
+	description:         string,
+	trigger_description: string,
 }
 @(private = "file")
 GlobalShortcut_Out :: struct {
-	id:       string `dbus:"s"`,
+	id:       string,
 	metadata: GlobalShortcut_OutMetadata `dbus:"a{sv}"`,
 }
 
 @(private = "file")
 GlobalShortcut_InMetadata :: struct {
-	description:       string `dbus:"s"`,
-	preferred_trigger: string `dbus:"s"`,
+	description:       string,
+	preferred_trigger: string,
 }
 @(private = "file")
 GlobalShortcut_In :: struct {
-	id:       string `dbus:"s"`,
+	id:       string,
 	metadata: GlobalShortcut_InMetadata `dbus:"a{sv}"`,
 }
 
@@ -60,44 +60,47 @@ GlobalShortcuts_SignalType :: enum {
 }
 GlobalShortcuts_SignalTypes :: bit_set[GlobalShortcuts_SignalType]
 
+GlobalShortcuts_CreateSessionOptions :: struct {
+	handle_token:         string,
+	session_handle_token: string,
+}
 GlobalShortcuts_CreateSessionReq :: struct {
-	handle_token:         string `dbus:"s"`,
-	session_handle_token: string `dbus:"s"`,
+	options: GlobalShortcuts_CreateSessionOptions `dbus:"a{sv}"`,
 }
 GlobalShortcuts_CreateSessionResults :: struct {
-	session_handle: string `dbus:"o"`,
+	session_handle: dbus.ObjectPath,
 }
 GlobalShortcuts_CreateSessionResp :: struct {
-	response: u32 `dbus:"u"`,
+	response: u32,
 	results:  GlobalShortcuts_CreateSessionResults `dbus:"a{sv}"`,
 }
 
 GlobalShortcuts_HandleTokenOptions :: struct {
-	handle_token: string `dbus:"s"`,
+	handle_token: string,
 }
 
 GlobalShortcuts_BindShortcutsReq :: struct {
-	session_handle: string `dbus:"o"`,
-	shortcuts:      []GlobalShortcut_In `dbus:"a(sa{sv})"`,
-	parent_window:  string `dbus:"s"`,
+	session_handle: dbus.ObjectPath,
+	shortcuts:      []GlobalShortcut_In,
+	parent_window:  string,
 	options:        GlobalShortcuts_HandleTokenOptions `dbus:"a{sv}"`,
 }
 
 GlobalShortcuts_ListShortcutsReq :: struct {
-	session_handle: string `dbus:"o"`,
+	session_handle: dbus.ObjectPath,
 	options:        GlobalShortcuts_HandleTokenOptions `dbus:"a{sv}"`,
 }
 
 GlobalShortcuts_ShortcutsResults :: struct {
-	shortcuts: []GlobalShortcut_Out `dbus:"a(sa{sv})"`,
+	shortcuts: []GlobalShortcut_Out,
 }
 GlobalShortcuts_ShortcutsResp :: struct {
-	response: u32 `dbus:"u"`,
+	response: u32,
 	results:  GlobalShortcuts_ShortcutsResults `dbus:"a{sv}"`,
 }
 
 Registry_RegisterReq :: struct {
-	appid:   string `dbus:"s"`,
+	appid:   string,
 	options: struct{} `dbus:"a{sv}"`,
 }
 
@@ -123,7 +126,7 @@ Registry_Register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
 
 	args: dbus.MessageIter
 	dbus.message_iter_init_append(msg, &args)
-	dbus.marshal(&args, "sa{sv}", Registry_RegisterReq{appid = appid}, context.temp_allocator)
+	dbus.marshal(&args, Registry_RegisterReq{appid = appid})
 
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
 	if dbus.error_is_set(&err) do return err.message
@@ -186,7 +189,7 @@ GlobalShortcuts_Init :: proc(
 
 GlobalShortcuts_Deinit :: proc(gs: ^GlobalShortcuts_Session, allocator := context.allocator) {
 	dbus.connection_unref(gs.conn)
-	delete(gs.session_handle, allocator)
+	delete(string(gs.session_handle), allocator)
 }
 
 GlobalShortcuts_CreateSession :: proc(
@@ -208,12 +211,12 @@ GlobalShortcuts_CreateSession :: proc(
 	dbus.message_iter_init_append(msg, &args)
 	dbus.marshal(
 		&args,
-		"a{sv}",
 		GlobalShortcuts_CreateSessionReq {
-			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
-			GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
+			options = {
+				handle_token = GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
+				session_handle_token = GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
+			},
 		},
-		temp_allocator,
 	)
 
 	reply := dbus.connection_send_with_reply_and_block(
@@ -246,12 +249,8 @@ GlobalShortcuts_CreateSession :: proc(
 
 			dbus.message_iter_init(signal_msg, &signal_args)
 			createsession_resp: GlobalShortcuts_CreateSessionResp
-			if err := dbus.unmarshal(
-				&signal_args,
-				"ua{sv}",
-				&createsession_resp,
-				context.allocator,
-			); err != nil {
+			if err := dbus.unmarshal(&signal_args, &createsession_resp, context.allocator);
+			   err != nil {
 				log.error("could not get session handle")
 			}
 			gs.session_handle = createsession_resp.results.session_handle
@@ -274,7 +273,7 @@ GlobalShortcuts_CloseSession :: proc(
 
 	msg := dbus.message_new_method_call(
 		"org.freedesktop.portal.Desktop",
-		strings.clone_to_cstring(gs.session_handle, allocator),
+		strings.clone_to_cstring(string(gs.session_handle), allocator),
 		"org.freedesktop.portal.Session",
 		"Close",
 	)
@@ -341,14 +340,12 @@ GlobalShortcuts_BindShortcuts :: proc(
 	dbus.message_iter_init_append(msg, &args)
 	dbus.marshal(
 		&args,
-		"oa(sa{sv})sa{sv}",
 		GlobalShortcuts_BindShortcutsReq {
 			session_handle = gs.session_handle,
 			shortcuts = wire_shortcuts,
 			parent_window = "",
 			options = {handle_token = handle_token},
 		},
-		temp_allocator,
 	)
 
 	reply := dbus.connection_send_with_reply_and_block(
@@ -426,12 +423,10 @@ GlobalShortcuts_ListShortcuts :: proc(
 	dbus.message_iter_init_append(msg, &args)
 	dbus.marshal(
 		&args,
-		"oa{sv}",
 		GlobalShortcuts_ListShortcutsReq {
 			session_handle = gs.session_handle,
 			options = {handle_token = handle_token},
 		},
-		temp_allocator,
 	)
 
 	reply := dbus.connection_send_with_reply_and_block(
@@ -491,16 +486,12 @@ GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
 		signal_args: dbus.MessageIter
 		dbus.message_iter_init(msg, &signal_args)
 		resp: GlobalShortcuts_ShortcutsResp
-		if err := dbus.unmarshal(&signal_args, "ua{sv}", &resp, response_context.allocator);
-		   err != nil {
+		if err := dbus.unmarshal(&signal_args, &resp, response_context.allocator); err != nil {
 			response_context.completed = true
 			return .NOT_YET_HANDLED
 		}
 		response_context.response_code = resp.response
 
-		// Move wire entries into the flat public shape. String headers are
-		// shared, so freeing the wire's outer slice header is enough — the
-		// underlying string bytes live on through the flat slice.
 		flat := make([]GlobalShortcut, len(resp.results.shortcuts), response_context.allocator)
 		for w, i in resp.results.shortcuts {
 			flat[i] = {

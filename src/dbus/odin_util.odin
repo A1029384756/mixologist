@@ -28,190 +28,230 @@ Marshal_Error :: enum {
 	None,
 	Unsupported_Type,
 	Signature_Mismatch,
-	Truncated_Signature,
 	Iter_Op_Failed,
-	Missing_Tag,
 	Allocation_Failed,
 }
 
-@(private = "file")
-sig_count :: proc(signature: string) -> (count: int, ok: bool) {
-	pos := 0
-	for pos < len(signature) {
-		_, next, seg_ok := sig_next(signature, pos)
-		if !seg_ok do return 0, false
-		count += 1
-		pos = next
-	}
-	return count, true
-}
+ObjectPath :: distinct string
+SignatureString :: distinct string
+Fd :: distinct i32
 
 marshal :: proc(
 	it: ^MessageIter,
-	signature: string,
 	value: any,
-	allocator := context.allocator,
+	temp_allocator := context.temp_allocator,
 ) -> Marshal_Error {
-	n_segs, ok := sig_count(signature)
-	if !ok || n_segs == 0 do return .Truncated_Signature
-
-	if n_segs == 1 {
-		seg, _, _ := sig_next(signature, 0)
-		return marshal_segment(it, seg, value, allocator)
-	}
-
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	base := reflect.type_info_base(type_info_of(value.id))
 	val := any{value.data, base.id}
-	s, is_struct := base.variant.(runtime.Type_Info_Struct)
-	if !is_struct || int(s.field_count) != n_segs do return .Signature_Mismatch
-
-	pos := 0
-	for i in 0 ..< int(s.field_count) {
-		seg, next, _ := sig_next(signature, pos)
-		field := reflect.struct_field_at(val.id, i)
-		field_val := reflect.struct_field_value(val, field)
-		if err := marshal_segment(it, seg, field_val, allocator); err != .None do return err
-		pos = next
+	if s, is_struct := base.variant.(runtime.Type_Info_Struct); is_struct {
+		for i in 0 ..< int(s.field_count) {
+			field := reflect.struct_field_at(val.id, i)
+			marshal_field(it, field, val, temp_allocator) or_return
+		}
+		return .None
 	}
-	return .None
+	return marshal_any(it, value, temp_allocator)
 }
 
-unmarshal :: proc(
-	it: ^MessageIter,
-	signature: string,
-	ptr: ^$T,
-	allocator := context.allocator,
-) -> Marshal_Error {
-	n_segs, ok := sig_count(signature)
-	if !ok || n_segs == 0 do return .Truncated_Signature
-	dst := any{ptr, typeid_of(T)}
-
-	if n_segs == 1 {
-		seg, _, _ := sig_next(signature, 0)
-		return unmarshal_segment(it, seg, dst, allocator)
-	}
-
+unmarshal :: proc(it: ^MessageIter, ptr: ^$T, allocator := context.allocator) -> Marshal_Error {
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == context.temp_allocator)
 	base := reflect.type_info_base(type_info_of(T))
 	val := any{ptr, base.id}
-	s, is_struct := base.variant.(runtime.Type_Info_Struct)
-	if !is_struct || int(s.field_count) != n_segs do return .Signature_Mismatch
-
-	pos := 0
-	for i in 0 ..< int(s.field_count) {
-		seg, next, _ := sig_next(signature, pos)
-		field := reflect.struct_field_at(val.id, i)
-		field_val := reflect.struct_field_value(val, field)
-		if err := unmarshal_segment(it, seg, field_val, allocator); err != .None do return err
-		pos = next
-		if i < int(s.field_count) - 1 do message_iter_next(it)
-	}
-	return .None
-}
-
-sig_next :: proc(sig: string, start: int) -> (segment: string, next: int, ok: bool) {
-	if start >= len(sig) do return
-	switch sig[start] {
-	case 'y', 'b', 'n', 'q', 'i', 'u', 'x', 't', 'd', 's', 'o', 'g', 'h', 'v':
-		return sig[start:start + 1], start + 1, true
-	case 'a':
-		_, after := sig_next(sig, start + 1) or_return
-		return sig[start:after], after, true
-	case '(', '{':
-		close_char: byte = sig[start] == '(' ? ')' : '}'
-		depth := 1
-		i := start + 1
-		for i < len(sig) {
-			c := sig[i]
-			if c == '(' || c == '{' {
-				depth += 1
-			} else if c == ')' || c == '}' {
-				depth -= 1
-				if depth == 0 && c == close_char {
-					return sig[start:i + 1], i + 1, true
-				}
-			}
-			i += 1
+	if s, is_struct := base.variant.(runtime.Type_Info_Struct); is_struct {
+		for i in 0 ..< int(s.field_count) {
+			field := reflect.struct_field_at(val.id, i)
+			unmarshal_field(it, field, val, allocator) or_return
+			if i < int(s.field_count) - 1 do message_iter_next(it)
 		}
+		return .None
 	}
-	return
-}
-
-marshal_segment :: proc(
-	it: ^MessageIter,
-	sig: string,
-	value: any,
-	allocator := context.allocator,
-) -> Marshal_Error {
-	if len(sig) == 0 {
-		return .Truncated_Signature
-	}
-
-	base := reflect.type_info_base(type_info_of(value.id))
-	val := any{value.data, base.id}
-
-	switch sig[0] {
-	case 'y':
-		bv: BasicValue
-		bv.byt = (^byte)(val.data)^
-		if !message_iter_append_basic(it, .BYTE, &bv.byt) do return .Iter_Op_Failed
-	case 'b':
-		bv: BasicValue
-		bv.bool_val = bool_t((^bool)(val.data)^)
-		if !message_iter_append_basic(it, .BOOLEAN, &bv.bool_val) do return .Iter_Op_Failed
-	case 'n':
-		bv: BasicValue
-		bv.int16 = (^i16)(val.data)^
-		if !message_iter_append_basic(it, .INT16, &bv.int16) do return .Iter_Op_Failed
-	case 'q':
-		bv: BasicValue
-		bv.uint16 = (^u16)(val.data)^
-		if !message_iter_append_basic(it, .UINT16, &bv.uint16) do return .Iter_Op_Failed
-	case 'i':
-		bv: BasicValue
-		bv.int32 = (^i32)(val.data)^
-		if !message_iter_append_basic(it, .INT32, &bv.int32) do return .Iter_Op_Failed
-	case 'u':
-		bv: BasicValue
-		bv.uint32 = (^u32)(val.data)^
-		if !message_iter_append_basic(it, .UINT32, &bv.uint32) do return .Iter_Op_Failed
-	case 'x':
-		bv: BasicValue
-		bv.int64 = (^i64)(val.data)^
-		if !message_iter_append_basic(it, .INT64, &bv.int64) do return .Iter_Op_Failed
-	case 't':
-		bv: BasicValue
-		bv.uint64 = (^u64)(val.data)^
-		if !message_iter_append_basic(it, .UINT64, &bv.uint64) do return .Iter_Op_Failed
-	case 'd':
-		bv: BasicValue
-		bv.dbl = (^f64)(val.data)^
-		if !message_iter_append_basic(it, .DOUBLE, &bv.dbl) do return .Iter_Op_Failed
-	case 'h':
-		bv: BasicValue
-		bv.fd = (^i32)(val.data)^
-		if !message_iter_append_basic(it, .UNIX_FD, &bv.fd) do return .Iter_Op_Failed
-	case 's', 'o', 'g':
-		cs := value_to_cstring(val, allocator) or_return
-		if !message_iter_append_basic(it, Type(sig[0]), &cs) do return .Iter_Op_Failed
-	case 'a':
-		return marshal_array(it, sig, val, allocator)
-	case '(':
-		return marshal_struct(it, sig, val)
-	case 'v':
-		return .Signature_Mismatch
-	case:
-		return .Unsupported_Type
-	}
-	return nil
+	dst := any{ptr, typeid_of(T)}
+	return unmarshal_any(it, dst, allocator)
 }
 
 @(private = "file")
-value_to_cstring :: proc(val: any, allocator: runtime.Allocator) -> (cstring, Marshal_Error) {
+sig_for_type :: proc(
+	t: typeid,
+	temp_allocator: runtime.Allocator,
+) -> (
+	sig: string,
+	err: Marshal_Error,
+) {
+	if t == typeid_of(ObjectPath) do return "o", .None
+	if t == typeid_of(SignatureString) do return "g", .None
+	if t == typeid_of(Fd) do return "h", .None
+
+	ti := reflect.type_info_base(type_info_of(t))
+	#partial switch info in ti.variant {
+	case runtime.Type_Info_Boolean:
+		return "b", .None
+	case runtime.Type_Info_Integer:
+		switch ti.size {
+		case 1:
+			return "y", .None
+		case 2:
+			return info.signed ? "n" : "q", .None
+		case 4:
+			return info.signed ? "i" : "u", .None
+		case 8:
+			return info.signed ? "x" : "t", .None
+		}
+		return "", .Unsupported_Type
+	case runtime.Type_Info_Float:
+		if ti.size == 8 do return "d", .None
+		return "", .Unsupported_Type
+	case runtime.Type_Info_String:
+		return "s", .None
+	case runtime.Type_Info_Slice:
+		inner := sig_for_type(info.elem.id, temp_allocator) or_return
+		return strings.concatenate({"a", inner}, temp_allocator), .None
+	case runtime.Type_Info_Array:
+		inner := sig_for_type(info.elem.id, temp_allocator) or_return
+		return strings.concatenate({"a", inner}, temp_allocator), .None
+	case runtime.Type_Info_Dynamic_Array:
+		inner := sig_for_type(info.elem.id, temp_allocator) or_return
+		return strings.concatenate({"a", inner}, temp_allocator), .None
+	case runtime.Type_Info_Struct:
+		b := strings.builder_make(temp_allocator)
+		strings.write_byte(&b, '(')
+		for i in 0 ..< int(info.field_count) {
+			f := reflect.struct_field_at(t, i)
+			seg := sig_for_field(f, temp_allocator) or_return
+			strings.write_string(&b, seg)
+		}
+		strings.write_byte(&b, ')')
+		return strings.to_string(b), .None
+	}
+	return "", .Unsupported_Type
+}
+
+@(private = "file")
+sig_for_field :: proc(
+	field: reflect.Struct_Field,
+	temp_allocator: runtime.Allocator,
+) -> (
+	string,
+	Marshal_Error,
+) {
+	if t := reflect.struct_tag_get(field.tag, "dbus"); len(t) > 0 do return string(t), .None
+	return sig_for_type(field.type.id, temp_allocator)
+}
+
+@(private = "file")
+marshal_field :: proc(
+	it: ^MessageIter,
+	field: reflect.Struct_Field,
+	parent: any,
+	temp_allocator: runtime.Allocator,
+) -> Marshal_Error {
+	field_val := reflect.struct_field_value(parent, field)
+	tag := string(reflect.struct_tag_get(field.tag, "dbus"))
+
+	if len(tag) >= 2 && tag[0] == 'a' && tag[1] == '{' {
+		return marshal_property_dict(it, field_val, tag, temp_allocator)
+	}
+	if tag == "o" do return marshal_basic_string(it, field_val, .OBJECT_PATH, temp_allocator)
+	if tag == "g" do return marshal_basic_string(it, field_val, .SIGNATURE, temp_allocator)
+	return marshal_any(it, field_val, temp_allocator)
+}
+
+@(private = "file")
+marshal_any :: proc(
+	it: ^MessageIter,
+	value: any,
+	temp_allocator: runtime.Allocator,
+) -> Marshal_Error {
+	if value.id == typeid_of(ObjectPath) {
+		return marshal_basic_string(it, value, .OBJECT_PATH, temp_allocator)
+	}
+	if value.id == typeid_of(SignatureString) {
+		return marshal_basic_string(it, value, .SIGNATURE, temp_allocator)
+	}
+	if value.id == typeid_of(Fd) {
+		bv: BasicValue
+		bv.fd = (^i32)(value.data)^
+		if !message_iter_append_basic(it, .UNIX_FD, &bv.fd) do return .Iter_Op_Failed
+		return .None
+	}
+
+	base := reflect.type_info_base(type_info_of(value.id))
+	val := any{value.data, base.id}
+
+	#partial switch info in base.variant {
+	case runtime.Type_Info_Integer:
+		bv: BasicValue
+		switch base.size {
+		case 1:
+			bv.byt = (^byte)(val.data)^
+			if !message_iter_append_basic(it, .BYTE, &bv.byt) do return .Iter_Op_Failed
+		case 2:
+			if info.signed {
+				bv.int16 = (^i16)(val.data)^
+				if !message_iter_append_basic(it, .INT16, &bv.int16) do return .Iter_Op_Failed
+			} else {
+				bv.uint16 = (^u16)(val.data)^
+				if !message_iter_append_basic(it, .UINT16, &bv.uint16) do return .Iter_Op_Failed
+			}
+		case 4:
+			if info.signed {
+				bv.int32 = (^i32)(val.data)^
+				if !message_iter_append_basic(it, .INT32, &bv.int32) do return .Iter_Op_Failed
+			} else {
+				bv.uint32 = (^u32)(val.data)^
+				if !message_iter_append_basic(it, .UINT32, &bv.uint32) do return .Iter_Op_Failed
+			}
+		case 8:
+			if info.signed {
+				bv.int64 = (^i64)(val.data)^
+				if !message_iter_append_basic(it, .INT64, &bv.int64) do return .Iter_Op_Failed
+			} else {
+				bv.uint64 = (^u64)(val.data)^
+				if !message_iter_append_basic(it, .UINT64, &bv.uint64) do return .Iter_Op_Failed
+			}
+		case:
+			return .Unsupported_Type
+		}
+	case runtime.Type_Info_Boolean:
+		bv: BasicValue
+		bv.bool_val = bool_t((^bool)(val.data)^)
+		if !message_iter_append_basic(it, .BOOLEAN, &bv.bool_val) do return .Iter_Op_Failed
+	case runtime.Type_Info_Float:
+		if base.size != 8 do return .Unsupported_Type
+		bv: BasicValue
+		bv.dbl = (^f64)(val.data)^
+		if !message_iter_append_basic(it, .DOUBLE, &bv.dbl) do return .Iter_Op_Failed
+	case runtime.Type_Info_String:
+		return marshal_basic_string(it, val, .STRING, temp_allocator)
+	case runtime.Type_Info_Slice, runtime.Type_Info_Array, runtime.Type_Info_Dynamic_Array:
+		return marshal_array(it, val, temp_allocator)
+	case runtime.Type_Info_Struct:
+		return marshal_struct(it, val, temp_allocator)
+	case:
+		return .Unsupported_Type
+	}
+	return .None
+}
+
+@(private = "file")
+marshal_basic_string :: proc(
+	it: ^MessageIter,
+	val: any,
+	t: Type,
+	temp_allocator: runtime.Allocator,
+) -> Marshal_Error {
+	cs := value_to_cstring(val, temp_allocator) or_return
+	if !message_iter_append_basic(it, t, &cs) do return .Iter_Op_Failed
+	return .None
+}
+
+@(private = "file")
+value_to_cstring :: proc(val: any, temp_allocator: runtime.Allocator) -> (cstring, Marshal_Error) {
 	base := reflect.type_info_base(type_info_of(val.id))
 	if s, ok := base.variant.(runtime.Type_Info_String); ok {
-		if s.is_cstring do return (^cstring)(val.data)^, nil
+		if s.is_cstring do return (^cstring)(val.data)^, .None
 		str := (^string)(val.data)^
-		return strings.clone_to_cstring(str, allocator), nil
+		return strings.clone_to_cstring(str, temp_allocator), .None
 	}
 	return "", .Signature_Mismatch
 }
@@ -219,138 +259,38 @@ value_to_cstring :: proc(val: any, allocator: runtime.Allocator) -> (cstring, Ma
 @(private = "file")
 marshal_array :: proc(
 	it: ^MessageIter,
-	sig: string,
 	val: any,
-	allocator: runtime.Allocator,
+	temp_allocator: runtime.Allocator,
 ) -> (
 	err: Marshal_Error,
 ) {
-	inner := sig[1:]
-	if len(inner) == 0 {
-		return .Truncated_Signature
-	}
-	inner_cstr := strings.clone_to_cstring(inner, allocator)
-	sub: MessageIter
-	if !message_iter_open_container(it, .ARRAY, inner_cstr, &sub) {
-		return .Iter_Op_Failed
-	}
-
-	if inner[0] == '{' {
-		base := reflect.type_info_base(type_info_of(val.id))
-		#partial switch _ in base.variant {
-		case runtime.Type_Info_Struct:
-			err = marshal_a_sv_struct(&sub, inner, val, allocator)
-		case:
-			err = .Unsupported_Type
-		}
-	} else {
-		n := reflect.length(val)
-		for i in 0 ..< n {
-			elem := reflect.index(val, i)
-			err = marshal_segment(&sub, inner, elem)
-			if err != nil do break
-		}
-	}
-
-	if err != nil {
-		message_iter_abandon_container(it, &sub)
-		return
-	}
-	if !message_iter_close_container(it, &sub) do return .Iter_Op_Failed
-	return
-}
-
-@(private = "file")
-marshal_a_sv_struct :: proc(
-	arr_it: ^MessageIter,
-	dict_sig: string,
-	val: any,
-	allocator: runtime.Allocator,
-) -> (
-	err: Marshal_Error,
-) {
-	if dict_sig != "{sv}" {
-		return .Unsupported_Type
-	}
 	base := reflect.type_info_base(type_info_of(val.id))
-	s := base.variant.(runtime.Type_Info_Struct)
-
-	for i in 0 ..< int(s.field_count) {
-		field := reflect.struct_field_at(val.id, i)
-		dbus_tag := reflect.struct_tag_get(field.tag, "dbus")
-		name_tag := reflect.struct_tag_get(field.tag, "dbus_name")
-		if len(dbus_tag) == 0 {
-			return .Missing_Tag
-		}
-		if len(name_tag) == 0 {
-			name_tag = field.name
-		}
-
-		entry: MessageIter
-		if !message_iter_open_container(arr_it, .DICT_ENTRY, nil, &entry) {
-			return .Iter_Op_Failed
-		}
-
-		key_cstr := strings.clone_to_cstring(string(name_tag), allocator)
-		if !message_iter_append_basic(&entry, .STRING, &key_cstr) {
-			message_iter_abandon_container(arr_it, &entry)
-			return .Iter_Op_Failed
-		}
-
-		var_sig := strings.clone_to_cstring(string(dbus_tag), allocator)
-		var_it: MessageIter
-		if !message_iter_open_container(&entry, .VARIANT, var_sig, &var_it) {
-			message_iter_abandon_container(arr_it, &entry)
-			return .Iter_Op_Failed
-		}
-
-		field_val := reflect.struct_field_value(val, field)
-		err = marshal_segment(&var_it, string(dbus_tag), field_val)
-		if err != nil {
-			message_iter_abandon_container(&entry, &var_it)
-			message_iter_abandon_container(arr_it, &entry)
-			return
-		}
-
-		if !message_iter_close_container(&entry, &var_it) {
-			return .Iter_Op_Failed
-		}
-		if !message_iter_close_container(arr_it, &entry) {
-			return .Iter_Op_Failed
-		}
-	}
-	return
-}
-
-@(private = "file")
-marshal_struct :: proc(it: ^MessageIter, sig: string, val: any) -> (err: Marshal_Error) {
-	inner := sig[1:len(sig) - 1]
-	base := reflect.type_info_base(type_info_of(val.id))
-	s, ok := base.variant.(runtime.Type_Info_Struct)
-	if !ok {
+	elem_id: typeid
+	#partial switch info in base.variant {
+	case runtime.Type_Info_Slice:
+		elem_id = info.elem.id
+	case runtime.Type_Info_Array:
+		elem_id = info.elem.id
+	case runtime.Type_Info_Dynamic_Array:
+		elem_id = info.elem.id
+	case:
 		return .Signature_Mismatch
 	}
 
+	inner := sig_for_type(elem_id, temp_allocator) or_return
+	inner_cstr := strings.clone_to_cstring(inner, temp_allocator)
+
 	sub: MessageIter
-	if !message_iter_open_container(it, .STRUCT, nil, &sub) {
-		return .Iter_Op_Failed
+	if !message_iter_open_container(it, .ARRAY, inner_cstr, &sub) do return .Iter_Op_Failed
+
+	n := reflect.length(val)
+	for i in 0 ..< n {
+		elem := reflect.index(val, i)
+		err = marshal_any(&sub, elem, temp_allocator)
+		if err != .None do break
 	}
 
-	pos := 0
-	for i in 0 ..< int(s.field_count) {
-		seg, next, seg_ok := sig_next(inner, pos)
-		if !seg_ok {
-			return .Signature_Mismatch
-		}
-		field := reflect.struct_field_at(val.id, i)
-		field_val := reflect.struct_field_value(val, field)
-		err = marshal_segment(&sub, seg, field_val)
-		if err != nil do break
-		pos = next
-	}
-	if err == nil && pos != len(inner) do err = .Signature_Mismatch
-
-	if err != nil {
+	if err != .None {
 		message_iter_abandon_container(it, &sub)
 		return
 	}
@@ -358,122 +298,206 @@ marshal_struct :: proc(it: ^MessageIter, sig: string, val: any) -> (err: Marshal
 	return
 }
 
-unmarshal_segment :: proc(
+@(private = "file")
+marshal_struct :: proc(
 	it: ^MessageIter,
-	sig: string,
-	dst: any,
-	allocator: runtime.Allocator,
-) -> Marshal_Error {
-	if len(sig) == 0 {
-		return .Truncated_Signature
+	val: any,
+	temp_allocator: runtime.Allocator,
+) -> (
+	err: Marshal_Error,
+) {
+	base := reflect.type_info_base(type_info_of(val.id))
+	s, ok := base.variant.(runtime.Type_Info_Struct)
+	if !ok do return .Signature_Mismatch
+
+	sub: MessageIter
+	if !message_iter_open_container(it, .STRUCT, nil, &sub) do return .Iter_Op_Failed
+
+	parent := any{val.data, base.id}
+	for i in 0 ..< int(s.field_count) {
+		field := reflect.struct_field_at(parent.id, i)
+		err = marshal_field(&sub, field, parent, temp_allocator)
+		if err != .None do break
 	}
 
+	if err != .None {
+		message_iter_abandon_container(it, &sub)
+		return
+	}
+	if !message_iter_close_container(it, &sub) do return .Iter_Op_Failed
+	return
+}
+
+@(private = "file")
+marshal_property_dict :: proc(
+	it: ^MessageIter,
+	val: any,
+	array_sig: string,
+	temp_allocator: runtime.Allocator,
+) -> Marshal_Error {
+	if len(array_sig) < 2 || array_sig[0] != 'a' do return .Signature_Mismatch
+	inner := array_sig[1:]
+	inner_cstr := strings.clone_to_cstring(inner, temp_allocator)
+
+	sub: MessageIter
+	if !message_iter_open_container(it, .ARRAY, inner_cstr, &sub) do return .Iter_Op_Failed
+
+	base := reflect.type_info_base(type_info_of(val.id))
+	s, is_struct := base.variant.(runtime.Type_Info_Struct)
+	if !is_struct {
+		message_iter_abandon_container(it, &sub)
+		return .Signature_Mismatch
+	}
+
+	parent := any{val.data, base.id}
+	for i in 0 ..< int(s.field_count) {
+		field := reflect.struct_field_at(parent.id, i)
+
+		name_tag := string(reflect.struct_tag_get(field.tag, "dbus_name"))
+		key := len(name_tag) > 0 ? name_tag : field.name
+
+		var_sig := sig_for_field(field, temp_allocator) or_return
+
+		entry: MessageIter
+		if !message_iter_open_container(&sub, .DICT_ENTRY, nil, &entry) {
+			message_iter_abandon_container(it, &sub)
+			return .Iter_Op_Failed
+		}
+
+		key_cstr := strings.clone_to_cstring(key, temp_allocator)
+		if !message_iter_append_basic(&entry, .STRING, &key_cstr) {
+			message_iter_abandon_container(&sub, &entry)
+			message_iter_abandon_container(it, &sub)
+			return .Iter_Op_Failed
+		}
+
+		var_sig_cstr := strings.clone_to_cstring(var_sig, temp_allocator)
+		var_it: MessageIter
+		if !message_iter_open_container(&entry, .VARIANT, var_sig_cstr, &var_it) {
+			message_iter_abandon_container(&sub, &entry)
+			message_iter_abandon_container(it, &sub)
+			return .Iter_Op_Failed
+		}
+
+		field_val := reflect.struct_field_value(parent, field)
+		ferr: Marshal_Error
+		if len(var_sig) >= 2 && var_sig[0] == 'a' && var_sig[1] == '{' {
+			ferr = marshal_property_dict(&var_it, field_val, var_sig, temp_allocator)
+		} else if var_sig == "o" {
+			ferr = marshal_basic_string(&var_it, field_val, .OBJECT_PATH, temp_allocator)
+		} else if var_sig == "g" {
+			ferr = marshal_basic_string(&var_it, field_val, .SIGNATURE, temp_allocator)
+		} else {
+			ferr = marshal_any(&var_it, field_val, temp_allocator)
+		}
+		if ferr != .None {
+			message_iter_abandon_container(&entry, &var_it)
+			message_iter_abandon_container(&sub, &entry)
+			message_iter_abandon_container(it, &sub)
+			return ferr
+		}
+
+		if !message_iter_close_container(&entry, &var_it) do return .Iter_Op_Failed
+		if !message_iter_close_container(&sub, &entry) do return .Iter_Op_Failed
+	}
+
+	if !message_iter_close_container(it, &sub) do return .Iter_Op_Failed
+	return .None
+}
+
+@(private = "file")
+unmarshal_field :: proc(
+	it: ^MessageIter,
+	field: reflect.Struct_Field,
+	parent: any,
+	allocator: runtime.Allocator,
+) -> Marshal_Error {
+	field_dst := reflect.struct_field_value(parent, field)
+	tag := string(reflect.struct_tag_get(field.tag, "dbus"))
+
+	if len(tag) >= 2 && tag[0] == 'a' && tag[1] == '{' {
+		return unmarshal_property_dict(it, field_dst, allocator)
+	}
+	return unmarshal_any(it, field_dst, allocator)
+}
+
+@(private = "file")
+unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) -> Marshal_Error {
 	base := reflect.type_info_base(type_info_of(dst.id))
 	val := any{dst.data, base.id}
 
-	switch sig[0] {
-	case 'y':
+	#partial switch info in base.variant {
+	case runtime.Type_Info_Integer:
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
-		(^byte)(val.data)^ = bv.byt
-	case 'b':
+		switch base.size {
+		case 1:
+			(^byte)(val.data)^ = bv.byt
+		case 2:
+			if info.signed {
+				(^i16)(val.data)^ = bv.int16
+			} else {
+				(^u16)(val.data)^ = bv.uint16
+			}
+		case 4:
+			if info.signed {
+				(^i32)(val.data)^ = bv.int32
+			} else {
+				(^u32)(val.data)^ = bv.uint32
+			}
+		case 8:
+			if info.signed {
+				(^i64)(val.data)^ = bv.int64
+			} else {
+				(^u64)(val.data)^ = bv.uint64
+			}
+		case:
+			return .Unsupported_Type
+		}
+	case runtime.Type_Info_Boolean:
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
 		(^bool)(val.data)^ = bool(bv.bool_val)
-	case 'n':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^i16)(val.data)^ = bv.int16
-	case 'q':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^u16)(val.data)^ = bv.uint16
-	case 'i':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^i32)(val.data)^ = bv.int32
-	case 'u':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^u32)(val.data)^ = bv.uint32
-	case 'x':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^i64)(val.data)^ = bv.int64
-	case 't':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		(^u64)(val.data)^ = bv.uint64
-	case 'd':
+	case runtime.Type_Info_Float:
+		if base.size != 8 do return .Unsupported_Type
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
 		(^f64)(val.data)^ = bv.dbl
-	case 'h':
+	case runtime.Type_Info_String:
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
-		(^i32)(val.data)^ = bv.fd
-	case 's', 'o', 'g':
-		bv: BasicValue
-		message_iter_get_basic(it, &bv)
-		s, ok := base.variant.(runtime.Type_Info_String)
-		if !ok {
-			return .Signature_Mismatch
-		}
-		if s.is_cstring {
+		if info.is_cstring {
 			(^cstring)(val.data)^ = strings.clone_to_cstring(string(bv.str), allocator)
 		} else {
 			(^string)(val.data)^ = strings.clone(string(bv.str), allocator)
 		}
-	case 'a':
-		return unmarshal_array(it, sig, val, allocator)
-	case '(':
-		return unmarshal_struct(it, sig, val, allocator)
-	case 'v':
-		return unmarshal_variant(it, val, allocator)
+	case runtime.Type_Info_Slice, runtime.Type_Info_Array, runtime.Type_Info_Dynamic_Array:
+		return unmarshal_array(it, val, allocator)
+	case runtime.Type_Info_Struct:
+		return unmarshal_struct(it, val, allocator)
 	case:
 		return .Unsupported_Type
 	}
-	return nil
+	return .None
 }
 
 @(private = "file")
 unmarshal_array :: proc(
 	it: ^MessageIter,
-	sig: string,
 	val: any,
 	allocator: runtime.Allocator,
-) -> (
-	err: Marshal_Error,
-) {
-	inner := sig[1:]
-	if len(inner) == 0 {
-		return .Truncated_Signature
-	}
+) -> Marshal_Error {
+	base := reflect.type_info_base(type_info_of(val.id))
+	sl, is_slice := base.variant.(runtime.Type_Info_Slice)
+	if !is_slice do return .Signature_Mismatch
+
 	count := int(message_iter_get_element_count(it))
 	sub: MessageIter
 	message_iter_recurse(it, &sub)
 
-	if inner[0] == '{' {
-		base := reflect.type_info_base(type_info_of(val.id))
-		#partial switch _ in base.variant {
-		case runtime.Type_Info_Struct:
-			err = unmarshal_a_sv_struct(&sub, val, allocator)
-		case:
-			err = .Unsupported_Type
-		}
-		return
-	}
-
-	base := reflect.type_info_base(type_info_of(val.id))
-	sl, is_slice := base.variant.(runtime.Type_Info_Slice)
-	if !is_slice {
-		return .Signature_Mismatch
-	}
-
 	bytes, alloc_err := mem.alloc_bytes(count * sl.elem.size, sl.elem.align, allocator)
-	if alloc_err != nil {
-		return .Allocation_Failed
-	}
+	if alloc_err != nil do return .Allocation_Failed
+
 	raw := (^runtime.Raw_Slice)(val.data)
 	raw.data = raw_data(bytes)
 	raw.len = count
@@ -481,26 +505,51 @@ unmarshal_array :: proc(
 	for i in 0 ..< count {
 		elem_data := rawptr(uintptr(raw.data) + uintptr(sl.elem.size * i))
 		elem := any{elem_data, sl.elem.id}
-		unmarshal_segment(&sub, inner, elem, allocator) or_return
+		unmarshal_any(&sub, elem, allocator) or_return
 		if i < count - 1 do message_iter_next(&sub)
 	}
-	return nil
+	return .None
 }
 
 @(private = "file")
-unmarshal_a_sv_struct :: proc(
-	dict_arr_it: ^MessageIter,
+unmarshal_struct :: proc(
+	it: ^MessageIter,
 	val: any,
 	allocator: runtime.Allocator,
-) -> (
-	err: Marshal_Error,
-) {
+) -> Marshal_Error {
 	base := reflect.type_info_base(type_info_of(val.id))
-	s := base.variant.(runtime.Type_Info_Struct)
+	s, ok := base.variant.(runtime.Type_Info_Struct)
+	if !ok do return .Signature_Mismatch
 
-	for message_iter_get_arg_type(dict_arr_it) != .INVALID {
+	sub: MessageIter
+	message_iter_recurse(it, &sub)
+
+	parent := any{val.data, base.id}
+	for i in 0 ..< int(s.field_count) {
+		field := reflect.struct_field_at(parent.id, i)
+		unmarshal_field(&sub, field, parent, allocator) or_return
+		if i < int(s.field_count) - 1 do message_iter_next(&sub)
+	}
+	return .None
+}
+
+@(private = "file")
+unmarshal_property_dict :: proc(
+	it: ^MessageIter,
+	val: any,
+	allocator: runtime.Allocator,
+) -> Marshal_Error {
+	base := reflect.type_info_base(type_info_of(val.id))
+	s, is_struct := base.variant.(runtime.Type_Info_Struct)
+	if !is_struct do return .Signature_Mismatch
+
+	sub: MessageIter
+	message_iter_recurse(it, &sub)
+
+	parent := any{val.data, base.id}
+	for message_iter_get_arg_type(&sub) != .INVALID {
 		entry: MessageIter
-		message_iter_recurse(dict_arr_it, &entry)
+		message_iter_recurse(&sub, &entry)
 
 		bv: BasicValue
 		message_iter_get_basic(&entry, &bv)
@@ -509,8 +558,8 @@ unmarshal_a_sv_struct :: proc(
 
 		field_idx := -1
 		for i in 0 ..< int(s.field_count) {
-			f := reflect.struct_field_at(val.id, i)
-			name_tag := reflect.struct_tag_get(f.tag, "dbus_name")
+			f := reflect.struct_field_at(parent.id, i)
+			name_tag := string(reflect.struct_tag_get(f.tag, "dbus_name"))
 			if name_tag == key {
 				field_idx = i
 				break
@@ -521,61 +570,21 @@ unmarshal_a_sv_struct :: proc(
 		}
 
 		if field_idx >= 0 {
-			field := reflect.struct_field_at(val.id, field_idx)
-			field_val := reflect.struct_field_value(val, field)
+			field := reflect.struct_field_at(parent.id, field_idx)
+			field_dst := reflect.struct_field_value(parent, field)
+			tag := string(reflect.struct_tag_get(field.tag, "dbus"))
+
 			var_it: MessageIter
 			message_iter_recurse(&entry, &var_it)
-			actual_sig := string(message_iter_get_signature(&var_it))
-			unmarshal_segment(&var_it, actual_sig, field_val, allocator) or_return
+
+			if len(tag) >= 2 && tag[0] == 'a' && tag[1] == '{' {
+				unmarshal_property_dict(&var_it, field_dst, allocator) or_return
+			} else {
+				unmarshal_any(&var_it, field_dst, allocator) or_return
+			}
 		}
 
-		message_iter_next(dict_arr_it)
+		message_iter_next(&sub)
 	}
-	return nil
-}
-
-@(private = "file")
-unmarshal_struct :: proc(
-	it: ^MessageIter,
-	sig: string,
-	val: any,
-	allocator: runtime.Allocator,
-) -> (
-	err: Marshal_Error,
-) {
-	inner := sig[1:len(sig) - 1]
-	base := reflect.type_info_base(type_info_of(val.id))
-	s, ok := base.variant.(runtime.Type_Info_Struct)
-	if !ok {
-		return .Signature_Mismatch
-	}
-
-	sub: MessageIter
-	message_iter_recurse(it, &sub)
-
-	pos := 0
-	for i in 0 ..< int(s.field_count) {
-		seg, next, seg_ok := sig_next(inner, pos)
-		if !seg_ok {
-			return .Signature_Mismatch
-		}
-		field := reflect.struct_field_at(val.id, i)
-		field_val := reflect.struct_field_value(val, field)
-		unmarshal_segment(&sub, seg, field_val, allocator) or_return
-		pos = next
-		if i < int(s.field_count) - 1 do message_iter_next(&sub)
-	}
-	return nil
-}
-
-@(private = "file")
-unmarshal_variant :: proc(
-	it: ^MessageIter,
-	val: any,
-	allocator: runtime.Allocator,
-) -> Marshal_Error {
-	sub: MessageIter
-	message_iter_recurse(it, &sub)
-	actual := string(message_iter_get_signature(&sub))
-	return unmarshal_segment(&sub, actual, val, allocator)
+	return .None
 }
