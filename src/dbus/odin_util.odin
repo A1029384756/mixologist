@@ -34,9 +34,6 @@ Marshal_Error :: enum {
 	Allocation_Failed,
 }
 
-ObjectPath :: distinct string
-Signature :: distinct string
-
 @(private = "file")
 sig_count :: proc(signature: string) -> (count: int, ok: bool) {
 	pos := 0
