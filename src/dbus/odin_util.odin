@@ -24,7 +24,7 @@ message_iter_pop_container :: proc(
 	message_iter_close_container(base, sub)
 }
 
-Marshal_Error :: enum {
+MarshalError :: enum {
 	None,
 	Unsupported_Type,
 	Signature_Mismatch,
@@ -40,7 +40,7 @@ marshal :: proc(
 	msg: ^Message,
 	value: any,
 	temp_allocator := context.temp_allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
 	it: MessageIter
@@ -58,7 +58,7 @@ marshal :: proc(
 	return marshal_any(&it, value, temp_allocator)
 }
 
-unmarshal :: proc(msg: ^Message, ptr: ^$T, allocator := context.allocator) -> Marshal_Error {
+unmarshal :: proc(msg: ^Message, ptr: ^$T, allocator := context.allocator) -> MarshalError {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == context.temp_allocator)
 
 	it: MessageIter
@@ -84,7 +84,7 @@ sig_for_type :: proc(
 	temp_allocator: runtime.Allocator,
 ) -> (
 	sig: string,
-	err: Marshal_Error,
+	err: MarshalError,
 ) {
 	if t == typeid_of(ObjectPath) do return "o", .None
 	if t == typeid_of(SignatureString) do return "g", .None
@@ -140,7 +140,7 @@ sig_for_field :: proc(
 	temp_allocator: runtime.Allocator,
 ) -> (
 	string,
-	Marshal_Error,
+	MarshalError,
 ) {
 	if t := reflect.struct_tag_get(field.tag, "dbus"); len(t) > 0 do return string(t), .None
 	return sig_for_type(field.type.id, temp_allocator)
@@ -152,7 +152,7 @@ marshal_field :: proc(
 	field: reflect.Struct_Field,
 	parent: any,
 	temp_allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	field_val := reflect.struct_field_value(parent, field)
 	tag := string(reflect.struct_tag_get(field.tag, "dbus"))
 
@@ -169,7 +169,7 @@ marshal_any :: proc(
 	it: ^MessageIter,
 	value: any,
 	temp_allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	if value.id == typeid_of(ObjectPath) {
 		return marshal_basic_string(it, value, .OBJECT_PATH, temp_allocator)
 	}
@@ -247,14 +247,14 @@ marshal_basic_string :: proc(
 	val: any,
 	t: Type,
 	temp_allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	cs := value_to_cstring(val, temp_allocator) or_return
 	if !message_iter_append_basic(it, t, &cs) do return .Iter_Op_Failed
 	return .None
 }
 
 @(private = "file")
-value_to_cstring :: proc(val: any, temp_allocator: runtime.Allocator) -> (cstring, Marshal_Error) {
+value_to_cstring :: proc(val: any, temp_allocator: runtime.Allocator) -> (cstring, MarshalError) {
 	base := reflect.type_info_base(type_info_of(val.id))
 	if s, ok := base.variant.(runtime.Type_Info_String); ok {
 		if s.is_cstring do return (^cstring)(val.data)^, .None
@@ -270,7 +270,7 @@ marshal_array :: proc(
 	val: any,
 	temp_allocator: runtime.Allocator,
 ) -> (
-	err: Marshal_Error,
+	err: MarshalError,
 ) {
 	base := reflect.type_info_base(type_info_of(val.id))
 	elem_id: typeid
@@ -312,7 +312,7 @@ marshal_struct :: proc(
 	val: any,
 	temp_allocator: runtime.Allocator,
 ) -> (
-	err: Marshal_Error,
+	err: MarshalError,
 ) {
 	base := reflect.type_info_base(type_info_of(val.id))
 	s, ok := base.variant.(runtime.Type_Info_Struct)
@@ -342,7 +342,7 @@ marshal_property_dict :: proc(
 	val: any,
 	array_sig: string,
 	temp_allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	if len(array_sig) < 2 || array_sig[0] != 'a' do return .Signature_Mismatch
 	inner := array_sig[1:]
 	inner_cstr := strings.clone_to_cstring(inner, temp_allocator)
@@ -388,7 +388,7 @@ marshal_property_dict :: proc(
 		}
 
 		field_val := reflect.struct_field_value(parent, field)
-		ferr: Marshal_Error
+		ferr: MarshalError
 		if len(var_sig) >= 2 && var_sig[0] == 'a' && var_sig[1] == '{' {
 			ferr = marshal_property_dict(&var_it, field_val, var_sig, temp_allocator)
 		} else if var_sig == "o" {
@@ -419,7 +419,7 @@ unmarshal_field :: proc(
 	field: reflect.Struct_Field,
 	parent: any,
 	allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	field_dst := reflect.struct_field_value(parent, field)
 	tag := string(reflect.struct_tag_get(field.tag, "dbus"))
 
@@ -430,7 +430,7 @@ unmarshal_field :: proc(
 }
 
 @(private = "file")
-unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) -> Marshal_Error {
+unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) -> MarshalError {
 	base := reflect.type_info_base(type_info_of(dst.id))
 	val := any{dst.data, base.id}
 
@@ -490,11 +490,7 @@ unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) 
 }
 
 @(private = "file")
-unmarshal_array :: proc(
-	it: ^MessageIter,
-	val: any,
-	allocator: runtime.Allocator,
-) -> Marshal_Error {
+unmarshal_array :: proc(it: ^MessageIter, val: any, allocator: runtime.Allocator) -> MarshalError {
 	base := reflect.type_info_base(type_info_of(val.id))
 	sl, is_slice := base.variant.(runtime.Type_Info_Slice)
 	if !is_slice do return .Signature_Mismatch
@@ -524,7 +520,7 @@ unmarshal_struct :: proc(
 	it: ^MessageIter,
 	val: any,
 	allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	base := reflect.type_info_base(type_info_of(val.id))
 	s, ok := base.variant.(runtime.Type_Info_Struct)
 	if !ok do return .Signature_Mismatch
@@ -546,7 +542,7 @@ unmarshal_property_dict :: proc(
 	it: ^MessageIter,
 	val: any,
 	allocator: runtime.Allocator,
-) -> Marshal_Error {
+) -> MarshalError {
 	base := reflect.type_info_base(type_info_of(val.id))
 	s, is_struct := base.variant.(runtime.Type_Info_Struct)
 	if !is_struct do return .Signature_Mismatch
