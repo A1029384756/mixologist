@@ -108,6 +108,9 @@ daemon_deinit :: proc(ctx: ^Daemon_Context) {
 		delete(input)
 	}
 	delete(ctx.device_inputs)
+	for _, &passthrough in ctx.passthrough_nodes {
+		node_destroy(&passthrough)
+	}
 	delete(ctx.passthrough_nodes)
 	delete(ctx.passthrough_ports)
 }
