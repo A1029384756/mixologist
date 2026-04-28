@@ -426,18 +426,19 @@ mixologist_globalshortcuts_handler :: proc "c" (
 ) -> dbus.HandlerResult {
 	context = runtime.default_context()
 	interface := cstring("org.freedesktop.portal.GlobalShortcuts")
-	if dbus.message_is_signal(msg, interface, "Activated") {
-		msg_iter: dbus.MessageIter
-		dbus.message_iter_init(msg, &msg_iter)
-
-		session_handle: cstring
-		dbus.message_iter_get_basic(&msg_iter, &session_handle)
-		dbus.message_iter_next(&msg_iter)
-
-		shortcut_id_cstr: cstring
-		dbus.message_iter_get_basic(&msg_iter, &shortcut_id_cstr)
-		dbus.message_iter_next(&msg_iter)
-		shortcut_id := shortcut_from_str(string(shortcut_id_cstr))
+	activated: if dbus.message_is_signal(msg, interface, "Activated") {
+		activation: struct {
+			session_handle: dbus.ObjectPath,
+			shortcut_id:    string,
+			timestamp:      u64,
+		}
+		unmarshal_err := dbus.unmarshal(msg, &activation, context.allocator)
+		if unmarshal_err != nil do break activated
+		defer {
+			delete(string(activation.session_handle))
+			delete(activation.shortcut_id)
+		}
+		shortcut_id := shortcut_from_str(activation.shortcut_id)
 		switch shortcut_id {
 		case .RAISE:
 			vol := mixologist.volume + 0.1
