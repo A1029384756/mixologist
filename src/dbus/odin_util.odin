@@ -37,37 +37,45 @@ SignatureString :: distinct string
 Fd :: distinct i32
 
 marshal :: proc(
-	it: ^MessageIter,
+	msg: ^Message,
 	value: any,
 	temp_allocator := context.temp_allocator,
 ) -> Marshal_Error {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+	it: MessageIter
+	message_iter_init_append(msg, &it)
+
 	base := reflect.type_info_base(type_info_of(value.id))
 	val := any{value.data, base.id}
 	if s, is_struct := base.variant.(runtime.Type_Info_Struct); is_struct {
 		for i in 0 ..< int(s.field_count) {
 			field := reflect.struct_field_at(val.id, i)
-			marshal_field(it, field, val, temp_allocator) or_return
+			marshal_field(&it, field, val, temp_allocator) or_return
 		}
 		return .None
 	}
-	return marshal_any(it, value, temp_allocator)
+	return marshal_any(&it, value, temp_allocator)
 }
 
-unmarshal :: proc(it: ^MessageIter, ptr: ^$T, allocator := context.allocator) -> Marshal_Error {
+unmarshal :: proc(msg: ^Message, ptr: ^$T, allocator := context.allocator) -> Marshal_Error {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore = allocator == context.temp_allocator)
+
+	it: MessageIter
+	message_iter_init(msg, &it)
+
 	base := reflect.type_info_base(type_info_of(T))
 	val := any{ptr, base.id}
 	if s, is_struct := base.variant.(runtime.Type_Info_Struct); is_struct {
 		for i in 0 ..< int(s.field_count) {
 			field := reflect.struct_field_at(val.id, i)
-			unmarshal_field(it, field, val, allocator) or_return
-			if i < int(s.field_count) - 1 do message_iter_next(it)
+			unmarshal_field(&it, field, val, allocator) or_return
+			if i < int(s.field_count) - 1 do message_iter_next(&it)
 		}
 		return .None
 	}
 	dst := any{ptr, typeid_of(T)}
-	return unmarshal_any(it, dst, allocator)
+	return unmarshal_any(&it, dst, allocator)
 }
 
 @(private = "file")

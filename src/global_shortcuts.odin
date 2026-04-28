@@ -9,8 +9,6 @@ import "core:strings"
 import "core:time"
 import "dbus"
 
-GlobalShortcuts_odin_ctx: runtime.Context
-
 GlobalShortcuts_Session :: struct {
 	conn:           ^dbus.Connection,
 	session_handle: dbus.ObjectPath,
@@ -43,14 +41,6 @@ GlobalShortcut_InMetadata :: struct {
 GlobalShortcut_In :: struct {
 	id:       string,
 	metadata: GlobalShortcut_InMetadata `dbus:"a{sv}"`,
-}
-
-GlobalShortcuts_ResponseContext :: struct {
-	shortcuts:     []GlobalShortcut,
-	completed:     bool,
-	response_code: u32,
-	match_rule:    cstring,
-	allocator:     runtime.Allocator,
 }
 
 GlobalShortcuts_SignalType :: enum {
@@ -124,10 +114,7 @@ Registry_Register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
 	)
 	defer dbus.message_unref(msg)
 
-	args: dbus.MessageIter
-	dbus.message_iter_init_append(msg, &args)
-	dbus.marshal(&args, Registry_RegisterReq{appid = appid})
-
+	dbus.marshal(msg, Registry_RegisterReq{appid = appid})
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
 	if dbus.error_is_set(&err) do return err.message
 	defer dbus.message_unref(reply)
@@ -146,7 +133,6 @@ GlobalShortcuts_Init :: proc(
 	signal_userdata: rawptr,
 	signal_data_free: dbus.FreeProc,
 ) -> Error {
-	GlobalShortcuts_odin_ctx = context
 	err: dbus.Error
 	dbus.error_init(&err)
 	gs.conn = dbus.bus_get(.SESSION, &err)
@@ -197,69 +183,33 @@ GlobalShortcuts_CreateSession :: proc(
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
 ) -> Error {
-	err: dbus.Error
-	dbus.error_init(&err)
-	msg := dbus.message_new_method_call(
-		"org.freedesktop.portal.Desktop",
-		"/org/freedesktop/portal/desktop",
+	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+
+	resp: GlobalShortcuts_CreateSessionResp
+	portal_call(
+		gs.conn,
 		"org.freedesktop.portal.GlobalShortcuts",
 		"CreateSession",
-	)
-	defer dbus.message_unref(msg)
-
-	args, dict: dbus.MessageIter
-	dbus.message_iter_init_append(msg, &args)
-	dbus.marshal(
-		&args,
 		GlobalShortcuts_CreateSessionReq {
 			options = {
-				handle_token = GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
+				handle_token = handle_token,
 				session_handle_token = GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
 			},
 		},
-	)
+		handle_token,
+		&resp,
+		allocator,
+		temp_allocator,
+	) or_return
 
-	reply := dbus.connection_send_with_reply_and_block(
-		gs.conn,
-		msg,
-		dbus.TIMEOUT_USE_DEFAULT,
-		&err,
-	)
-	if dbus.error_is_set(&err) do return err.message
-	defer dbus.message_unref(reply)
-
-	reply_args: dbus.MessageIter
-	received_path: cstring
-	dbus.message_iter_init(reply, &reply_args)
-	dbus.message_iter_get_basic(&reply_args, &received_path)
-	log.infof("received request path: %s", received_path)
-
-	for dbus.connection_read_write_dispatch(gs.conn, 100) {
-		signal_msg := dbus.connection_pop_message(gs.conn)
-		if signal_msg == nil do continue
-		defer dbus.message_unref(signal_msg)
-
-		if dbus.message_is_signal(signal_msg, "org.freedesktop.portal.Request", "Response") {
-			signal_path := dbus.message_get_path(signal_msg)
-			if signal_path != received_path do continue
-
-			signal_args, results: dbus.MessageIter
-			response_code: u32
-			session_handle: cstring
-
-			dbus.message_iter_init(signal_msg, &signal_args)
-			createsession_resp: GlobalShortcuts_CreateSessionResp
-			if err := dbus.unmarshal(&signal_args, &createsession_resp, context.allocator);
-			   err != nil {
-				log.error("could not get session handle")
-			}
-			gs.session_handle = createsession_resp.results.session_handle
-			log.debugf("obtained session handle: %s", gs.session_handle)
-			return nil
-		}
+	if resp.response != 0 {
+		log.infof("createsession error response code: %d", resp.response)
+		return "CreateSession failed"
 	}
 
-	return "Timed out waiting for Response signal"
+	gs.session_handle = resp.results.session_handle
+	log.debugf("obtained session handle: %s", gs.session_handle)
+	return nil
 }
 
 GlobalShortcuts_CloseSession :: proc(
@@ -296,37 +246,10 @@ GlobalShortcuts_BindShortcuts :: proc(
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
 ) -> (
-	[]GlobalShortcut,
-	Error,
+	out: []GlobalShortcut,
+	err: Error,
 ) {
 	if len(gs.session_handle) == 0 do return nil, "No session handle available"
-
-	err: dbus.Error
-	dbus.error_init(&err)
-
-	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
-	response_context: GlobalShortcuts_ResponseContext
-	GlobalShortcuts_dbus_Subscribe(
-		&response_context,
-		gs.conn,
-		handle_token,
-		GlobalShortcuts_ShortcutResponseHandler,
-		allocator,
-		temp_allocator,
-	)
-	defer GlobalShortcuts_dbus_Unsubscribe(
-		&response_context,
-		gs.conn,
-		GlobalShortcuts_ShortcutResponseHandler,
-	)
-
-	msg := dbus.message_new_method_call(
-		"org.freedesktop.portal.Desktop",
-		"/org/freedesktop/portal/desktop",
-		"org.freedesktop.portal.GlobalShortcuts",
-		"BindShortcuts",
-	)
-	defer dbus.message_unref(msg)
 
 	wire_shortcuts := make([]GlobalShortcut_In, len(shortcuts), temp_allocator)
 	for s, i in shortcuts {
@@ -336,50 +259,28 @@ GlobalShortcuts_BindShortcuts :: proc(
 		}
 	}
 
-	args: dbus.MessageIter
-	dbus.message_iter_init_append(msg, &args)
-	dbus.marshal(
-		&args,
+	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	resp: GlobalShortcuts_ShortcutsResp
+	portal_call(
+		gs.conn,
+		"org.freedesktop.portal.GlobalShortcuts",
+		"BindShortcuts",
 		GlobalShortcuts_BindShortcutsReq {
 			session_handle = gs.session_handle,
 			shortcuts = wire_shortcuts,
 			parent_window = "",
 			options = {handle_token = handle_token},
 		},
-	)
+		handle_token,
+		&resp,
+		allocator,
+		temp_allocator,
+	) or_return
 
-	reply := dbus.connection_send_with_reply_and_block(
-		gs.conn,
-		msg,
-		dbus.TIMEOUT_USE_DEFAULT,
-		&err,
-	)
-	if dbus.error_is_set(&err) do return nil, err.message
-	defer dbus.message_unref(reply)
-	log.infof("sent global shortcut bind request")
-
-	reply_args: dbus.MessageIter
-	received_path: cstring
-	if !dbus.message_iter_init(reply, &reply_args) {
-		return nil, "Failed to parse BindShortcuts reply"
+	if resp.response != 0 {
+		log.infof("bindshortcuts error response code: %d", resp.response)
 	}
-	dbus.message_iter_get_basic(&reply_args, &received_path)
-	log.infof("received request path: %s", received_path)
-
-	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn)
-
-	if response_context.response_code != 0 {
-		log.infof("bindshortcuts error response code: %d", response_context.response_code)
-	}
-
-	if len(response_context.shortcuts) == 0 {
-		log.info("no shortcuts returned")
-		return nil, nil
-	}
-
-	res_shortcuts := response_context.shortcuts
-	response_context.shortcuts = nil
-	return res_shortcuts, nil
+	return _flatten_shortcuts(resp.results.shortcuts, allocator), nil
 }
 
 GlobalShortcuts_ListShortcuts :: proc(
@@ -387,78 +288,49 @@ GlobalShortcuts_ListShortcuts :: proc(
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
 ) -> (
-	shortcuts: []GlobalShortcut,
-	error: Error,
+	out: []GlobalShortcut,
+	err: Error,
 ) {
 	if len(gs.session_handle) == 0 do return nil, "No session handle available"
 
-	err: dbus.Error
-	dbus.error_init(&err)
-
 	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
-	response_context: GlobalShortcuts_ResponseContext
-	GlobalShortcuts_dbus_Subscribe(
-		&response_context,
+	resp: GlobalShortcuts_ShortcutsResp
+	portal_call(
 		gs.conn,
-		handle_token,
-		GlobalShortcuts_ShortcutResponseHandler,
-		allocator,
-		temp_allocator,
-	)
-	defer GlobalShortcuts_dbus_Unsubscribe(
-		&response_context,
-		gs.conn,
-		GlobalShortcuts_ShortcutResponseHandler,
-	)
-
-	msg := dbus.message_new_method_call(
-		"org.freedesktop.portal.Desktop",
-		"/org/freedesktop/portal/desktop",
 		"org.freedesktop.portal.GlobalShortcuts",
 		"ListShortcuts",
-	)
-	defer dbus.message_unref(msg)
-
-	args: dbus.MessageIter
-	dbus.message_iter_init_append(msg, &args)
-	dbus.marshal(
-		&args,
 		GlobalShortcuts_ListShortcutsReq {
 			session_handle = gs.session_handle,
 			options = {handle_token = handle_token},
 		},
-	)
+		handle_token,
+		&resp,
+		allocator,
+		temp_allocator,
+	) or_return
 
-	reply := dbus.connection_send_with_reply_and_block(
-		gs.conn,
-		msg,
-		dbus.TIMEOUT_USE_DEFAULT,
-		&err,
-	)
-	if dbus.error_is_set(&err) do return
-	defer dbus.message_unref(reply)
-
-	reply_args: dbus.MessageIter
-	received_path: cstring
-	if !dbus.message_iter_init(reply, &reply_args) {
-		return nil, "Failed to parse ListShortcuts reply"
+	if resp.response != 0 {
+		log.infof("listshortcuts error response code: %d", resp.response)
 	}
-	dbus.message_iter_get_basic(&reply_args, &received_path)
-	log.infof("received request path: %s", received_path)
+	return _flatten_shortcuts(resp.results.shortcuts, allocator), nil
+}
 
-	_GlobalShortcuts_dbus_wait_for_response(&response_context, gs.conn)
-	if response_context.response_code != 0 {
-		log.infof("listshortcuts error response code: %d", response_context.response_code)
+@(private = "file")
+_flatten_shortcuts :: proc(
+	wire: []GlobalShortcut_Out,
+	allocator: runtime.Allocator,
+) -> []GlobalShortcut {
+	if len(wire) == 0 do return nil
+	flat := make([]GlobalShortcut, len(wire), allocator)
+	for w, i in wire {
+		flat[i] = {
+			id                  = w.id,
+			description         = w.metadata.description,
+			trigger_description = w.metadata.trigger_description,
+		}
 	}
-
-	if len(response_context.shortcuts) == 0 {
-		log.info("no shortcuts returned")
-		return nil, nil
-	}
-
-	shortcuts = response_context.shortcuts
-	response_context.shortcuts = nil
-	return
+	delete(wire, allocator)
+	return flat
 }
 
 GlobalShortcuts_SliceDelete :: proc(shortcuts: []GlobalShortcut, allocator := context.allocator) {
@@ -474,50 +346,38 @@ _is_sandboxed :: proc() -> bool {
 	return os.exists("/.flatpak-info")
 }
 
-GlobalShortcuts_ShortcutResponseHandler :: proc "c" (
+@(private = "file")
+Portal_Request :: struct {
+	response_msg: ^dbus.Message,
+	completed:    bool,
+	match_rule:   cstring,
+	odin_ctx:     runtime.Context,
+}
+
+@(private = "file")
+portal_response_filter :: proc "c" (
 	conn: ^dbus.Connection,
 	msg: ^dbus.Message,
 	user_data: rawptr,
 ) -> dbus.HandlerResult {
-	context = GlobalShortcuts_odin_ctx
-	response_context := cast(^GlobalShortcuts_ResponseContext)user_data
+	req := cast(^Portal_Request)user_data
+	context = req.odin_ctx
 
 	if dbus.message_is_signal(msg, "org.freedesktop.portal.Request", "Response") {
-		signal_args: dbus.MessageIter
-		dbus.message_iter_init(msg, &signal_args)
-		resp: GlobalShortcuts_ShortcutsResp
-		if err := dbus.unmarshal(&signal_args, &resp, response_context.allocator); err != nil {
-			response_context.completed = true
-			return .NOT_YET_HANDLED
-		}
-		response_context.response_code = resp.response
-
-		flat := make([]GlobalShortcut, len(resp.results.shortcuts), response_context.allocator)
-		for w, i in resp.results.shortcuts {
-			flat[i] = {
-				id                  = w.id,
-				description         = w.metadata.description,
-				trigger_description = w.metadata.trigger_description,
-			}
-		}
-		delete(resp.results.shortcuts, response_context.allocator)
-		response_context.shortcuts = flat
-		response_context.completed = true
+		req.response_msg = dbus.message_ref(msg)
+		req.completed = true
 		return .HANDLED
 	}
-
-	response_context.completed = true
 	return .NOT_YET_HANDLED
 }
 
-GlobalShortcuts_dbus_Subscribe :: proc(
-	ctx: ^GlobalShortcuts_ResponseContext,
+@(private = "file")
+portal_subscribe :: proc(
+	req: ^Portal_Request,
 	conn: ^dbus.Connection,
 	handle_token: string,
-	handler: dbus.HandleMessageProc,
-	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
-) {
+) -> Error {
 	err: dbus.Error
 	dbus.error_init(&err)
 
@@ -528,51 +388,82 @@ GlobalShortcuts_dbus_Subscribe :: proc(
 		allocator = temp_allocator,
 	)
 	string_subst_bytes(request_path, '.', '_')
-	ctx.allocator = allocator
 
-	ctx.match_rule = fmt.caprintf(
+	req.match_rule = fmt.caprintf(
 		"type='signal',interface='org.freedesktop.portal.Request',member='Response',path='%s'",
 		request_path,
 		allocator = temp_allocator,
 	)
-	dbus.bus_add_match(conn, ctx.match_rule, &err)
-	if dbus.error_is_set(&err) {
-		log.panicf("could not add match rule %s", err.message)
-	}
+	req.odin_ctx = context
 
-	dbus.connection_add_filter(conn, handler, ctx, nil)
+	dbus.bus_add_match(conn, req.match_rule, &err)
+	if dbus.error_is_set(&err) do return err.message
+	dbus.connection_add_filter(conn, portal_response_filter, req, nil)
+	return nil
 }
 
-GlobalShortcuts_dbus_Unsubscribe :: proc(
-	ctx: ^GlobalShortcuts_ResponseContext,
-	conn: ^dbus.Connection,
-	handler: dbus.HandleMessageProc,
-) {
-	dbus.connection_remove_filter(conn, handler, ctx)
-	dbus.bus_remove_match(conn, ctx.match_rule, nil)
-	if ctx.shortcuts != nil {
-		GlobalShortcuts_SliceDelete(ctx.shortcuts, ctx.allocator)
+@(private = "file")
+portal_unsubscribe :: proc(req: ^Portal_Request, conn: ^dbus.Connection) {
+	dbus.connection_remove_filter(conn, portal_response_filter, req)
+	dbus.bus_remove_match(conn, req.match_rule, nil)
+	if req.response_msg != nil {
+		dbus.message_unref(req.response_msg)
+		req.response_msg = nil
 	}
 }
 
-_GlobalShortcuts_dbus_wait_for_response :: proc(
-	ctx: ^GlobalShortcuts_ResponseContext,
+@(private = "file")
+portal_wait :: proc(
+	req: ^Portal_Request,
 	conn: ^dbus.Connection,
 	timeout: time.Duration = 0,
 ) -> bool {
-	start_time := time.now()
-	for !ctx.completed {
+	start := time.now()
+	for !req.completed {
 		if !dbus.connection_read_write_dispatch(conn, 100) {
 			log.errorf("dbus dispatch failure")
 			return false
 		}
-
-		if timeout > 0 && time.since(start_time) > timeout {
+		if timeout > 0 && time.since(start) > timeout {
 			log.errorf("timed out waiting for response signal")
 			return false
 		}
 	}
-
-	log.debugf("dbus response received")
 	return true
+}
+
+@(private = "file")
+portal_call :: proc(
+	conn: ^dbus.Connection,
+	iface, method: cstring,
+	req_data: any,
+	handle_token: string,
+	resp_out: ^$T,
+	allocator := context.allocator,
+	temp_allocator := context.temp_allocator,
+) -> Error {
+	err: dbus.Error
+	dbus.error_init(&err)
+
+	portal_req: Portal_Request
+	portal_subscribe(&portal_req, conn, handle_token, temp_allocator) or_return
+	defer portal_unsubscribe(&portal_req, conn)
+
+	msg := dbus.message_new_method_call(
+		"org.freedesktop.portal.Desktop",
+		"/org/freedesktop/portal/desktop",
+		iface,
+		method,
+	)
+	defer dbus.message_unref(msg)
+
+	dbus.marshal(msg, req_data, temp_allocator)
+	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	if dbus.error_is_set(&err) do return err.message
+	defer dbus.message_unref(reply)
+
+	if !portal_wait(&portal_req, conn) do return "timed out waiting for portal response"
+
+	dbus.unmarshal(portal_req.response_msg, resp_out, allocator)
+	return nil
 }
