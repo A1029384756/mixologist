@@ -198,6 +198,8 @@ Renderer_should_redraw :: proc(
 	ctx: ^Context,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 ) -> bool {
+	// todo: figure out why this is needed
+	if clay.IsDebugModeEnabled() do return true
 	_resize_buckets(ctx)
 	slice.zero(ctx.renderer.buckets[:])
 
@@ -685,7 +687,8 @@ Pipeline :: struct {
 }
 
 f32_color :: proc(color: clay.Color) -> [4]f32 {
-	return [4]f32{color.r / 255.0, color.g / 255.0, color.b / 255.0, color.a / 255.0}
+	unscaled_color := [4]f32{color.r, color.g, color.b, color.a}
+	return unscaled_color / 255
 }
 
 Globals :: struct {

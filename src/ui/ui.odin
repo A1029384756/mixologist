@@ -14,6 +14,7 @@ import "core:slice"
 import "core:strings"
 import "core:text/edit"
 import "core:time"
+import "systray"
 import sdl "vendor:sdl3"
 import img "vendor:sdl3/image"
 import ttf "vendor:sdl3/ttf"
@@ -54,11 +55,10 @@ Context :: struct {
 	start_time:          time.Tick,
 	prev_frame_time:     time.Tick,
 	scaling:             c.float,
-	tray:                ^sdl.Tray,
-	tray_menu:           ^sdl.TrayMenu,
+	tray:                systray.Systray,
+	tray_id_show:        i32,
+	tray_id_quit:        i32,
 	tray_icon:           ^sdl.Surface,
-	toggle_entry:        ^sdl.TrayEntry,
-	exit_entry:          ^sdl.TrayEntry,
 	// renderer
 	renderer:            Renderer,
 	device:              ^sdl.GPUDevice,
@@ -213,7 +213,7 @@ TEXT_CURSOR: ^sdl.Cursor
 HAND_CURSOR: ^sdl.Cursor
 DEFAULT_CURSOR: ^sdl.Cursor
 
-init :: proc(ctx: ^Context, minimized: bool) {
+init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	odin_context = context
 	font_arena_init_err := virtual.arena_init_growing(&ctx.font_allocator)
 	if font_arena_init_err != nil do panic("font allocator initialization failed")
@@ -240,12 +240,13 @@ init :: proc(ctx: ^Context, minimized: bool) {
 		},
 		nil,
 	)
+	sdl.SetHint(sdl.HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0")
 	sdl.SetHint(sdl.HINT_VIDEO_ALLOW_SCREENSAVER, "1")
 	sdl.SetHint(sdl.HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 	_ = sdl.Init({.VIDEO})
 	_ = ttf.Init()
 	ctx.window = sdl.CreateWindow(
-		"Mixologist",
+		title,
 		800,
 		600,
 		{.RESIZABLE, .HIGH_PIXEL_DENSITY} + (minimized ? {.HIDDEN} : {}),
@@ -266,19 +267,24 @@ init :: proc(ctx: ^Context, minimized: bool) {
 	Renderer_init(ctx)
 
 	{
-		ctx.tray = sdl.CreateTray(nil, "Mixologist")
-		ctx.tray_menu = sdl.CreateTrayMenu(ctx.tray)
+		_ = systray.init(&ctx.tray, {menu = "/StatusNotifierItem/menu"})
+		systray.set_tooltip(&ctx.tray, {title = "Mixologist"})
+		ctx.tray.userdata = ctx
+		ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
+			ctx := cast(^Context)userdata
+			if .WINDOW_CLOSED in ctx.statuses {
+				open_window(ctx)
+			} else {
+				close_window(ctx)
+			}
+		}
+		ctx.tray.menu.userdata = ctx
+		ctx.tray.menu.activate_cb = on_tray_menu_activate
 
-		ctx.toggle_entry = sdl.InsertTrayEntryAt(
-			ctx.tray_menu,
-			-1,
-			(minimized ? "Open" : "Close"),
-			{.BUTTON},
-		)
-		sdl.SetTrayEntryCallback(ctx.toggle_entry, toggle_window, ctx)
-
-		ctx.exit_entry = sdl.InsertTrayEntryAt(ctx.tray_menu, -1, "Quit Mixologist", {.BUTTON})
-		sdl.SetTrayEntryCallback(ctx.exit_entry, _quit_application, ctx)
+		show_label := minimized ? "Show Window" : "Hide Window"
+		ctx.tray_id_show = systray.menu_add_item(&ctx.tray.menu, 0, {label = show_label})
+		_ = systray.menu_add_item(&ctx.tray.menu, 0, {type = .Separator})
+		ctx.tray_id_quit = systray.menu_add_item(&ctx.tray.menu, 0, {label = "Quit"})
 	}
 
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
@@ -306,10 +312,10 @@ deinit :: proc(ctx: ^Context) {
 		delete(ctx.memory_debug.memory)
 	}
 
+	systray.deinit(&ctx.tray)
+
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
-
-	sdl.DestroyTray(ctx.tray)
 
 	for img in ctx.images[:] {
 		sdl.ReleaseGPUTexture(ctx.device, img.image.texture)
@@ -324,8 +330,13 @@ deinit :: proc(ctx: ^Context) {
 
 set_tray_icon :: proc(ctx: ^Context, icon: []u8) {
 	icon_io := sdl.IOFromConstMem(raw_data(icon), len(icon))
-	ctx.tray_icon = img.Load_IO(icon_io, true)
-	sdl.SetTrayIcon(ctx.tray, ctx.tray_icon)
+	loaded_icon := img.Load_IO(icon_io, true)
+	ctx.tray_icon = sdl.ConvertSurface(loaded_icon, .ARGB32)
+	pixel_slice := slice.bytes_from_ptr(
+		ctx.tray_icon.pixels,
+		int(ctx.tray_icon.w * ctx.tray_icon.h * 4),
+	)
+	systray.set_icon_pixmap(&ctx.tray, {{ctx.tray_icon.w, ctx.tray_icon.h, pixel_slice}})
 }
 
 tick :: proc(
@@ -348,6 +359,8 @@ tick :: proc(
 		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
 	}
 
+	systray.pump(&ctx.tray)
+
 	event: sdl.Event
 	for sdl.PollEvent(&event) {
 		#partial switch event.type {
@@ -358,7 +371,7 @@ tick :: proc(
 		case .WINDOW_RESTORED:
 			ctx.statuses -= {.WINDOW_MINIMIZED}
 		case .WINDOW_CLOSE_REQUESTED:
-			toggle_window(ctx, ctx.toggle_entry)
+			toggle_window(ctx)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 		case .WINDOW_RESIZED:
@@ -462,7 +475,7 @@ tick :: proc(
 	window_size: [2]c.int
 	sdl.GetWindowSize(ctx.window, &window_size.x, &window_size.y)
 	ctx.prev_window_size, ctx.window_size =
-		ctx.window_size, {c.float(window_size.x), c.float(window_size.y)}
+		ctx.window_size, [2]f32{f32(window_size.x), f32(window_size.y)}
 	clay.SetLayoutDimensions({ctx.window_size.x, ctx.window_size.y})
 
 	when ODIN_DEBUG {
@@ -546,31 +559,33 @@ tick :: proc(
 
 open_window :: proc(ctx: ^Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
-	sdl.SetTrayEntryLabel(ctx.toggle_entry, "Close")
+	systray.menu_set_label(&ctx.tray.menu, ctx.tray_id_show, "Hide Window")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
 
 close_window :: proc(ctx: ^Context) {
 	ctx.statuses += {.WINDOW_CLOSED}
+	systray.menu_set_label(&ctx.tray.menu, ctx.tray_id_show, "Show Window")
 	sdl.HideWindow(ctx.window)
 }
 
-toggle_window :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
+on_tray_menu_activate :: proc(menu: ^systray.Menu, id: i32, userdata: rawptr) {
 	ctx := cast(^Context)userdata
-	context = odin_context
-	if .WINDOW_CLOSED in ctx.statuses {
-		sdl.SetTrayEntryLabel(entry, "Close")
-		open_window(ctx)
-	} else {
-		sdl.SetTrayEntryLabel(entry, "Open")
-		close_window(ctx)
+	switch id {
+	case ctx.tray_id_show:
+		toggle_window(ctx)
+	case ctx.tray_id_quit:
+		ctx.statuses += {.APP_EXIT}
 	}
 }
 
-_quit_application :: proc "c" (userdata: rawptr, entry: ^sdl.TrayEntry) {
-	ctx := cast(^Context)userdata
-	ctx.statuses += {.APP_EXIT}
+toggle_window :: proc(ctx: ^Context) {
+	if .WINDOW_CLOSED in ctx.statuses {
+		open_window(ctx)
+	} else {
+		close_window(ctx)
+	}
 }
 
 _measure_text :: proc "c" (
@@ -586,7 +601,8 @@ _measure_text :: proc "c" (
 
 	size: [2]c.int
 	_ = ttf.GetStringSize(font, cstring(text.chars), c.size_t(text.length), &size.x, &size.y)
-	return {c.float(size.x) / ctx.scaling, c.float(size.y) / ctx.scaling}
+	scaled_size := [2]f32{f32(size.x), f32(size.y)} / ctx.scaling
+	return {scaled_size.x, scaled_size.y}
 }
 
 _input_key_down :: proc(ctx: ^Context, key: Control_Key) {
