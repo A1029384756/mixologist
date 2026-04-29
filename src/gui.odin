@@ -41,7 +41,7 @@ GUI_Context :: struct {
 
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	ctx.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
-	ui.init(&ctx.ui_ctx, minimized)
+	ui.init(&ctx.ui_ctx, "Mixologist", minimized)
 	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
 	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
 	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64}) // GAME = 0

@@ -41,7 +41,7 @@ foreign lib {
 	message_get_reply_serial :: proc(message: ^Message) -> c.uint32_t ---
 	message_new :: proc(type: MessageType) -> ^Message ---
 	message_new_method_call :: proc(dest, path, iface, method: cstring) -> ^Message ---
-	message_new_return :: proc(method_call: ^Message) -> ^Message ---
+	message_new_method_return :: proc(method_call: ^Message) -> ^Message ---
 	message_new_signal :: proc(path, iface, name: cstring) -> ^Message ---
 	message_new_error :: proc(reply_to: ^Message, error_name, error_message: cstring) -> ^Message ---
 	message_new_error_printf :: proc(reply_to: ^Message, error_name: cstring, error_format: cstring, #c_vararg args: ..any) -> ^Message ---

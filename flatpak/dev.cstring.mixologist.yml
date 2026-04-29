@@ -62,6 +62,5 @@ modules:
       - desktop-file-edit --set-key="Exec" --set-value=$FLATPAK_ID --set-icon=$FLATPAK_ID /app/share/applications/$FLATPAK_ID.desktop
       - install -Dm0644 data/$FLATPAK_ID.metainfo.xml /app/share/metainfo/$FLATPAK_ID.metainfo.xml
     sources:
-      - type: git
-        url: https://github.com/A1029384756/mixologist.git
-        commit: 7cc3a24971f411da5fac6c9e97bbbacb9bfa9abf
+      - type: dir
+        path: ..
