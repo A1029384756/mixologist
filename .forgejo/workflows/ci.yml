@@ -9,7 +9,14 @@ jobs:
     runs-on: node-lts
     steps:
       - uses: actions/checkout@v6
-      - run: apt-get update && apt-get install -y glslang-tools clang curl unzip
+      - name: Install Dependencies
+        run: apt-get update && \
+             apt-get install -y \
+             --no-install-recommends \
+             glslang-tools clang \
+             libpipewire-0.3-0 libdbus-1-dev \
+             libsdl3-dev libsdl3-ttf-dev \
+             libsdl3-image-dev
       - name: Install Odin (latest)
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -25,5 +32,5 @@ jobs:
           tar -xzf odin.tar.gz -C /opt/odin --strip-components=1
           rm odin.tar.gz
           echo "/opt/odin" >> $FORGEJO_PATH
-      - run: make
-
+      - name: Build Mixologist
+        run: make
