@@ -3,6 +3,7 @@ on:
     branches:
       - master
   pull_request:
+enable-email-notifications: true
 
 jobs:
   build:
