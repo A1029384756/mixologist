@@ -10,13 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install Dependencies
-        run: apt-get update && \
-             apt-get install -y \
-             --no-install-recommends \
-             glslang-tools clang \
-             libpipewire-0.3-0 libdbus-1-dev \
-             libsdl3-dev libsdl3-ttf-dev \
-             libsdl3-image-dev
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            glslang-tools clang libpipewire-0.3-0 \
+            libdbus-1-dev libsdl3-dev libsdl3-ttf-dev \
+            libsdl3-image-dev
       - name: Install Odin (latest)
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
