@@ -25,7 +25,5 @@ jobs:
           tar -xzf odin.tar.gz -C /opt/odin --strip-components=1
           rm odin.tar.gz
           echo "/opt/odin" >> $FORGEJO_PATH
-        with:
-          token: ${{ secrets.GH_TOKEN }}
       - run: make
 
