@@ -4,26 +4,28 @@ on:
       - master
   pull_request:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: node-lts
     steps:
-      - run: |
-          if [ -z "${{ secrets.GH_TOKEN }}" ]; then
-            echo "GH_TOKEN is empty"
-            exit 1
-          else
-            echo "GH_TOKEN is set (length: ${#TOKEN})"
-          fi
-        env:
-          TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/checkout@v6
-      - uses: https://github.com/laytan/setup-odin@v2
+      - run: apt-get update && apt-get install -y glslang-tools clang curl unzip
+      - name: Install Odin (latest)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE '"browser_download_url": *"[^"]*odin-linux-amd64[^"]*\.tar\.gz"' \
+            | head -1 \
+            | cut -d'"' -f4)
+          echo "downloading: $URL"
+          curl -fsSL -o odin.tar.gz "$URL"
+          mkdir -p /opt/odin
+          tar -xzf odin.tar.gz -C /opt/odin --strip-components=1
+          rm odin.tar.gz
+          echo "/opt/odin" >> $FORGEJO_PATH
         with:
           token: ${{ secrets.GH_TOKEN }}
-      - run: apt-get update && apt-get install -y glslang-tools clang
       - run: make
 
