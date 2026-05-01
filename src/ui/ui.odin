@@ -266,8 +266,8 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
 	Renderer_init(ctx)
 
-	{
-		_ = systray.init(&ctx.tray, {menu = "/StatusNotifierItem/menu"})
+	create_menu: {
+		systray.init(&ctx.tray, {menu = "/StatusNotifierItem/menu"}) or_break create_menu
 		systray.set_tooltip(&ctx.tray, {title = "Mixologist"})
 		ctx.tray.userdata = ctx
 		ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
