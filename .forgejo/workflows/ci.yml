@@ -6,11 +6,11 @@ on:
 
 jobs:
   build:
-    runs-on: fedora-latest
+    runs-on: node-lts
     steps:
       - uses: https://github.com/laytan/setup-odin@v2
         with:
           token: ${{ secrets.GH_TOKEN }}
-      - run: dnf install -y glslang make clang
+      - run: apt update && apt install -y glslang-tools clang
       - run: make
 
