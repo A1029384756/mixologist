@@ -102,13 +102,10 @@ and is one of the following:
 - Power -> 2
 - Cubic -> 3
 
-Set the corrsponding *numeric* value in the config file.
+Set the corresponding *numeric* value in the config file.
 
 ## Planned Features
 - [x] GUI
-- [x] Flatpak distribution (GUI-only)
+- [x] Flatpak distribution
 - [x] Proper settings menu
 - [ ] Revamped theming system
-- [ ] Improved Packaging for:
-    - Debian
-    - NixOS
