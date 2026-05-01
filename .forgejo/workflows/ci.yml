@@ -1,0 +1,15 @@
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  runs-on: fedora-latest
+  steps:
+    - uses: https://github.com/laytan/setup-odin@v2
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+    - run: dnf install -y glslang make clang
+    - run: make
+
