@@ -11,13 +11,15 @@ import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
-CELL_PIXEL_SCALE :: 1000
+CELL_PIXEL_SCALE :: 100
 Renderer :: struct {
 	pipeline:     Pipeline,
 	commands:     [dynamic]Command,
 	prev_buckets: [dynamic]u32,
 	cells:        [dynamic]u32,
-	cell_count:   [2]int,
+	cell_wh:      [2]int,
+	cell_tl:      [2]int,
+	cell_br:      [2]int,
 }
 
 Pipeline_Status :: enum {
@@ -153,15 +155,15 @@ Renderer_init :: proc(ctx: ^Context) {
 }
 
 _num_cells :: proc(ctx: ^Context) -> [2]int {
-	x := int(ctx.window_size.x / CELL_PIXEL_SCALE) + 1
-	y := int(ctx.window_size.y / CELL_PIXEL_SCALE) + 1
+	x := int(ctx.window_size.x / CELL_PIXEL_SCALE)
+	y := int(ctx.window_size.y / CELL_PIXEL_SCALE)
 	return {x, y}
 }
 
 _resize_cells :: proc(ctx: ^Context) {
-	ctx.renderer.cell_count = _num_cells(ctx)
+	ctx.renderer.cell_wh = _num_cells(ctx)
 	ctx.renderer.prev_buckets, ctx.renderer.cells = ctx.renderer.cells, ctx.renderer.prev_buckets
-	resize(&ctx.renderer.cells, ctx.renderer.cell_count.x * ctx.renderer.cell_count.y)
+	resize(&ctx.renderer.cells, (ctx.renderer.cell_wh.x + 1) * (ctx.renderer.cell_wh.y + 1))
 }
 
 Renderer_destroy :: proc(ctx: ^Context) {
@@ -176,18 +178,21 @@ Renderer_destroy :: proc(ctx: ^Context) {
 }
 
 _update_overlapping_cells :: proc(renderer: ^Renderer, bb: clay.BoundingBox, h: ^u32) {
-	tl := [2]f32{bb.x, bb.y}
-	br := tl + [2]f32{bb.width, bb.height}
+	tl := [2]int{int(bb.x), int(bb.y)}
+	br := tl + [2]int{int(bb.width), int(bb.height)}
 	h_slice := slice.bytes_from_ptr(h, size_of(u32))
 
 	cell_tl := tl / CELL_PIXEL_SCALE
 	cell_br := br / CELL_PIXEL_SCALE
 	for y in cell_tl.y ..= cell_br.y {
 		for x in cell_tl.x ..= cell_br.x {
-			// TODO fix clay debug inspector crash
-			renderer.cells[int(x) + int(y) * renderer.cell_count.x] = hash.fnv32a(
+			width := renderer.cell_wh.x
+			height := renderer.cell_wh.y
+			x := clamp(x, 0, renderer.cell_wh.x)
+			y := clamp(y, 0, renderer.cell_wh.y)
+			renderer.cells[x + y * renderer.cell_wh.x] = hash.fnv32a(
 				h_slice,
-				renderer.cells[int(x) + int(y) * renderer.cell_count.x],
+				renderer.cells[x + y * renderer.cell_wh.x],
 			)
 		}
 	}
@@ -197,8 +202,7 @@ Renderer_should_redraw :: proc(
 	ctx: ^Context,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 ) -> bool {
-	// todo: figure out why this is needed
-	if clay.IsDebugModeEnabled() do return true
+	if .WINDOW_RESIZED in ctx.statuses do return true
 	_resize_cells(ctx)
 	slice.zero(ctx.renderer.cells[:])
 
@@ -211,17 +215,33 @@ Renderer_should_redraw :: proc(
 		_update_overlapping_cells(&ctx.renderer, bounds, &h)
 	}
 
+	cell_tl := [2]int{ctx.renderer.cell_wh.x, ctx.renderer.cell_wh.y}
+	cell_br := [2]int{0, 0}
 	cells_match := true
-	find_cell_mismatch: for y in 0 ..< ctx.renderer.cell_count.y {
-		for x in 0 ..< ctx.renderer.cell_count.x {
-			idx := x + y * ctx.renderer.cell_count.x
+	find_cell_mismatch: for y in 0 ..< ctx.renderer.cell_wh.y {
+		for x in 0 ..< ctx.renderer.cell_wh.x {
+			idx := x + y * ctx.renderer.cell_wh.x
+			if len(ctx.renderer.cells) != len(ctx.renderer.prev_buckets) {
+				cells_match = false
+				cell_tl = 0
+				cell_br = ctx.renderer.cell_wh
+				break find_cell_mismatch
+			}
 			if ctx.renderer.cells[idx] != ctx.renderer.prev_buckets[idx] {
 				cells_match = false
-				break find_cell_mismatch
+				cell_tl.x = min(cell_tl.x, x)
+				cell_tl.y = min(cell_tl.y, y)
+				cell_br.x = max(cell_br.x, x)
+				cell_br.y = max(cell_br.y, y)
 			}
 		}
 	}
-	return !cells_match || .WINDOW_RESIZED in ctx.statuses
+	ctx.renderer.cell_tl = cell_tl
+	ctx.renderer.cell_br = cell_br
+	if !cells_match {
+		log.debug(cell_tl, cell_br)
+	}
+	return !cells_match
 }
 
 Renderer_draw :: proc(
