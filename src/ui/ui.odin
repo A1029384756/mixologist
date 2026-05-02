@@ -267,7 +267,16 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	Renderer_init(ctx)
 
 	create_menu: {
-		systray.init(&ctx.tray, {menu = "/StatusNotifierItem/menu"}) or_break create_menu
+		systray.init(
+			&ctx.tray,
+			{
+				category = "ApplicationStatus",
+				id = string(title),
+				title = string(title),
+				status = "Active",
+				menu = "/StatusNotifierItem/menu",
+			},
+		) or_break create_menu
 		systray.set_tooltip(&ctx.tray, {title = "Mixologist"})
 		ctx.tray.userdata = ctx
 		ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
