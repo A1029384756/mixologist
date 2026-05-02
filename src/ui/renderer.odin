@@ -186,8 +186,6 @@ _update_overlapping_cells :: proc(renderer: ^Renderer, bb: clay.BoundingBox, h: 
 	cell_br := br / CELL_PIXEL_SCALE
 	for y in cell_tl.y ..= cell_br.y {
 		for x in cell_tl.x ..= cell_br.x {
-			width := renderer.cell_wh.x
-			height := renderer.cell_wh.y
 			x := clamp(x, 0, renderer.cell_wh.x)
 			y := clamp(y, 0, renderer.cell_wh.y)
 			renderer.cells[x + y * renderer.cell_wh.x] = hash.fnv32a(
