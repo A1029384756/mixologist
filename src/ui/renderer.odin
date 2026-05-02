@@ -265,8 +265,10 @@ Renderer_draw :: proc(
 		}
 	}
 
-	pixel_tl := ([2]f32)(ctx.renderer.cell_tl * CELL_PIXEL_SCALE) * ctx.scaling
-	pixel_br := ([2]f32)((ctx.renderer.cell_br + 1) * CELL_PIXEL_SCALE) * ctx.scaling
+	pixel_tl_int := ctx.renderer.cell_tl * CELL_PIXEL_SCALE
+	pixel_br_int := (ctx.renderer.cell_br + 1) * CELL_PIXEL_SCALE
+	pixel_tl := [2]f32{f32(pixel_tl_int.x), f32(pixel_tl_int.y)} * ctx.scaling
+	pixel_br := [2]f32{f32(pixel_br_int.x), f32(pixel_br_int.y)} * ctx.scaling
 	pixel_wh := pixel_br - pixel_tl
 	append(
 		&ctx.renderer.commands,
