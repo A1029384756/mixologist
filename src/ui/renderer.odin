@@ -11,13 +11,13 @@ import sdl "vendor:sdl3"
 import ttf "vendor:sdl3/ttf"
 
 BUFFER_INIT_SIZE :: 128
-BUCKET_PIXEL_SCALE :: 1000
+CELL_PIXEL_SCALE :: 1000
 Renderer :: struct {
 	pipeline:     Pipeline,
 	commands:     [dynamic]Command,
 	prev_buckets: [dynamic]u32,
-	buckets:      [dynamic]u32,
-	bucket_count: [2]int,
+	cells:        [dynamic]u32,
+	cell_count:   [2]int,
 }
 
 Pipeline_Status :: enum {
@@ -146,23 +146,22 @@ Renderer_init :: proc(ctx: ^Context) {
 	}
 	ctx.renderer.pipeline.dummy_texture = sdl.CreateGPUTexture(ctx.device, dummy_texture_info)
 
-	n_buckets := _num_buckets(ctx)
-	ctx.renderer.prev_buckets = make([dynamic]u32, 0, n_buckets.x * n_buckets.y)
-	ctx.renderer.buckets = make([dynamic]u32, 0, n_buckets.x * n_buckets.y)
-	_resize_buckets(ctx)
+	n_cells := _num_cells(ctx)
+	ctx.renderer.prev_buckets = make([dynamic]u32, 0, n_cells.x * n_cells.y)
+	ctx.renderer.cells = make([dynamic]u32, 0, n_cells.x * n_cells.y)
+	_resize_cells(ctx)
 }
 
-_num_buckets :: proc(ctx: ^Context) -> [2]int {
-	x := int(ctx.window_size.x / BUCKET_PIXEL_SCALE) + 1
-	y := int(ctx.window_size.y / BUCKET_PIXEL_SCALE) + 1
+_num_cells :: proc(ctx: ^Context) -> [2]int {
+	x := int(ctx.window_size.x / CELL_PIXEL_SCALE) + 1
+	y := int(ctx.window_size.y / CELL_PIXEL_SCALE) + 1
 	return {x, y}
 }
 
-_resize_buckets :: proc(ctx: ^Context) {
-	ctx.renderer.bucket_count = _num_buckets(ctx)
-	ctx.renderer.prev_buckets, ctx.renderer.buckets =
-		ctx.renderer.buckets, ctx.renderer.prev_buckets
-	resize(&ctx.renderer.buckets, ctx.renderer.bucket_count.x * ctx.renderer.bucket_count.y)
+_resize_cells :: proc(ctx: ^Context) {
+	ctx.renderer.cell_count = _num_cells(ctx)
+	ctx.renderer.prev_buckets, ctx.renderer.cells = ctx.renderer.cells, ctx.renderer.prev_buckets
+	resize(&ctx.renderer.cells, ctx.renderer.cell_count.x * ctx.renderer.cell_count.y)
 }
 
 Renderer_destroy :: proc(ctx: ^Context) {
@@ -172,23 +171,23 @@ Renderer_destroy :: proc(ctx: ^Context) {
 	sdl.ReleaseGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
 	sdl.ReleaseGPUGraphicsPipeline(ctx.device, ctx.renderer.pipeline.pipeline)
 	delete(ctx.renderer.commands)
-	delete(ctx.renderer.buckets)
+	delete(ctx.renderer.cells)
 	delete(ctx.renderer.prev_buckets)
 }
 
-_update_overlapping_cells :: proc(ctx: ^Context, bb: clay.BoundingBox, h: ^u32) {
+_update_overlapping_cells :: proc(renderer: ^Renderer, bb: clay.BoundingBox, h: ^u32) {
 	tl := [2]f32{bb.x, bb.y}
 	br := tl + [2]f32{bb.width, bb.height}
 	h_slice := slice.bytes_from_ptr(h, size_of(u32))
 
-	cell_tl := tl / BUCKET_PIXEL_SCALE
-	cell_br := br / BUCKET_PIXEL_SCALE
+	cell_tl := tl / CELL_PIXEL_SCALE
+	cell_br := br / CELL_PIXEL_SCALE
 	for y in cell_tl.y ..= cell_br.y {
 		for x in cell_tl.x ..= cell_br.x {
 			// TODO fix clay debug inspector crash
-			ctx.renderer.buckets[int(x) + int(y) * ctx.renderer.bucket_count.x] = hash.fnv32a(
+			renderer.cells[int(x) + int(y) * renderer.cell_count.x] = hash.fnv32a(
 				h_slice,
-				ctx.renderer.buckets[int(x) + int(y) * ctx.renderer.bucket_count.x],
+				renderer.cells[int(x) + int(y) * renderer.cell_count.x],
 			)
 		}
 	}
@@ -200,8 +199,8 @@ Renderer_should_redraw :: proc(
 ) -> bool {
 	// todo: figure out why this is needed
 	if clay.IsDebugModeEnabled() do return true
-	_resize_buckets(ctx)
-	slice.zero(ctx.renderer.buckets[:])
+	_resize_cells(ctx)
+	slice.zero(ctx.renderer.cells[:])
 
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
@@ -209,20 +208,20 @@ Renderer_should_redraw :: proc(
 
 		cmd_bytes := slice.bytes_from_ptr(cmd, size_of(clay.RenderCommand))
 		h := hash.fnv32a(cmd_bytes)
-		_update_overlapping_cells(ctx, bounds, &h)
+		_update_overlapping_cells(&ctx.renderer, bounds, &h)
 	}
 
-	buckets_match := true
-	find_bucket_mismatch: for y in 0 ..< ctx.renderer.bucket_count.y {
-		for x in 0 ..< ctx.renderer.bucket_count.x {
-			idx := x + y * ctx.renderer.bucket_count.x
-			if ctx.renderer.buckets[idx] != ctx.renderer.prev_buckets[idx] {
-				buckets_match = false
-				break find_bucket_mismatch
+	cells_match := true
+	find_cell_mismatch: for y in 0 ..< ctx.renderer.cell_count.y {
+		for x in 0 ..< ctx.renderer.cell_count.x {
+			idx := x + y * ctx.renderer.cell_count.x
+			if ctx.renderer.cells[idx] != ctx.renderer.prev_buckets[idx] {
+				cells_match = false
+				break find_cell_mismatch
 			}
 		}
 	}
-	return !buckets_match || .WINDOW_RESIZED in ctx.statuses
+	return !cells_match || .WINDOW_RESIZED in ctx.statuses
 }
 
 Renderer_draw :: proc(
