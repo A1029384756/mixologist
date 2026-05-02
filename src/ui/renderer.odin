@@ -171,6 +171,9 @@ Renderer_destroy :: proc(ctx: ^Context) {
 	destroy_buffer(ctx.device, &ctx.renderer.pipeline.text_index_buffer)
 	destroy_buffer(ctx.device, &ctx.renderer.pipeline.text_vertex_buffer)
 	sdl.ReleaseGPUTransferBuffer(ctx.device, ctx.renderer.pipeline.texture_buffer)
+	if ctx.renderer.pipeline.color_target != nil {
+		sdl.ReleaseGPUTexture(ctx.device, ctx.renderer.pipeline.color_target)
+	}
 	sdl.ReleaseGPUGraphicsPipeline(ctx.device, ctx.renderer.pipeline.pipeline)
 	delete(ctx.renderer.commands)
 	delete(ctx.renderer.cells)
@@ -200,7 +203,12 @@ Renderer_should_redraw :: proc(
 	ctx: ^Context,
 	render_commands: ^clay.ClayArray(clay.RenderCommand),
 ) -> bool {
-	if .WINDOW_RESIZED in ctx.statuses do return true
+	if .WINDOW_RESIZED in ctx.statuses {
+		_resize_cells(ctx)
+		ctx.renderer.cell_tl = 0
+		ctx.renderer.cell_br = ctx.renderer.cell_wh
+		return true
+	}
 	_resize_cells(ctx)
 	slice.zero(ctx.renderer.cells[:])
 
@@ -236,9 +244,6 @@ Renderer_should_redraw :: proc(
 	}
 	ctx.renderer.cell_tl = cell_tl
 	ctx.renderer.cell_br = cell_br
-	if !cells_match {
-		log.debug(cell_tl, cell_br)
-	}
 	return !cells_match
 }
 
@@ -259,6 +264,14 @@ Renderer_draw :: proc(
 			bottomRight = clamp(cr.bottomRight, 0, min(bounds.width, bounds.height) / 2),
 		}
 	}
+
+	pixel_tl := ([2]f32)(ctx.renderer.cell_tl * CELL_PIXEL_SCALE) * ctx.scaling
+	pixel_br := ([2]f32)((ctx.renderer.cell_br + 1) * CELL_PIXEL_SCALE) * ctx.scaling
+	pixel_wh := pixel_br - pixel_tl
+	append(
+		&ctx.renderer.commands,
+		ScissorStart{i32(pixel_tl.x), i32(pixel_tl.y), i32(pixel_wh.x), i32(pixel_wh.y)},
+	)
 
 	for i in 0 ..< i32(render_commands.length) {
 		cmd := clay.RenderCommandArray_Get(render_commands, i)
@@ -346,6 +359,7 @@ Renderer_draw :: proc(
 		case .None:
 		}
 	}
+	append(&ctx.renderer.commands, ScissorEnd{})
 
 	// upload to gpu
 	{
@@ -532,106 +546,150 @@ Renderer_draw :: proc(
 	}
 
 	if swapchain_texture != nil {
-		render_pass := sdl.BeginGPURenderPass(
-			cmd_buffer,
-			&sdl.GPUColorTargetInfo {
-				texture = swapchain_texture,
-				load_op = .CLEAR,
-				store_op = .STORE,
-			},
-			1,
-			nil,
-		)
-		defer sdl.EndGPURenderPass(render_pass)
-
-		// binding
-		{
-			sdl.BindGPUGraphicsPipeline(render_pass, ctx.renderer.pipeline.pipeline)
-			vertex_buffer_bindings := []sdl.GPUBufferBinding {
-				{buffer = ctx.renderer.pipeline.instance_buffer.gpu},
-				{buffer = ctx.renderer.pipeline.text_vertex_buffer.gpu},
+		color_load_op: sdl.GPULoadOp = .LOAD
+		if ctx.renderer.pipeline.color_target == nil ||
+		   ctx.renderer.pipeline.color_target_size != ([2]u32{w, h}) {
+			if ctx.renderer.pipeline.color_target != nil {
+				sdl.ReleaseGPUTexture(ctx.device, ctx.renderer.pipeline.color_target)
 			}
-			sdl.BindGPUVertexBuffers(
-				render_pass,
-				0,
-				raw_data(vertex_buffer_bindings),
-				u32(len(vertex_buffer_bindings)),
-			)
-			sdl.BindGPUIndexBuffer(
-				render_pass,
-				{buffer = ctx.renderer.pipeline.text_index_buffer.gpu},
-				._32BIT,
-			)
-
-			sdl.BindGPUFragmentSamplers(
-				render_pass,
-				0,
-				&sdl.GPUTextureSamplerBinding {
-					texture = ctx.renderer.pipeline.dummy_texture,
-					sampler = ctx.renderer.pipeline.texture_sampler,
+			ctx.renderer.pipeline.color_target = sdl.CreateGPUTexture(
+				ctx.device,
+				sdl.GPUTextureCreateInfo {
+					usage = {.COLOR_TARGET, .SAMPLER},
+					width = w,
+					height = h,
+					layer_count_or_depth = 1,
+					num_levels = 1,
+					format = sdl.GetGPUSwapchainTextureFormat(ctx.device, ctx.window),
 				},
-				1,
 			)
+			ctx.renderer.pipeline.color_target_size = {w, h}
+			color_load_op = .CLEAR
 		}
 
-		push_globals(ctx, cmd_buffer, f32(w), f32(h))
+		{
+			render_pass := sdl.BeginGPURenderPass(
+				cmd_buffer,
+				&sdl.GPUColorTargetInfo {
+					texture = ctx.renderer.pipeline.color_target,
+					load_op = color_load_op,
+					store_op = .STORE,
+				},
+				1,
+				nil,
+			)
+			defer sdl.EndGPURenderPass(render_pass)
 
-		atlas: ^sdl.GPUTexture
-		instance_offset, text_index_offset: u32
-		text_vertex_offset: i32
+			// binding
+			{
+				sdl.BindGPUGraphicsPipeline(render_pass, ctx.renderer.pipeline.pipeline)
+				vertex_buffer_bindings := []sdl.GPUBufferBinding {
+					{buffer = ctx.renderer.pipeline.instance_buffer.gpu},
+					{buffer = ctx.renderer.pipeline.text_vertex_buffer.gpu},
+				}
+				sdl.BindGPUVertexBuffers(
+					render_pass,
+					0,
+					raw_data(vertex_buffer_bindings),
+					u32(len(vertex_buffer_bindings)),
+				)
+				sdl.BindGPUIndexBuffer(
+					render_pass,
+					{buffer = ctx.renderer.pipeline.text_index_buffer.gpu},
+					._32BIT,
+				)
 
-		for command in ctx.renderer.commands {
-			#partial switch cmd in command {
-			case ScissorStart:
-				sdl.SetGPUScissor(render_pass, cmd)
-			case ScissorEnd:
-				sdl.SetGPUScissor(render_pass, {0, 0, i32(w), i32(h)})
-			case R_Image:
 				sdl.BindGPUFragmentSamplers(
 					render_pass,
 					0,
 					&sdl.GPUTextureSamplerBinding {
-						texture = cmd.img.texture,
+						texture = ctx.renderer.pipeline.dummy_texture,
 						sampler = ctx.renderer.pipeline.texture_sampler,
 					},
 					1,
 				)
-				atlas = cmd.img.texture
-				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
-				instance_offset += 1
-			case Text:
-				for data := ttf.GetGPUTextDrawData(cmd.ref); data != nil; data = data.next {
-					if data.atlas_texture != atlas {
-						sdl.BindGPUFragmentSamplers(
-							render_pass,
-							0,
-							&sdl.GPUTextureSamplerBinding {
-								texture = data.atlas_texture,
-								sampler = ctx.renderer.pipeline.texture_sampler,
-							},
-							1,
-						)
-						atlas = data.atlas_texture
+			}
+
+			push_globals(ctx, cmd_buffer, f32(w), f32(h))
+
+			atlas: ^sdl.GPUTexture
+			instance_offset, text_index_offset: u32
+			text_vertex_offset: i32
+
+			scissor_stack := make([dynamic]sdl.Rect, allocator)
+			for command in ctx.renderer.commands {
+				#partial switch cmd in command {
+				case ScissorStart:
+					rect := sdl.Rect(cmd)
+					if parent, ok := slice.get(scissor_stack[:], len(scissor_stack) - 1); ok {
+						rect = intersect_rect(rect, parent)
 					}
-
-					sdl.DrawGPUIndexedPrimitives(
+					sdl.SetGPUScissor(render_pass, rect)
+					append(&scissor_stack, rect)
+				case ScissorEnd:
+					pop(&scissor_stack)
+					if scissor_top, ok := slice.get(scissor_stack[:], len(scissor_stack) - 1); ok {
+						sdl.SetGPUScissor(render_pass, scissor_top)
+					} else {
+						sdl.SetGPUScissor(render_pass, {0, 0, i32(w), i32(h)})
+					}
+				case R_Image:
+					sdl.BindGPUFragmentSamplers(
 						render_pass,
-						u32(data.num_indices),
+						0,
+						&sdl.GPUTextureSamplerBinding {
+							texture = cmd.img.texture,
+							sampler = ctx.renderer.pipeline.texture_sampler,
+						},
 						1,
-						text_index_offset,
-						text_vertex_offset,
-						instance_offset,
 					)
+					atlas = cmd.img.texture
+					sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
+					instance_offset += 1
+				case Text:
+					for data := ttf.GetGPUTextDrawData(cmd.ref); data != nil; data = data.next {
+						if data.atlas_texture != atlas {
+							sdl.BindGPUFragmentSamplers(
+								render_pass,
+								0,
+								&sdl.GPUTextureSamplerBinding {
+									texture = data.atlas_texture,
+									sampler = ctx.renderer.pipeline.texture_sampler,
+								},
+								1,
+							)
+							atlas = data.atlas_texture
+						}
 
-					text_index_offset += u32(data.num_indices)
-					text_vertex_offset += data.num_vertices
+						sdl.DrawGPUIndexedPrimitives(
+							render_pass,
+							u32(data.num_indices),
+							1,
+							text_index_offset,
+							text_vertex_offset,
+							instance_offset,
+						)
+
+						text_index_offset += u32(data.num_indices)
+						text_vertex_offset += data.num_vertices
+					}
+					instance_offset += 1
+				case Quad, Shadow:
+					sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
+					instance_offset += 1
 				}
-				instance_offset += 1
-			case Quad, Shadow:
-				sdl.DrawGPUPrimitives(render_pass, 6, 1, 0, instance_offset)
-				instance_offset += 1
 			}
 		}
+
+		sdl.BlitGPUTexture(
+			cmd_buffer,
+			sdl.GPUBlitInfo {
+				source = {texture = ctx.renderer.pipeline.color_target, w = w, h = h},
+				destination = {texture = swapchain_texture, w = w, h = h},
+				load_op = .DONT_CARE,
+				filter = .NEAREST,
+			},
+		)
 	}
 
 	// text cleanup -- [TODO] caching
@@ -647,6 +705,14 @@ Renderer_draw :: proc(
 
 ScissorStart :: sdl.Rect
 ScissorEnd :: struct {}
+
+intersect_rect :: proc(a, b: sdl.Rect) -> sdl.Rect {
+	x0 := max(a.x, b.x)
+	y0 := max(a.y, b.y)
+	x1 := min(a.x + a.w, b.x + b.w)
+	y1 := min(a.y + a.h, b.y + b.h)
+	return {x0, y0, max(0, x1 - x0), max(0, y1 - y0)}
+}
 
 Command :: union {
 	Text,
@@ -700,6 +766,8 @@ Pipeline :: struct {
 	text_engine:         ^ttf.TextEngine,
 	texture_sampler:     ^sdl.GPUSampler,
 	dummy_texture:       ^sdl.GPUTexture,
+	color_target:        ^sdl.GPUTexture,
+	color_target_size:   [2]u32,
 	status:              Pipeline_Statuses,
 }
 
