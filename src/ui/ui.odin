@@ -1707,6 +1707,7 @@ _switch :: proc(
 		layout = layout,
 		backgroundColor = state^ ? active_background_color : background_color,
 		cornerRadius = clay.CornerRadiusAll(max(c.float)),
+		transition = {handler = clay.EaseOut, duration = 0.125, properties = {.BackgroundColor}},
 	},
 	) {
 		local_id := clay.ID_LOCAL(#procedure)
@@ -1723,6 +1724,7 @@ _switch :: proc(
 			layout = {sizing = {clay.SizingPercent(0.5), clay.SizingGrow()}},
 			cornerRadius = clay.CornerRadiusAll(max(c.float)),
 			backgroundColor = hovered ? color * {1.2, 1.2, 1.2, 1} : color,
+			transition = {handler = clay.EaseOut, duration = 0.125, properties = {.X, .Y}},
 		},
 		) {
 		}
