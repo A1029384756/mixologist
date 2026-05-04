@@ -8,13 +8,18 @@ import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
+import "core:prof/spall"
 import "core:strconv"
 import "core:strings"
+@(require) import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
+import "core:time"
 import "dbus"
 import "ui"
+
+PROFILING :: #config(profiling, false)
 
 Mixologist :: struct {
 	// state
@@ -114,7 +119,43 @@ when ODIN_DEBUG {
 	track: mem.Tracking_Allocator
 }
 
+when PROFILING {
+	spall_ctx: spall.Context
+	@(thread_local)
+	spall_buffer: spall.Buffer
+
+	@(instrumentation_enter)
+	spall_enter :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	}
+
+	@(instrumentation_exit)
+	spall_exit :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_end(&spall_ctx, &spall_buffer)
+	}
+}
+
 main :: proc() {
+
+	when PROFILING {
+		spall_ctx = spall.context_create("mixologist_" + ODIN_OS_STRING + ".spall")
+		defer spall.context_destroy(&spall_ctx)
+
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(buffer_backing)
+
+		spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+
 	mixologist_init_data_files(&mixologist)
 
 	default_heap := context.allocator
@@ -207,19 +248,26 @@ main :: proc() {
 	}
 
 	for !mixologist.exit {
+		frame_start := time.tick_now()
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
+		log.debug("ipc poll:", time.tick_diff(frame_start, time.tick_now()))
 		mixologist_ipc_messages(&mixologist)
+		log.debug("ipc messages:", time.tick_diff(frame_start, time.tick_now()))
 
 		if .GlobalShortcuts in mixologist.features {
 			Portals_Tick(mixologist.shortcuts.conn)
+			log.debug("portals tick:", time.tick_diff(frame_start, time.tick_now()))
 		}
 		mixologist_event_process(&mixologist)
+		log.debug("event process:", time.tick_diff(frame_start, time.tick_now()))
 		if .Gui in mixologist.features {
 			gui_tick(&gui)
+			log.debug("gui tick:", time.tick_diff(frame_start, time.tick_now()))
 			mixologist.exit = ui.should_exit(&gui.ui_ctx)
 		}
 
+		log.debug("frame end:", time.tick_diff(frame_start, time.tick_now()))
 		free_all(context.temp_allocator)
 	}
 

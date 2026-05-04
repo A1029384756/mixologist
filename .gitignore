@@ -4,3 +4,4 @@ builds/
 .flatpak-builder/
 repo/
 TODO.md
+*.spall
