@@ -236,7 +236,18 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 			message: cstring,
 		) {
 			context = odin_context
-			log.debugf("SDL {} [{}]: {}", category, priority, message)
+			#partial switch priority {
+			case .TRACE, .VERBOSE, .DEBUG:
+				log.debugf("SDL {} [{}]: {}", category, priority, message)
+			case .INFO:
+				log.infof("SDL {} [{}]: {}", category, priority, message)
+			case .WARN:
+				log.warnf("SDL {} [{}]: {}", category, priority, message)
+			case .ERROR:
+				log.errorf("SDL {} [{}]: {}", category, priority, message)
+			case .CRITICAL:
+				log.fatalf("SDL {} [{}]: {}", category, priority, message)
+			}
 		},
 		nil,
 	)
