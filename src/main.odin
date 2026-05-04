@@ -142,7 +142,6 @@ when PROFILING {
 }
 
 main :: proc() {
-
 	when PROFILING {
 		spall_ctx = spall.context_create("mixologist_" + ODIN_OS_STRING + ".spall")
 		defer spall.context_destroy(&spall_ctx)
