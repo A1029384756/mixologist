@@ -15,7 +15,6 @@ import "core:strings"
 import "core:sync/chan"
 import "core:sys/linux"
 import "core:thread"
-import "core:time"
 import "dbus"
 import "ui"
 
@@ -247,26 +246,19 @@ main :: proc() {
 	}
 
 	for !mixologist.exit {
-		frame_start := time.tick_now()
 		// ipc
 		IPC_Server_poll(&mixologist.ipc)
-		log.debug("ipc poll:", time.tick_diff(frame_start, time.tick_now()))
 		mixologist_ipc_messages(&mixologist)
-		log.debug("ipc messages:", time.tick_diff(frame_start, time.tick_now()))
 
 		if .GlobalShortcuts in mixologist.features {
 			Portals_Tick(mixologist.shortcuts.conn)
-			log.debug("portals tick:", time.tick_diff(frame_start, time.tick_now()))
 		}
 		mixologist_event_process(&mixologist)
-		log.debug("event process:", time.tick_diff(frame_start, time.tick_now()))
 		if .Gui in mixologist.features {
 			gui_tick(&gui)
-			log.debug("gui tick:", time.tick_diff(frame_start, time.tick_now()))
 			mixologist.exit = ui.should_exit(&gui.ui_ctx)
 		}
 
-		log.debug("frame end:", time.tick_diff(frame_start, time.tick_now()))
 		free_all(context.temp_allocator)
 	}
 
