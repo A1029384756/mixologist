@@ -269,7 +269,8 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 
 	device_props := sdl.CreateProperties()
 	defer sdl.DestroyProperties(device_props)
-	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, true)
+	// todo: fix mixed-gpu dmabuf in SDL
+	// sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, true)
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
 	ctx.device = sdl.CreateGPUDeviceWithProperties(device_props)
