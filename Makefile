@@ -22,7 +22,7 @@ mixologist:
 
 mixologist-dbg:
 	mkdir -p builds/
-	odin build ./src -out:builds/mixologist -debug -show-timings ${EXTRA_ODIN_FLAGS}
+	odin build ./src -out:builds/$(APP_ID) -debug -show-timings $(EXTRA_ODIN_FLAGS)
 
 shaders:
 	mkdir -p src/ui/resources/shaders/compiled

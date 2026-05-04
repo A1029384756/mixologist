@@ -274,7 +274,9 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
 	ctx.device = sdl.CreateGPUDeviceWithProperties(device_props)
-	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
+	if ctx.device == nil do log.panic("could not create gpu device")
+	window_claimed := sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
+	if !window_claimed do log.panic("could not claim window")
 	Renderer_init(ctx)
 
 	create_menu: {
