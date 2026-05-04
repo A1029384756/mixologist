@@ -13,9 +13,6 @@ finish-args:
   - --device=dri
   - --filesystem=xdg-run/pipewire-0:ro
   - --talk-name=org.kde.StatusNotifierWatcher
-  # this fixes some dmabuf issues that exist
-  # on multi-gpu devices with NVIDIA and AMD
-  - --env=MESA_VK_WSI_DEBUG=sw,noshm
 build-options:
   append-path: /usr/lib/sdk/llvm20/bin:/usr/lib/sdk/odin
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
