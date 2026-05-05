@@ -2,13 +2,14 @@ package mixologist
 
 import "base:runtime"
 import "core:log"
+import "core:os"
 import "core:slice"
 import "core:strings"
-import "core:sync/chan"
 import "ui"
 import "ui/clay"
 
 GUI_Context_Status :: enum u8 {
+	EXIT,
 	ADDING_NEW,
 	ADDING,
 	SETTINGS,
@@ -22,12 +23,14 @@ gui: GUI_Context
 
 GUI_Context :: struct {
 	ui_ctx:            ui.Context,
-	events:            chan.Chan(Event),
+	subscription:      Subscriber,
 	// rule modification
 	active_line_buf:   [1024]u8,
 	active_line_len:   int,
 	active_line:       int,
+	volume:            f32,
 	// rule addition
+	rules:             [dynamic]string,
 	programs:          [dynamic]string,
 	selected_programs: [dynamic]string,
 	// custom rule creation
@@ -39,8 +42,18 @@ GUI_Context :: struct {
 	statuses:          GUI_Context_Statuses,
 }
 
+gui_run :: proc() {
+	// todo config loading
+	gui_init(&gui, false)
+
+	for (.EXIT not_in gui.statuses) {
+		gui_poll(&gui)
+		gui_ui_tick(&gui)
+	}
+}
+
 gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
-	ctx.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
+	subscriber_init(&gui.subscription, AllTopics, context.allocator)
 	ui.init(&ctx.ui_ctx, "Mixologist", minimized)
 	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
 	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
@@ -56,9 +69,9 @@ gui_init :: proc(ctx: ^GUI_Context, minimized: bool) {
 	ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {64, 64}) // CLOSE = 9
 }
 
-gui_tick :: proc(ctx: ^GUI_Context) {
+gui_ui_tick :: proc(ctx: ^GUI_Context) {
 	ui.tick(&ctx.ui_ctx, gui_create_layout, ctx)
-	gui_event_process(ctx)
+	gui_poll(ctx)
 
 	if !ui.window_closed(&ctx.ui_ctx) {
 		if .VOLUME in ctx.statuses {
@@ -73,7 +86,6 @@ gui_tick :: proc(ctx: ^GUI_Context) {
 }
 
 gui_deinit :: proc(ctx: ^GUI_Context) {
-	gui_event_process(ctx)
 	ui.deinit(&ctx.ui_ctx)
 	for program in ctx.selected_programs {
 		delete(program)
@@ -83,40 +95,82 @@ gui_deinit :: proc(ctx: ^GUI_Context) {
 		delete(program)
 	}
 	delete(ctx.programs)
-	chan.destroy(ctx.events)
+	subscriber_flush(&ctx.subscription)
 }
 
-gui_event_send :: proc(event: Event, allocator := context.allocator) {
-	if .Gui not_in mixologist.features do return
-
-	log.debugf("gui sending event: %v", event)
-	if !chan.send(gui.events, event) {
-		#partial switch event in event {
-		case Program_Add:
-			delete(string(event), allocator)
-		case Program_Remove:
-			delete(string(event), allocator)
-		}
-	}
-}
-
-gui_event_process :: proc(ctx: ^GUI_Context) {
-	for event in chan.try_recv(ctx.events) {
-		#partial switch event in event {
-		case Program_Add:
-			log.infof("gui adding program %s", event)
-			append(&ctx.programs, string(event))
-		case Program_Remove:
-			log.infof("gui removing program %s", event)
-			node_idx, found := slice.linear_search(ctx.programs[:], string(event))
-			if found {
-				delete(ctx.programs[node_idx])
-				unordered_remove(&ctx.programs, node_idx)
-			}
-			delete(string(event))
-		case Open:
+gui_poll :: proc(ctx: ^GUI_Context) {
+	for msg in subscriber_poll(&ctx.subscription) {
+		switch msg.topic {
+		case .Quit:
+			gui.statuses += {.EXIT}
+		case .Wake:
 			ui.open_window(&ctx.ui_ctx)
+		case .Rule:
+			switch msg.rule.kind {
+			case .Add:
+				rule := msg.rule.val
+				log.infof("adding rule %s", rule)
+				append(&ctx.rules, strings.clone(rule))
+			case .Remove:
+				rule := msg.rule.val
+				log.infof("removing rule %s", rule)
+				idx, found := slice.linear_search(ctx.rules[:], rule)
+				if found {
+					delete(ctx.rules[idx])
+					unordered_remove(&ctx.rules, idx)
+				}
+			case .Update:
+				prev := msg.rule.mod.prev
+				curr := msg.rule.mod.curr
+				log.infof("updating rule from %s to %s", prev, curr)
+				idx, found := slice.linear_search(ctx.rules[:], prev)
+				if found {
+					delete(ctx.rules[idx])
+					ctx.rules[idx] = strings.clone(curr)
+				} else {
+					log.warnf("could not find rule %s, still inserting %s", prev, curr)
+					append(&ctx.rules, strings.clone(curr))
+				}
+			}
+		case .Volume:
+			val := msg.volume.data
+			switch msg.volume.kind {
+			case .Add:
+				ctx.volume += val
+			case .Set:
+				ctx.volume = val
+			case .Get:
+				log.errorf("unexpected \"volume get\" in gui")
+			}
+		case .Program:
+			switch msg.program.kind {
+			case .Add:
+				program := msg.program.val
+				log.infof("adding program %s", msg.program.val)
+				append(&ctx.programs, strings.clone(program))
+			case .Remove:
+				program := msg.program.val
+				log.infof("removing program %s", program)
+				idx, found := slice.linear_search(ctx.programs[:], program)
+				if found {
+					delete(ctx.programs[idx])
+					unordered_remove(&ctx.programs, idx)
+				}
+			case .Update:
+				prev := msg.program.mod.prev
+				curr := msg.program.mod.curr
+				log.infof("updating rule from %s to %s", prev, curr)
+				idx, found := slice.linear_search(ctx.programs[:], prev)
+				if found {
+					delete(ctx.programs[idx])
+					ctx.programs[idx] = strings.clone(curr)
+				} else {
+					log.warnf("could not find program %s, still inserting %s", prev, curr)
+					append(&ctx.programs, strings.clone(curr))
+				}
+			}
 		}
+		message_destroy(msg)
 	}
 }
 
@@ -265,7 +319,14 @@ volume_slider :: proc(ctx: ^GUI_Context) {
 			)
 
 			if .CHANGE in slider_res {
-				mixologist_event_send(vol)
+				bus_publish(
+					&bus,
+					{
+						os.get_current_thread_id(),
+						.Volume,
+						{volume = {kind = .Set, data = ctx.volume}},
+					},
+				)
 				ctx.statuses += {.VOLUME}
 			}
 
@@ -377,10 +438,22 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 		)
 
 		if .SUBMIT in tb_res {
-			mixologist_event_send(
-				Rule_Update {
-					rule,
-					strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
+			bus_publish(
+				&bus,
+				{
+					os.get_current_thread_id(),
+					.Rule,
+					{
+						rule = {
+							kind = .Update,
+							mod = {
+								prev = strings.clone(rule),
+								curr = strings.clone(
+									string(ctx.active_line_buf[:ctx.active_line_len]),
+								),
+							},
+						},
+					},
 				},
 			)
 			ctx.statuses += {.RULES}
@@ -404,7 +477,14 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 						5,
 					)
 					if .RELEASE in delete_res {
-						mixologist_event_send(Rule_Remove(rule))
+						bus_publish(
+							&bus,
+							{
+								os.get_current_thread_id(),
+								.Rule,
+								{rule = {.Remove, {val = strings.clone(rule)}}},
+							},
+						)
 						ctx.statuses += {.RULES}
 					}
 				}
@@ -439,10 +519,20 @@ rule_line :: proc(ctx: ^GUI_Context, rule: string, idx, rule_count: int) {
 					)
 
 					if .RELEASE in apply_res {
-						mixologist_event_send(
-							Rule_Update {
-								rule,
-								strings.clone(string(ctx.active_line_buf[:ctx.active_line_len])),
+						bus_publish(
+							&bus,
+							{
+								sender = os.get_current_thread_id(),
+								topic = .Rule,
+								rule = {
+									kind = .Update,
+									mod = {
+										strings.clone(rule),
+										strings.clone(
+											string(ctx.active_line_buf[:ctx.active_line_len]),
+										),
+									},
+								},
 							},
 						)
 						ctx.statuses += {.RULES}
@@ -681,8 +771,18 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 
 				if .SUBMIT in tb_res {
 					if ctx.new_rule_len > 0 {
-						mixologist_event_send(
-							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
+						bus_publish(
+							&bus,
+							{
+								sender = os.get_current_thread_id(),
+								topic = .Rule,
+								rule = {
+									kind = .Add,
+									val = strings.clone(
+										string(ctx.new_rule_buf[:ctx.new_rule_len]),
+									),
+								},
+							},
 						)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.RULES}
@@ -720,8 +820,18 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 
 				if .RELEASE in button_res {
 					if ctx.new_rule_len > 0 {
-						mixologist_event_send(
-							Rule_Add(strings.clone(string(ctx.new_rule_buf[:ctx.new_rule_len]))),
+						bus_publish(
+							&bus,
+							{
+								sender = os.get_current_thread_id(),
+								topic = .Rule,
+								rule = {
+									kind = .Add,
+									val = strings.clone(
+										string(ctx.new_rule_buf[:ctx.new_rule_len]),
+									),
+								},
+							},
 						)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.RULES}
@@ -729,7 +839,14 @@ rule_add_menu :: proc(ctx: ^GUI_Context) -> (res: ui.WidgetResults, id: clay.Ele
 					}
 					if len(ctx.selected_programs) > 0 {
 						for program in ctx.selected_programs {
-							mixologist_event_send(Rule_Add(strings.clone(string(program))))
+							bus_publish(
+								&bus,
+								{
+									sender = os.get_current_thread_id(),
+									topic = .Rule,
+									rule = {kind = .Add, val = strings.clone(program)},
+								},
+							)
 						}
 						ctx.statuses += {.RULES}
 						res += {.SUBMIT}

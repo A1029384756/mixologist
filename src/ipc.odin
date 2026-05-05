@@ -16,8 +16,6 @@ IPC_Server_Context :: struct {
 	messages:             [dynamic]IPC_Message,
 	_clients:             [dynamic; MAX_CLIENTS]linux.Poll_Fd,
 	_removed_clients:     [dynamic; MAX_CLIENTS]linux.Fd,
-	_volume_subscribers:  [dynamic; MAX_CLIENTS]linux.Fd,
-	_program_subscribers: [dynamic; MAX_CLIENTS]linux.Fd,
 	_buf:                 [BUF_SIZE]u8,
 }
 
@@ -26,39 +24,11 @@ IPC_Message :: struct {
 	sender:    linux.Fd,
 }
 
-Message :: union {
-	Volume,
-	Program,
-	Wake,
-}
-
-Volume :: struct {
-	act: enum {
-		Set,
-		Shift,
-		Get,
-		Subscribe,
-	},
-	val: f32,
-}
-
-Program :: struct {
-	act: enum {
-		Add,
-		Remove,
-		Subscribe,
-	},
-	val: string,
-}
-
-Wake :: struct {}
-
-
 IPC_Server_init :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
 	posix.signal(.SIGPIPE, IPC_Server__handle_sigpipe)
 
 	sock_err: linux.Errno
-	ctx.server_fd, sock_err = linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
+	ctx.server_fd, sock_err = linux.socket(.UNIX, .STREAM, {}, .HOPOPT)
 	if sock_err != nil do log.panicf("could not create socket with error %v", sock_err)
 
 	ctx.server_addr.sun_family = .UNIX
@@ -76,7 +46,7 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	if poll_err != nil do return
 
 	if ctx._clients[0].revents >= {.IN} {
-		client_fd, client_err := linux.accept(ctx.server_fd, &ctx.server_addr, {.NONBLOCK})
+		client_fd, client_err := linux.accept(ctx.server_fd, &ctx.server_addr, {})
 		if client_err != nil do log.panicf("accept error %v", client_err)
 		log.debugf("client connected: socket %v", client_fd)
 		append(&ctx._clients, linux.Poll_Fd{fd = client_fd, events = {.IN}})
@@ -88,7 +58,6 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	#reverse for &client, idx in ctx._clients[1:] {
 		if client.revents >= {.IN} {
 			bytes_read, read_err := linux.read(client.fd, ctx._buf[n_bytes:])
-			if read_err == .EWOULDBLOCK || read_err == .EAGAIN do continue
 			if read_err != nil {
 				log.debugf("client error %v disconnecting: socket %v", read_err, client.fd)
 				unordered_remove(&ctx._clients, idx + 1)
@@ -111,8 +80,6 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	}
 
 	for fd in ctx._removed_clients {
-		IPC_Server_remove_volume_subscriber(ctx, fd)
-		IPC_Server_remove_program_subscriber(ctx, fd)
 		linux.close(fd)
 	}
 }
@@ -135,37 +102,6 @@ IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: Mess
 	}
 
 	log.debugf("sent %v bytes from server: socket %v", bytes_sent, client_fd)
-}
-
-IPC_Server_add_volume_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd) {
-	_, found := slice.linear_search(ctx._volume_subscribers[:], client_fd)
-	if !found do append(&ctx._volume_subscribers, client_fd)
-}
-
-IPC_Server_remove_volume_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd) {
-	idx, found := slice.linear_search(ctx._volume_subscribers[:], client_fd)
-	if found {
-		log.debugf("removed volume subscriber: socket %v", client_fd)
-		unordered_remove(&ctx._volume_subscribers, idx)
-	}
-}
-
-IPC_Server_add_program_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd) {
-	_, found := slice.linear_search(ctx._program_subscribers[:], client_fd)
-	if !found do append(&ctx._program_subscribers, client_fd)
-}
-
-IPC_Server_remove_program_subscriber :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd) {
-	idx, found := slice.linear_search(ctx._program_subscribers[:], client_fd)
-	if found {
-		log.debugf("removed program subscriber: socket %v", client_fd)
-		unordered_remove(&ctx._program_subscribers, idx)
-	}
-}
-
-IPC_Server_notify_volume_subscription :: proc(ctx: ^IPC_Server_Context, volume: f32) {
-	msg := Volume{.Get, volume}
-	for client_fd in ctx._volume_subscribers[:] do IPC_Server_send(ctx, client_fd, msg)
 }
 
 IPC_Server_deinit :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {

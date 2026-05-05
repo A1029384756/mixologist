@@ -96,7 +96,6 @@ Event :: union {
 	Rule_Update,
 	Program_Add,
 	Program_Remove,
-	Refresh_Event,
 	Settings,
 	Open,
 }
@@ -108,7 +107,6 @@ Rule_Update :: struct {
 	prev: string,
 	cur:  string,
 }
-Refresh_Event :: f32
 Open :: distinct rawptr
 
 mixologist: Mixologist
@@ -179,7 +177,10 @@ main :: proc() {
 	ipc_start_err := IPC_Server_init(&mixologist.ipc)
 	if ipc_start_err != nil {
 		fmt.println("detected active mixologist instance, sending wake command")
-		msg: Message = Wake{}
+		msg: Message = {
+			sender = os.get_current_thread_id(),
+			topic  = .Wake,
+		}
 		send_message(msg)
 		return
 	}
@@ -246,7 +247,6 @@ main :: proc() {
 	}
 
 	for !mixologist.exit {
-		// ipc
 		IPC_Server_poll(&mixologist.ipc)
 		mixologist_ipc_messages(&mixologist)
 
@@ -255,7 +255,7 @@ main :: proc() {
 		}
 		mixologist_event_process(&mixologist)
 		if .Gui in mixologist.features {
-			gui_tick(&gui)
+			gui_ui_tick(&gui)
 			mixologist.exit = ui.should_exit(&gui.ui_ctx)
 		}
 
@@ -342,26 +342,12 @@ mixologist_event_process :: proc(mixologist: ^Mixologist) {
 				}
 			}
 			mixologist_config_write(mixologist)
-		case Refresh_Event:
-			log.debugf("setting volume: %v", event)
-			mixologist.volume = event
-			mixologist.volume = clamp(mixologist.volume, -1, 1)
-			def_vol, aux_vol := daemon_sink_volumes(mixologist.volume)
-			volumes := [2]f32{def_vol, aux_vol}
-			daemon_set_volumes(&daemon, volumes)
-			gui_event_send(Refresh_Event{})
-			mixologist_write_volume_file(mixologist)
 		case Settings:
 			log.debugf("settings changed: %v", event)
 			mixologist.config.settings = event
 			mixologist_config_write(mixologist)
 		}
 	}
-}
-
-mixologist_event_send :: proc(event: Event) {
-	log.debugf("mixologist sending event: %v", event)
-	chan.send(mixologist.events, event)
 }
 
 mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
@@ -383,16 +369,10 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			case .Set:
 				log.debugf("setting volume %v: socket %v", msg.val, sender)
 				mixologist_event_send(msg.val)
-				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			case .Shift:
 				log.debugf("shifting volume %v: socket %v", msg.val, sender)
 				vol := mixologist.volume + msg.val
 				mixologist_event_send(vol)
-				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
-			case .Subscribe:
-				log.debugf("subscribing volume: socket %v", sender)
-				IPC_Server_add_volume_subscriber(&mixologist.ipc, sender)
-				IPC_Server_notify_volume_subscription(&mixologist.ipc, mixologist.volume)
 			}
 
 			default, aux := daemon_sink_volumes(mixologist.volume)
@@ -403,15 +383,9 @@ mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
 			case .Add:
 				log.infof("adding program %s", msg.val)
 				mixologist_event_send(Rule_Add(msg.val))
-			// [TODO] implement program subscriptions
 			case .Remove:
 				log.infof("removing program %s", msg.val)
 				mixologist_event_send(Rule_Remove(msg.val))
-			// [TODO] implement program subscriptions
-			case .Subscribe:
-				IPC_Server_add_program_subscriber(&mixologist.ipc, sender)
-				unimplemented("program subscriptions")
-			// [TODO] implement program subscriptions
 			}
 		case Wake:
 			gui_event_send(Open{})
