@@ -2,6 +2,7 @@ package mixologist
 
 import "core:encoding/cbor"
 import "core:log"
+import "core:prof/spall"
 import "core:slice"
 import "core:sys/linux"
 import "core:sys/posix"
@@ -10,22 +11,22 @@ SERVER_SOCKET :: "\x00mixologist"
 MAX_CLIENTS :: 64
 BUF_SIZE :: 1024
 
-IPC_Server_Context :: struct {
-	server_fd:            linux.Fd,
-	server_addr:          linux.Sock_Addr_Un,
-	messages:             [dynamic]IPC_Message,
-	_clients:             [dynamic; MAX_CLIENTS]linux.Poll_Fd,
-	_removed_clients:     [dynamic; MAX_CLIENTS]linux.Fd,
-	_buf:                 [BUF_SIZE]u8,
+IPCServer :: struct {
+	subscription:     Subscriber,
+	server_fd:        linux.Fd,
+	server_addr:      linux.Sock_Addr_Un,
+	_clients:         [dynamic; MAX_CLIENTS]linux.Poll_Fd,
+	_removed_clients: [dynamic; MAX_CLIENTS]linux.Fd,
+	_buf:             [BUF_SIZE]u8,
 }
 
-IPC_Message :: struct {
-	msg_bytes: []u8,
-	sender:    linux.Fd,
-}
+@(private = "file")
+ctx: IPCServer
 
-IPC_Server_init :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
-	posix.signal(.SIGPIPE, IPC_Server__handle_sigpipe)
+ipc_init :: proc() -> linux.Errno {
+	subscriber_init(&ctx.subscription, .Ipc, {.Quit})
+	bus_subscribe(&bus, ctx.subscription)
+	posix.signal(.SIGPIPE, _ipc_handle_sigpipe)
 
 	sock_err: linux.Errno
 	ctx.server_fd, sock_err = linux.socket(.UNIX, .STREAM, {}, .HOPOPT)
@@ -41,7 +42,33 @@ IPC_Server_init :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
 	return listen_err
 }
 
-IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
+ipc_proc :: proc() {
+	when PROFILING {
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(buffer_backing)
+
+		spall_buffer = spall.buffer_create(buffer_backing, u32(os.get_current_thread_id()))
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+
+	should_exit := false
+	for !should_exit {
+		for msg in subscriber_poll(&ctx.subscription) {
+			#partial switch msg.topic {
+			case .Quit:
+				should_exit = true
+			case:
+				log.errorf("unexpected \"%v\" message", msg.topic)
+			}
+			message_unref(msg)
+		}
+		ipc_poll(&ctx)
+	}
+}
+
+ipc_poll :: proc(ctx: ^IPCServer) {
 	_, poll_err := linux.poll(ctx._clients[:], 5)
 	if poll_err != nil do return
 
@@ -53,7 +80,6 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	}
 
 	n_bytes: int
-	clear(&ctx.messages)
 	clear(&ctx._removed_clients)
 	#reverse for &client, idx in ctx._clients[1:] {
 		if client.revents >= {.IN} {
@@ -73,7 +99,7 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 			} else {
 				log.debugf("read %v bytes: socket %v", bytes_read, client.fd)
 				msg_bytes := ctx._buf[n_bytes:n_bytes + bytes_read]
-				append(&ctx.messages, IPC_Message{msg_bytes, client.fd})
+				ipc_message_handler(msg_bytes, client.fd)
 				n_bytes += bytes_read
 			}
 		}
@@ -84,7 +110,23 @@ IPC_Server_poll :: proc(ctx: ^IPC_Server_Context) {
 	}
 }
 
-IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: Message) {
+ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
+	msg: Message
+	unmarshal_err := cbor.unmarshal(string(bytes), &msg)
+	if unmarshal_err != nil {
+		log.errorf("could not unmarshal message from %v: %v", sender, unmarshal_err)
+		return
+	}
+
+	#partial switch msg.topic {
+	case .Rule, .Volume:
+		bus_publish(&bus, msg)
+	case:
+		log.errorf("unexpected topic %v", msg.topic)
+	}
+}
+
+ipc_send :: proc(ctx: ^IPCServer, client_fd: linux.Fd, msg: Message) {
 	_, found := slice.linear_search(ctx._removed_clients[:], client_fd)
 	if found {
 		log.debugf("attempted to send to removed socket: %v, skipping", client_fd)
@@ -104,11 +146,12 @@ IPC_Server_send :: proc(ctx: ^IPC_Server_Context, client_fd: linux.Fd, msg: Mess
 	log.debugf("sent %v bytes from server: socket %v", bytes_sent, client_fd)
 }
 
-IPC_Server_deinit :: proc(ctx: ^IPC_Server_Context) -> linux.Errno {
-	delete(ctx.messages)
+ipc_deinit :: proc() {
 	for client in ctx._clients[:] do linux.close(client.fd)
-	return linux.close(ctx.server_fd)
+	linux.close(ctx.server_fd)
+	subscriber_flush(&ctx.subscription)
+	subscriber_destroy(&ctx.subscription)
 }
 
 // blank handler to ignore sigpipe
-IPC_Server__handle_sigpipe :: proc "c" (signum: posix.Signal) {}
+_ipc_handle_sigpipe :: proc "c" (signum: posix.Signal) {}

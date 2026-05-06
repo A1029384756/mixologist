@@ -9,10 +9,12 @@ import "core:strings"
 import "core:time"
 import "dbus"
 
-GlobalShortcuts_Session :: struct {
+GlobalShortcuts :: struct {
+	subscription:   Subscriber,
 	conn:           ^dbus.Connection,
 	session_handle: dbus.ObjectPath,
 	base:           string,
+	odin_ctx:       runtime.Context,
 }
 
 GlobalShortcut :: struct {
@@ -94,16 +96,92 @@ Registry_RegisterReq :: struct {
 	options: struct{} `dbus:"a{sv}"`,
 }
 
-
 Error :: union {
 	cstring,
 }
 
-Portals_Tick :: proc(conn: ^dbus.Connection) -> bool {
-	return bool(dbus.connection_read_write_dispatch(conn, 0))
+Shortcut :: enum {
+	Raise,
+	Lower,
+	Reset,
+	Max,
+	Min,
 }
 
-Registry_Register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
+Shortcut_Info := [Shortcut]GlobalShortcut {
+	.Raise = {id = "raise", description = "favor selected", trigger_description = "SHIFT+F12"},
+	.Lower = {id = "lower", description = "favor system", trigger_description = "SHIFT+F11"},
+	.Reset = {id = "reset", description = "reset", trigger_description = "SHIFT+F10"},
+	.Max = {id = "max", description = "isolate selected", trigger_description = "ALT+SHIFT+F12"},
+	.Min = {id = "min", description = "isolate system", trigger_description = "ALT+SHIFT+F11"},
+}
+
+shortcut_from_str :: proc(input: string) -> Shortcut {
+	switch input {
+	case "raise":
+		return .Raise
+	case "lower":
+		return .Lower
+	case "reset":
+		return .Reset
+	case "max":
+		return .Max
+	case "min":
+		return .Min
+	case:
+		log.panic("invalid shortcut id")
+	}
+}
+
+global_shortcuts_tick :: proc(conn: ^dbus.Connection) -> bool {
+	return bool(dbus.connection_read_write_dispatch(conn, 5))
+}
+
+global_shortcuts_handler :: proc "c" (
+	connection: ^dbus.Connection,
+	msg: ^dbus.Message,
+	user_data: rawptr,
+) -> dbus.HandlerResult {
+	context = ctx.odin_ctx
+	interface := cstring("org.freedesktop.portal.GlobalShortcuts")
+	activated: if dbus.message_is_signal(msg, interface, "Activated") {
+		activation: struct {
+			session_handle: dbus.ObjectPath,
+			shortcut_id:    string,
+			timestamp:      u64,
+		}
+		unmarshal_err := dbus.unmarshal(msg, &activation, context.allocator)
+		if unmarshal_err != nil do break activated
+		defer {
+			delete(string(activation.session_handle))
+			delete(activation.shortcut_id)
+		}
+		shortcut_id := shortcut_from_str(activation.shortcut_id)
+		volume: Volume
+		switch shortcut_id {
+		case .Raise:
+			volume.kind = .Add
+			volume.data = 0.1
+		case .Lower:
+			volume.kind = .Add
+			volume.data = -0.1
+		case .Max:
+			volume.kind = .Set
+			volume.data = 1
+		case .Min:
+			volume.kind = .Set
+			volume.data = -1
+		case .Reset:
+			volume.kind = .Set
+			volume.data = 0
+		}
+		bus_publish(&bus, {sender = .GlobalShortcuts, topic = .Volume, volume = volume})
+		return .HANDLED
+	}
+	return .NOT_YET_HANDLED
+}
+
+registry_register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
 	err: dbus.Error
 	dbus.error_init(&err)
 	msg := dbus.message_new_method_call(
@@ -121,12 +199,88 @@ Registry_Register :: proc(conn: ^dbus.Connection, appid: string) -> Error {
 	return nil
 }
 
-GlobalShortcuts_Token_Generate :: proc(base: string, allocator := context.allocator) -> string {
+global_shortcuts_generate_token :: proc(base: string, allocator := context.allocator) -> string {
 	return fmt.aprintf("%s_%v", base, rand.int31(), allocator = allocator)
 }
 
-GlobalShortcuts_Init :: proc(
-	gs: ^GlobalShortcuts_Session,
+@(private = "file")
+ctx: GlobalShortcuts
+
+global_shortcuts_init :: proc() -> bool {
+	subscriber_init(&ctx.subscription, .GlobalShortcuts, {.Quit})
+	ctx.odin_ctx = context
+	bus_subscribe(&bus, ctx.subscription)
+	gs_err := _global_shortcuts_init(
+		&ctx,
+		"dev.cstring.mixologist",
+		"mixologist",
+		{.ACTIVATED},
+		global_shortcuts_handler,
+		nil,
+		nil,
+	)
+	if gs_err != nil do return false
+
+	global_shortcuts_create_session(&ctx)
+	listed_shortcuts, _ := global_shortcuts_list_shortcuts(&ctx)
+	all_shortcuts_bound := true
+	for shortcut in Shortcut_Info {
+		found := false
+		for listed_shortcut in listed_shortcuts {
+			if listed_shortcut.id == shortcut.id do found = true
+		}
+		if !found {
+			log.infof("could not find shortcut: %v", shortcut)
+			all_shortcuts_bound = false
+			break
+		}
+	}
+	global_shortcuts_slice_delete(listed_shortcuts)
+	if !all_shortcuts_bound {
+		shortcuts: [len(Shortcut_Info)]GlobalShortcut
+		for shortcut, idx in Shortcut_Info {
+			shortcuts[idx] = shortcut
+		}
+		bound_shortcuts, _ := global_shortcuts_bind_shortcuts(&ctx, shortcuts[:])
+		global_shortcuts_slice_delete(bound_shortcuts)
+	}
+	return true
+}
+
+global_shortcuts_proc :: proc() {
+	when PROFILING {
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(buffer_backing)
+
+		spall_buffer = spall.buffer_create(buffer_backing, u32(os.get_current_thread_id()))
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+
+	should_exit := false
+	for !should_exit {
+		for msg in subscriber_poll(&ctx.subscription) {
+			#partial switch msg.topic {
+			case .Quit:
+				should_exit = true
+			case:
+				log.errorf("unexpected \"%v\" message", msg.topic)
+			}
+			message_unref(msg)
+		}
+		global_shortcuts_tick(ctx.conn)
+	}
+}
+
+global_shortcuts_deinit :: proc() {
+	_global_shortcuts_deinit(&ctx)
+	subscriber_flush(&ctx.subscription)
+	subscriber_destroy(&ctx.subscription)
+}
+
+_global_shortcuts_init :: proc(
+	gs: ^GlobalShortcuts,
 	appid, session_base: string,
 	signals: GlobalShortcuts_SignalTypes,
 	signal_handler: dbus.HandleMessageProc,
@@ -141,7 +295,7 @@ GlobalShortcuts_Init :: proc(
 	gs.base = session_base
 
 	if !_is_sandboxed() {
-		Registry_Register(gs.conn, appid) or_return
+		registry_register(gs.conn, appid) or_return
 	}
 
 	if .ACTIVATED in signals {
@@ -173,17 +327,17 @@ GlobalShortcuts_Init :: proc(
 	return nil
 }
 
-GlobalShortcuts_Deinit :: proc(gs: ^GlobalShortcuts_Session, allocator := context.allocator) {
+_global_shortcuts_deinit :: proc(gs: ^GlobalShortcuts, allocator := context.allocator) {
 	dbus.connection_unref(gs.conn)
 	delete(string(gs.session_handle), allocator)
 }
 
-GlobalShortcuts_CreateSession :: proc(
-	gs: ^GlobalShortcuts_Session,
+global_shortcuts_create_session :: proc(
+	gs: ^GlobalShortcuts,
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
 ) -> Error {
-	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	handle_token := global_shortcuts_generate_token(gs.base, temp_allocator)
 
 	resp: GlobalShortcuts_CreateSessionResp
 	portal_call(
@@ -193,7 +347,7 @@ GlobalShortcuts_CreateSession :: proc(
 		GlobalShortcuts_CreateSessionReq {
 			options = {
 				handle_token = handle_token,
-				session_handle_token = GlobalShortcuts_Token_Generate(gs.base, temp_allocator),
+				session_handle_token = global_shortcuts_generate_token(gs.base, temp_allocator),
 			},
 		},
 		handle_token,
@@ -212,8 +366,8 @@ GlobalShortcuts_CreateSession :: proc(
 	return nil
 }
 
-GlobalShortcuts_CloseSession :: proc(
-	gs: ^GlobalShortcuts_Session,
+global_shortcuts_close_session :: proc(
+	gs: ^GlobalShortcuts,
 	allocator := context.temp_allocator,
 ) -> Error {
 	if len(gs.session_handle) == 0 do return "No session handle available"
@@ -240,8 +394,8 @@ GlobalShortcuts_CloseSession :: proc(
 	return nil
 }
 
-GlobalShortcuts_BindShortcuts :: proc(
-	gs: ^GlobalShortcuts_Session,
+global_shortcuts_bind_shortcuts :: proc(
+	gs: ^GlobalShortcuts,
 	shortcuts: []GlobalShortcut,
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
@@ -259,7 +413,7 @@ GlobalShortcuts_BindShortcuts :: proc(
 		}
 	}
 
-	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	handle_token := global_shortcuts_generate_token(gs.base, temp_allocator)
 	resp: GlobalShortcuts_ShortcutsResp
 	portal_call(
 		gs.conn,
@@ -283,8 +437,8 @@ GlobalShortcuts_BindShortcuts :: proc(
 	return _flatten_shortcuts(resp.results.shortcuts, allocator), nil
 }
 
-GlobalShortcuts_ListShortcuts :: proc(
-	gs: ^GlobalShortcuts_Session,
+global_shortcuts_list_shortcuts :: proc(
+	gs: ^GlobalShortcuts,
 	allocator := context.allocator,
 	temp_allocator := context.temp_allocator,
 ) -> (
@@ -293,7 +447,7 @@ GlobalShortcuts_ListShortcuts :: proc(
 ) {
 	if len(gs.session_handle) == 0 do return nil, "No session handle available"
 
-	handle_token := GlobalShortcuts_Token_Generate(gs.base, temp_allocator)
+	handle_token := global_shortcuts_generate_token(gs.base, temp_allocator)
 	resp: GlobalShortcuts_ShortcutsResp
 	portal_call(
 		gs.conn,
@@ -333,7 +487,10 @@ _flatten_shortcuts :: proc(
 	return flat
 }
 
-GlobalShortcuts_SliceDelete :: proc(shortcuts: []GlobalShortcut, allocator := context.allocator) {
+global_shortcuts_slice_delete :: proc(
+	shortcuts: []GlobalShortcut,
+	allocator := context.allocator,
+) {
 	for shortcut in shortcuts {
 		delete(shortcut.id, allocator)
 		delete(shortcut.trigger_description, allocator)

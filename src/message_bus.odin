@@ -3,41 +3,60 @@ package mixologist
 import "base:runtime"
 import "core:log"
 import "core:slice"
+import "core:strings"
 import "core:sync"
 import "core:sync/chan"
 
-bus: Bus
-
 Message :: struct {
-	sender:     int,
+	sender:     Component,
 	topic:      Topic,
 	using data: struct #raw_union {
-		rule:    Rule,
-		volume:  Volume,
-		program: Program,
+		volume:   Volume,
+		list:     ListString,
+		settings: Settings,
 	},
+	refcount:   int,
 }
-message_destroy :: proc(msg: Message) {
-	_liststring_destroy :: proc(ls: _ListString) {
-		if len(ls.val) > 0 do delete(ls.val)
-		if len(ls.mod.curr) > 0 do delete(ls.mod.curr)
-		if len(ls.mod.prev) > 0 do delete(ls.mod.prev)
+message_unref :: proc(msg: ^Message) {
+	if sync.atomic_sub_explicit(&msg.refcount, 1, .Relaxed) == 1 {
+		sync.atomic_thread_fence(.Acquire)
+		message_destroy(msg)
+		free(msg, context.allocator)
+	}
+}
+message_destroy :: proc(msg: ^Message) {
+	_liststring_destroy :: proc(ls: ListString) {
+		switch ls.kind {
+		case .Add, .Remove:
+			if len(ls.val) > 0 do delete(ls.val)
+		case .Update:
+			if len(ls.mod.curr) > 0 do delete(ls.mod.curr)
+			if len(ls.mod.prev) > 0 do delete(ls.mod.prev)
+		}
 	}
 	#partial switch msg.topic {
 	case .Rule, .Program:
-		_liststring_destroy(_ListString(msg.rule))
+		_liststring_destroy(ListString(msg.list))
 	}
 }
 
+Component :: enum {
+	Gui,
+	Ipc,
+	Daemon,
+	FileManager,
+	GlobalShortcuts,
+}
 Topic :: enum {
 	Quit,
 	Wake,
 	Rule,
 	Volume,
 	Program,
+	Settings,
 }
 Topics :: bit_set[Topic]
-AllTopics :: Topics{.Quit, .Wake, .Rule, .Volume, .Program}
+AllTopics :: Topics{.Quit, .Wake, .Rule, .Volume, .Program, .Settings}
 
 Volume :: struct {
 	kind: enum {
@@ -47,8 +66,7 @@ Volume :: struct {
 	},
 	data: f32,
 }
-
-_ListString :: struct {
+ListString :: struct {
 	kind:       enum {
 		Add,
 		Remove,
@@ -61,24 +79,18 @@ _ListString :: struct {
 		},
 	},
 }
-Program :: distinct _ListString
-Rule :: distinct _ListString
-
 Subscriber :: struct {
-	messages: chan.Chan(Message),
+	messages: chan.Chan(^Message),
 	topics:   Topics,
-	id:       int,
-}
-Bus :: struct {
-	subs: [dynamic]Subscriber,
-	mu:   sync.Mutex,
+	id:       Component,
 }
 
 SUBSCRIBER_CHAN_CAP :: 128
-subscriber_init :: proc(s: ^Subscriber, t: Topics, allocator := context.allocator) {
+subscriber_init :: proc(s: ^Subscriber, c: Component, t: Topics, allocator := context.allocator) {
+	s.id = c
 	s.topics = t
 	err: runtime.Allocator_Error
-	s.messages, err = chan.create(chan.Chan(Message), SUBSCRIBER_CHAN_CAP, allocator)
+	s.messages, err = chan.create(chan.Chan(^Message), SUBSCRIBER_CHAN_CAP, allocator)
 	if err != nil {
 		log.panic(err)
 	}
@@ -87,15 +99,29 @@ subscriber_destroy :: proc(s: ^Subscriber) {
 	chan.close(s.messages)
 	chan.destroy(s.messages)
 }
-subscriber_poll :: proc(s: ^Subscriber) -> (msg: Message, ok: bool) {
-	return chan.recv(s.messages)
+subscriber_poll :: proc(s: ^Subscriber) -> (msg: ^Message, ok: bool) {
+	return chan.try_recv(s.messages)
+}
+subscriber_try_poll :: proc(s: ^Subscriber) -> (msg: ^Message, ok: bool) {
+	return chan.try_recv(s.messages)
 }
 subscriber_flush :: proc(s: ^Subscriber) {
 	for msg in chan.try_recv(s.messages) {
-		message_destroy(msg)
+		message_unref(msg)
 	}
 }
 
+bus: Bus
+Bus :: struct {
+	subs: [dynamic]Subscriber,
+	mu:   sync.Mutex,
+}
+bus_init :: proc() {
+	bus.subs = make([dynamic]Subscriber, 0, 8)
+}
+bus_deinit :: proc() {
+	delete(bus.subs)
+}
 bus_subscribe :: proc(b: ^Bus, s: Subscriber) {
 	s := s
 	sync.guard(&b.mu)
@@ -110,15 +136,35 @@ bus_subscribe :: proc(b: ^Bus, s: Subscriber) {
 		append(&b.subs, s)
 	}
 }
-bus_publish :: proc(b: ^Bus, msg: Message, allocator := context.allocator) {
+bus_publish :: proc(
+	b: ^Bus,
+	_msg: Message,
+	allocator := context.allocator,
+	loc := #caller_location,
+) {
+	log.debugf("publishing to bus from: %v", loc)
 	sync.lock(&b.mu)
 	snapshot := slice.clone(b.subs[:], context.temp_allocator)
 	sync.unlock(&b.mu)
 
+	// todo slab allocate and free list
+	// todo delete when no subscribers
+	msg := new(Message, allocator)
+	msg^ = _msg
+	if msg.list.val != "" {
+		msg.list.val = strings.clone(msg.list.val)
+	}
+	if msg.list.mod.prev != "" {
+		msg.list.mod.prev = strings.clone(msg.list.mod.prev)
+	}
+	if msg.list.mod.curr != "" {
+		msg.list.mod.curr = strings.clone(msg.list.mod.curr)
+	}
+
 	for s in snapshot {
 		if msg.topic not_in s.topics do continue
 		if s.id == msg.sender do continue
-		// todo, memory management. clone strings
+		sync.atomic_add_explicit(&msg.refcount, 1, .Relaxed)
 		chan.send(s.messages, msg)
 	}
 }

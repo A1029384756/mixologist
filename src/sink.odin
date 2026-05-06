@@ -79,7 +79,7 @@ node_init :: proc(
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		gui_event_send(Program_Add(strings.clone(node.name, allocator)))
+		bus_publish(&bus, {sender = .Daemon, topic = .Program, list = {kind = .Add, val = name}})
 	}
 }
 
@@ -92,7 +92,10 @@ node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 
 	log.infof("destroying node: %v", node.name)
 	if node.name != "output.mixologist-default" && node.name != "output.mixologist-aux" {
-		gui_event_send(Program_Remove(strings.clone(node.name)))
+		bus_publish(
+			&bus,
+			{sender = .Daemon, topic = .Program, list = {kind = .Remove, val = node.name}},
+		)
 	}
 
 	pw.proxy_destroy(node.proxy)
@@ -169,20 +172,20 @@ sink_destroy :: proc(sink: ^Sink) {
 	pw.properties_free(sink.device.playback_props)
 }
 
-sink_set_volume :: proc(sink: ^Sink, volume: f32) {
+sink_set_volume :: proc(d: ^Daemon, sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	proxy_volume := volume_falloff(volume, mixologist.config.settings.volume_falloff)
+	proxy_volume := volume_falloff(volume, d.falloff)
 	proxy_set_volume(sink.loopback_node.proxy, proxy_volume, len(sink.loopback_node.ports))
 }
 
-Volume_Falloff :: enum {
+VolumeFalloff :: enum {
 	Linear    = 0,
 	Quadratic = 1,
 	Power     = 2,
 	Cubic     = 3,
 }
 
-volume_falloff :: proc(volume: f32, falloff: Volume_Falloff) -> f32 {
+volume_falloff :: proc(volume: f32, falloff: VolumeFalloff) -> f32 {
 	switch falloff {
 	case .Linear:
 		return volume
@@ -194,14 +197,4 @@ volume_falloff :: proc(volume: f32, falloff: Volume_Falloff) -> f32 {
 		return volume * volume * volume
 	}
 	unreachable()
-}
-
-module_destroy :: proc "c" (data: rawptr) {
-	context = daemon.pw_odin_ctx
-	sink := transmute(^Sink)data
-	pw.spa_hook_remove(&sink.device.module_listener)
-	for _, &node in sink.associated_nodes {
-		node_destroy(&node)
-	}
-	sink.device.module = nil
 }

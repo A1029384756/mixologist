@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
@@ -107,7 +108,7 @@ Cleanup_Loop :: struct {
 	sync:          c.int,
 }
 
-reset_links :: proc(ctx: ^Daemon_Context) {
+reset_links :: proc(ctx: ^Daemon) {
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
 	cleanup_loop: Cleanup_Loop
@@ -176,5 +177,42 @@ get_log_level :: #force_inline proc() -> runtime.Logger_Level {
 			LOG_LEVEL +
 			"\", possible levels are: \"debug\", \"info\", \"warning\", \"error\", or \"fatal\".",
 		)
+	}
+}
+
+modify_string_list :: proc(arr: ^[dynamic]string, ls: ListString, loc := #caller_location) {
+	log.debugf("modifying list string by: %v", loc)
+	switch ls.kind {
+	case .Add:
+		append(arr, strings.clone(ls.val))
+	case .Remove:
+		idx, found := slice.linear_search(arr[:], ls.val)
+		if found {
+			delete(arr[idx])
+			unordered_remove(arr, idx)
+		}
+	case .Update:
+		prev := ls.mod.prev
+		curr := ls.mod.curr
+		idx, found := slice.linear_search(arr[:], prev)
+		if found {
+			delete(arr[idx])
+			arr[idx] = strings.clone(curr)
+		} else {
+			log.warnf("could not find list item %s, still inserting %s", prev, curr)
+			append(arr, strings.clone(curr))
+		}
+	}
+}
+
+modify_volume :: proc(vol: ^f32, v: Volume, loc := #caller_location) {
+	log.debugf("modifying volume by: %v", loc)
+	switch v.kind {
+	case .Add:
+		vol^ += v.data
+	case .Set:
+		vol^ = v.data
+	case .Get:
+		log.error("unexpectected \"get\"")
 	}
 }

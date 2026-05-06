@@ -2,29 +2,33 @@ package mixologist
 
 import "base:runtime"
 import "core:encoding/cbor"
+import "core:flags"
 import "core:fmt"
 import "core:log"
+import "core:os"
 import "core:strings"
 import "core:sys/linux"
 
-Program_List :: distinct [dynamic]string
+ProgramList :: distinct [dynamic]string
 
-CLI_Args :: struct {
-	set_volume:     f32 `usage:"volume to assign nodes"`,
-	shift_volume:   f32 `usage:"volume to increment nodes"`,
-	add_program:    Program_List `usage:"name of program to add to aux"`,
-	remove_program: Program_List `usage:"name of program to remove from aux"`,
-	get_volume:     bool `usage:"the current mixologist volume"`,
-	daemon:         bool `usage:"start mixologist in daemon mode (no window)"`,
+CLIArgs :: struct {
+	set_volume:   f32 `usage:"volume to assign nodes"`,
+	shift_volume: f32 `usage:"volume to increment nodes"`,
+	add_rule:     ProgramList `usage:"rule to add"`,
+	remove_rule:  ProgramList `usage:"rule to remove"`,
+	get_volume:   bool `usage:"the current mixologist volume"`,
+	daemon:       bool `usage:"start mixologist in daemon mode (no window)"`,
 }
 
-CLI_State :: struct {
-	option_sel:   bool,
-	get_volume:   bool,
-	set_volume:   bool,
-	shift_volume: bool,
-	opts:         CLI_Args,
+CLIState :: struct {
+	option_sel: bool,
+	get_volume: bool,
+	set_volume: bool,
+	add_volume: bool,
+	opts:       CLIArgs,
 }
+
+cli: CLIState
 
 type_setter :: proc(
 	data: rawptr,
@@ -36,9 +40,9 @@ type_setter :: proc(
 	handled: bool,
 	alloc_error: runtime.Allocator_Error,
 ) {
-	if data_type == Program_List {
+	if data_type == ProgramList {
 		handled = true
-		list := cast(^Program_List)data
+		list := cast(^ProgramList)data
 		programs := unparsed_value
 		for program in strings.split_iterator(&programs, ",") {
 			append(list, program)
@@ -61,7 +65,7 @@ flag_checker :: proc(
 			return
 		}
 	} else if name == "set_volume" || name == "shift_volume" || name == "get_volume" {
-		if cli.set_volume || cli.shift_volume || cli.get_volume {
+		if cli.set_volume || cli.add_volume || cli.get_volume {
 			error = "cannot perform multiple volume operations at once"
 			return
 		}
@@ -69,7 +73,7 @@ flag_checker :: proc(
 		if name == "set_volume" {
 			cli.set_volume = true
 		} else if name == "shift_volume" {
-			cli.shift_volume = true
+			cli.add_volume = true
 		} else if name == "get_volume" {
 			cli.get_volume = true
 			cli.option_sel = true
@@ -86,40 +90,34 @@ flag_checker :: proc(
 	return
 }
 
-cli_deinit :: proc() {
-	delete(cli.opts.add_program)
-	delete(cli.opts.remove_program)
+cli_init :: proc() {
+	flags.register_type_setter(type_setter)
+	flags.register_flag_checker(flag_checker)
+	flags.parse_or_exit(&cli.opts, os.args, .Odin)
 }
 
-cli_messages :: proc(cli: CLI_State) {
+cli_deinit :: proc() {
+	delete(cli.opts.add_rule)
+	delete(cli.opts.remove_rule)
+}
+
+cli_messages :: proc(cli: CLIState) {
 	if cli.set_volume {
-		send_message(Volume{.Set, cli.opts.set_volume})
-	} else if cli.shift_volume {
-		send_message(Volume{.Shift, cli.opts.shift_volume})
+		send_message({topic = .Volume, volume = {kind = .Set, data = cli.opts.set_volume}})
+	} else if cli.add_volume {
+		send_message({topic = .Volume, volume = {kind = .Add, data = cli.opts.set_volume}})
 	}
 
-	for program in cli.opts.add_program {
-		msg := Program {
-			act = .Add,
-			val = program,
-		}
-		send_message(msg)
+	for program in cli.opts.add_rule {
+		send_message({topic = .Rule, list = {kind = .Add, val = program}})
 	}
 
-	for program in cli.opts.remove_program {
-		msg := Program {
-			act = .Remove,
-			val = program,
-		}
-		send_message(msg)
+	for program in cli.opts.remove_rule {
+		send_message({topic = .Rule, list = {kind = .Remove, val = program}})
 	}
 
 	if cli.opts.get_volume {
-		msg := Volume {
-			act = .Get,
-			val = 0,
-		}
-		send_message(msg, true)
+		send_message({topic = .Volume, volume = {kind = .Get}}, true)
 	}
 }
 
@@ -156,9 +154,9 @@ send_message :: proc(msg: Message, recv := false) {
 
 		response: Message
 		response_err := cbor.unmarshal(string(buf[:bytes_read]), &response)
-		if response_err != nil do log.panicf("unmarhal from server failed: %v", response_err)
-		res := response.(Volume)
-		fmt.println(res.val)
+		if response_err != nil do log.panicf("unmarshal from server failed: %v", response_err)
+		res := response.volume.data
+		fmt.println(res)
 		break
 	}
 }

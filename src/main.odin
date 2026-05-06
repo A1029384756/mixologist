@@ -1,87 +1,14 @@
 package mixologist
 
 import "base:runtime"
-import "core:encoding/cbor"
-import "core:encoding/json"
-import "core:flags"
-import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
 import "core:prof/spall"
-import "core:strconv"
 import "core:strings"
-@(require) import "core:sync"
-import "core:sync/chan"
-import "core:sys/linux"
 import "core:thread"
-import "dbus"
-import "ui"
 
 PROFILING :: #config(profiling, false)
-
-Mixologist :: struct {
-	// state
-	features:    Features,
-	events:      chan.Chan(Event),
-	// ipc
-	ipc:         IPC_Server_Context,
-	shortcuts:   GlobalShortcuts_Session,
-	// config
-	config_dir:  string,
-	cache_dir:   string,
-	volume_file: string,
-	config:      Config,
-	volume:      f32,
-	// atomic
-	exit:        bool,
-}
-
-Config :: struct {
-	rules:    [dynamic]string,
-	settings: Settings,
-}
-
-Settings :: struct {
-	volume_falloff:  Volume_Falloff,
-	start_minimized: bool,
-	remember_volume: bool,
-}
-
-Shortcut :: enum {
-	RAISE,
-	LOWER,
-	RESET,
-	MAX,
-	MIN,
-}
-
-Shortcut_Info := [Shortcut]GlobalShortcut {
-	.RAISE = {id = "raise", description = "favor selected", trigger_description = "SHIFT+F12"},
-	.LOWER = {id = "lower", description = "favor system", trigger_description = "SHIFT+F11"},
-	.RESET = {id = "reset", description = "reset", trigger_description = "SHIFT+F10"},
-	.MAX = {id = "max", description = "isolate selected", trigger_description = "ALT+SHIFT+F12"},
-	.MIN = {id = "min", description = "isolate system", trigger_description = "ALT+SHIFT+F11"},
-}
-
-shortcut_from_str :: proc(input: string) -> Shortcut {
-	switch input {
-	case "raise":
-		return .RAISE
-	case "lower":
-		return .LOWER
-	case "reset":
-		return .RESET
-	case "max":
-		return .MAX
-	case "min":
-		return .MIN
-	case:
-		log.panic("invalid shortcut id")
-	}
-}
-
-CONFIG_FILENAME :: "mixologist.json"
 
 Features :: bit_set[Feature]
 Feature :: enum {
@@ -108,9 +35,6 @@ Rule_Update :: struct {
 	cur:  string,
 }
 Open :: distinct rawptr
-
-mixologist: Mixologist
-cli: CLI_State
 
 when ODIN_DEBUG {
 	track: mem.Tracking_Allocator
@@ -146,398 +70,90 @@ main :: proc() {
 		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
 		defer delete(buffer_backing)
 
-		spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+		spall_buffer = spall.buffer_create(buffer_backing, u32(os.get_current_thread_id()))
 		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
 
 		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
 	}
 
-	mixologist_init_data_files(&mixologist)
-
 	default_heap := context.allocator
-	context.logger = mixologist_init_logging(&mixologist)
-	defer mixologist_deinit_logging(&mixologist, default_heap)
+	context.logger = mixologist_init_logging()
+	defer mixologist_deinit_logging(default_heap)
 
-	context.allocator = mixologist_init_allocator(&mixologist)
-	defer mixologist_deinit_allocator(&mixologist)
+	context.allocator = mixologist_init_allocator()
+	defer mixologist_deinit_allocator()
 
-	flags.register_type_setter(type_setter)
-	flags.register_flag_checker(flag_checker)
-	flags.parse_or_exit(&cli.opts, os.args, .Odin)
+	// command line parsing
+	features: Features
+	cli_init()
 	defer cli_deinit()
 	if cli.opts.daemon {
-		mixologist.features += {.Daemon}
+		features += {.Daemon}
 	} else if !cli.option_sel {
-		mixologist.features += {.Daemon, .Gui}
+		features += {.Daemon, .Gui}
 	} else {
 		cli_messages(cli)
 		return
 	}
 
-	ipc_start_err := IPC_Server_init(&mixologist.ipc)
-	if ipc_start_err != nil {
-		fmt.println("detected active mixologist instance, sending wake command")
-		msg: Message = {
-			sender = os.get_current_thread_id(),
-			topic  = .Wake,
-		}
-		send_message(msg)
-		return
+	bus_init()
+	ipc_init()
+	file_manager_init()
+	if global_shortcuts_init() {
+		features += {.GlobalShortcuts}
+	}
+	if .Daemon in features {
+		daemon_init()
+	}
+	if .Gui in features {
+		gui_init()
 	}
 
-	// configure global shortcuts
-	gs_err := GlobalShortcuts_Init(
-		&mixologist.shortcuts,
-		"dev.cstring.mixologist",
-		"mixologist",
-		{.ACTIVATED},
-		mixologist_globalshortcuts_handler,
-		nil,
-		nil,
-	)
-	switch gs_err in gs_err {
-	case nil:
-		mixologist.features += {.GlobalShortcuts}
-		GlobalShortcuts_CreateSession(&mixologist.shortcuts)
-		listed_shortcuts, _ := GlobalShortcuts_ListShortcuts(&mixologist.shortcuts)
-		all_shortcuts_bound := true
-		for shortcut in Shortcut_Info {
-			found := false
-			for listed_shortcut in listed_shortcuts {
-				if listed_shortcut.id == shortcut.id do found = true
-			}
-			if !found {
-				log.infof("could not find shortcut: %v", shortcut)
-				all_shortcuts_bound = false
-				break
-			}
-		}
-		GlobalShortcuts_SliceDelete(listed_shortcuts)
-		if !all_shortcuts_bound {
-			shortcuts: [len(Shortcut_Info)]GlobalShortcut
-			for shortcut, idx in Shortcut_Info {
-				shortcuts[idx] = shortcut
-			}
-			bound_shortcuts, _ := GlobalShortcuts_BindShortcuts(
-				&mixologist.shortcuts,
-				shortcuts[:],
-			)
-			GlobalShortcuts_SliceDelete(bound_shortcuts)
-		}
-	case cstring:
-		log.errorf("could not initialize global shortcuts: %s", gs_err)
+	threads: [dynamic; 8]^thread.Thread
+	file_manager_seed_state()
+	append(&threads, thread.create_and_start(ipc_proc, context))
+	append(&threads, thread.create_and_start(file_manager_proc, context))
+	if .GlobalShortcuts in features {
+		append(&threads, thread.create_and_start(global_shortcuts_proc, context))
+	}
+	if .Daemon in features {
+		append(&threads, thread.create_and_start(daemon_proc, context))
+	}
+	if .Gui in features {
+		append(&threads, thread.create_and_start(gui_proc, context))
 	}
 
-	// config loading
-	mixologist_config_read(&mixologist)
+	// todo set up signal handler that sends "Quit" event
+	thread.join_multiple(..threads[:])
 
-	if mixologist.config.settings.remember_volume {
-		mixologist_read_volume_file(&mixologist)
+	if .GlobalShortcuts in features {
+		global_shortcuts_deinit()
 	}
-	mixologist.events, _ = chan.create(chan.Chan(Event), 128, context.allocator)
-
-	// init app state
-	if .Daemon in mixologist.features {
-		daemon_thread = thread.create_and_start_with_poly_data(&daemon, daemon_proc, context)
+	if .Daemon in features {
+		daemon_deinit()
 	}
-
-	if .Gui in mixologist.features {
-		log.info("gui starting")
-		gui_init(&gui, mixologist.config.settings.start_minimized)
+	if .Gui in features {
+		gui_deinit()
 	}
-
-	for !mixologist.exit {
-		IPC_Server_poll(&mixologist.ipc)
-		mixologist_ipc_messages(&mixologist)
-
-		if .GlobalShortcuts in mixologist.features {
-			Portals_Tick(mixologist.shortcuts.conn)
-		}
-		mixologist_event_process(&mixologist)
-		if .Gui in mixologist.features {
-			gui_ui_tick(&gui)
-			mixologist.exit = ui.should_exit(&gui.ui_ctx)
-		}
-
-		free_all(context.temp_allocator)
-	}
-
-	log.infof("main event loop exiting")
-	if .Daemon in mixologist.features {
-		daemon_signal_stop(&daemon)
-		thread.join(daemon_thread)
-	}
-
-	if .Gui in mixologist.features {
-		log.info("gui exiting")
-		gui_deinit(&gui)
-	}
-
-	if .GlobalShortcuts in mixologist.features {
-		GlobalShortcuts_CloseSession(&mixologist.shortcuts)
-		GlobalShortcuts_Deinit(&mixologist.shortcuts)
-	}
-
-	IPC_Server_deinit(&mixologist.ipc)
-
-	// clean up allocated memory
-	{
-		for event in chan.try_recv(mixologist.events) {
-			#partial switch event in event {
-			// delete the results of `node_destroy` events
-			// called during pipewire cleanup
-			case Program_Remove:
-				delete(string(event))
-			}
-		}
-		chan.destroy(mixologist.events)
-		for rule in mixologist.config.rules {
-			delete(rule)
-		}
-		delete(mixologist.config.rules)
-	}
+	file_manager_deinit()
+	ipc_deinit()
+	bus_deinit()
 }
 
-mixologist_event_process :: proc(mixologist: ^Mixologist) {
-	for event in chan.try_recv(mixologist.events) {
-		#partial switch event in event {
-		case Rule_Add:
-			log.debugf("adding rule: %v", event)
-			daemon_add_program(&daemon, string(event))
-			append(&mixologist.config.rules, string(event))
-			mixologist_config_write(mixologist)
-		case Rule_Remove:
-			log.debugf("removing rule: %v", event)
-			daemon_remove_program(&daemon, string(event))
-			#reverse for rule, idx in mixologist.config.rules {
-				if rule == string(event) {
-					delete(rule)
-					ordered_remove(&mixologist.config.rules, idx)
-					break
-				}
-			}
-			mixologist_config_write(mixologist)
-		case Rule_Update:
-			if len(event.cur) == 0 {
-				log.debugf("updating to zero-length rule: %v", event.prev)
-				daemon_remove_program(&daemon, event.prev)
-				for rule, idx in mixologist.config.rules {
-					if rule == event.prev {
-						delete(rule)
-						delete(event.cur)
-						ordered_remove(&mixologist.config.rules, idx)
-						break
-					}
-				}
-			} else {
-				log.debugf("updating rule: %v -> %v", event.prev, event.cur)
-				daemon_remove_program(&daemon, event.prev)
-				daemon_add_program(&daemon, event.cur)
-				for &rule in mixologist.config.rules {
-					if rule == event.prev {
-						delete(rule)
-						rule = event.cur
-						break
-					}
-				}
-			}
-			mixologist_config_write(mixologist)
-		case Settings:
-			log.debugf("settings changed: %v", event)
-			mixologist.config.settings = event
-			mixologist_config_write(mixologist)
-		}
-	}
-}
-
-mixologist_ipc_messages :: proc(mixologist: ^Mixologist) {
-	for ipc_msg in mixologist.ipc.messages {
-		sender := ipc_msg.sender
-		msg: Message
-		cbor.unmarshal(string(ipc_msg.msg_bytes), &msg) or_continue
-
-		switch msg in msg {
-		case Volume:
-			switch msg.act {
-			case .Get:
-				log.debugf("getting volume %v: socket %v", msg.val, sender)
-				vol := Volume {
-					act = .Get,
-					val = mixologist.volume,
-				}
-				IPC_Server_send(&mixologist.ipc, sender, vol)
-			case .Set:
-				log.debugf("setting volume %v: socket %v", msg.val, sender)
-				mixologist_event_send(msg.val)
-			case .Shift:
-				log.debugf("shifting volume %v: socket %v", msg.val, sender)
-				vol := mixologist.volume + msg.val
-				mixologist_event_send(vol)
-			}
-
-			default, aux := daemon_sink_volumes(mixologist.volume)
-			volumes := [2]f32{default, aux}
-			daemon_set_volumes(&daemon, volumes)
-		case Program:
-			switch msg.act {
-			case .Add:
-				log.infof("adding program %s", msg.val)
-				mixologist_event_send(Rule_Add(msg.val))
-			case .Remove:
-				log.infof("removing program %s", msg.val)
-				mixologist_event_send(Rule_Remove(msg.val))
-			}
-		case Wake:
-			gui_event_send(Open{})
-		}
-	}
-}
-
-mixologist_config_read :: proc(mixologist: ^Mixologist) {
-	config_path, _ := os.join_path(
-		{mixologist.config_dir, CONFIG_FILENAME},
-		context.temp_allocator,
-	)
-	config_data, read_err := os.read_entire_file(config_path, context.temp_allocator)
-	if read_err != nil {
-		log.errorf("could not read config file: %v, err: %v", config_path, read_err)
-		return
-	}
-
-	json_err := json.unmarshal(config_data, &mixologist.config)
-	if json_err != nil {
-		log.errorf("could not unmarshal config file: %v", json_err)
-		return
-	}
-}
-
-mixologist_config_write :: proc(mixologist: ^Mixologist) {
-	config_path, _ := os.join_path(
-		{mixologist.config_dir, CONFIG_FILENAME},
-		context.temp_allocator,
-	)
-
-	config_json, json_err := json.marshal(
-		mixologist.config,
-		{pretty = true},
-		allocator = context.temp_allocator,
-	)
-	if json_err != nil {
-		log.errorf("could not marshal json: %v", json_err)
-		return
-	}
-	write_err := os.write_entire_file(config_path, config_json)
-	if write_err != nil {
-		log.errorf("could not write to file: %v, err: %v", config_path, write_err)
-	}
-}
-
-mixologist_globalshortcuts_handler :: proc "c" (
-	connection: ^dbus.Connection,
-	msg: ^dbus.Message,
-	user_data: rawptr,
-) -> dbus.HandlerResult {
-	context = runtime.default_context()
-	interface := cstring("org.freedesktop.portal.GlobalShortcuts")
-	activated: if dbus.message_is_signal(msg, interface, "Activated") {
-		activation: struct {
-			session_handle: dbus.ObjectPath,
-			shortcut_id:    string,
-			timestamp:      u64,
-		}
-		unmarshal_err := dbus.unmarshal(msg, &activation, context.allocator)
-		if unmarshal_err != nil do break activated
-		defer {
-			delete(string(activation.session_handle))
-			delete(activation.shortcut_id)
-		}
-		shortcut_id := shortcut_from_str(activation.shortcut_id)
-		switch shortcut_id {
-		case .RAISE:
-			vol := mixologist.volume + 0.1
-			mixologist_event_send(vol)
-		case .LOWER:
-			vol := mixologist.volume - 0.1
-			mixologist_event_send(vol)
-		case .MAX:
-			mixologist_event_send(1)
-		case .MIN:
-			mixologist_event_send(-1)
-		case .RESET:
-			mixologist_event_send(0)
-		}
-		return .HANDLED
-	}
-	return .NOT_YET_HANDLED
-}
-
-mixologist_read_volume_file :: proc(mixologist: ^Mixologist) {
-	if os.exists(mixologist.volume_file) {
-		volume_bytes, volume_err := os.read_entire_file(mixologist.volume_file, context.allocator)
-		defer delete(volume_bytes)
-		if volume_err != nil {
-			log.errorf("could not read volume file: %s", volume_err)
-		} else {
-			volume, volume_parse_ok := strconv.parse_f32(string(volume_bytes))
-			if !volume_parse_ok {
-				log.errorf("could not parse volume")
-			} else {
-				mixologist.volume = volume
-			}
-		}
-	}
-}
-
-mixologist_write_volume_file :: proc(mixologist: ^Mixologist) {
-	volume_buf: [312]byte
-	volume_string := fmt.bprintf(volume_buf[:], "%f", mixologist.volume)
-	err := os.write_entire_file(mixologist.volume_file, transmute([]u8)volume_string)
-	if err != nil {
-		log.errorf("could not write volume file: %s", err)
-	}
-}
-
-mixologist_init_data_files :: proc(mixologist: ^Mixologist) {
-	user_config_dir :=
-		os.user_config_dir(context.allocator) or_else log.panic("could not get user config dir")
-	mixologist.config_dir =
-		os.join_path({user_config_dir, "mixologist"}, context.allocator) or_else log.panic(
-			"could not create config path",
-		)
-	if !os.exists(mixologist.config_dir) {
-		config_dir_err := os.make_directory_all(mixologist.config_dir)
-		if config_dir_err != nil {
-			log.panicf("could not create config dir: %v", config_dir_err)
-		}
-	}
-
-	cache_dir :=
-		os.user_cache_dir(context.allocator) or_else log.panic("could not get user cache dir")
-	mixologist.cache_dir, _ = os.join_path({cache_dir, "mixologist"}, context.allocator)
-	if !os.exists(mixologist.cache_dir) {
-		cache_dir_err := os.make_directory_all(mixologist.cache_dir)
-		if cache_dir_err != nil {
-			log.panicf("could not create cache dir: %v", cache_dir_err)
-		}
-	}
-
-	mixologist.volume_file =
-		os.join_path(
-			{mixologist.cache_dir, "mixologist.volume"},
-			context.allocator,
-		) or_else log.panic("could not create volume path")
-}
-
-mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
+mixologist_init_logging :: proc() -> log.Logger {
 	when ODIN_DEBUG {
 		return log.create_console_logger(
 			get_log_level(),
 			log.Default_Console_Logger_Opts + {.Thread_Id},
 		)
 	} else {
+		cache_dir, _ := os.user_cache_dir(context.temp_allocator)
+		defer delete(cache_dir)
+		mixologist_cache_dir, _ := os.join_path({cache_dir, "mixologist"}, context.temp_allocator)
+
 		log_path :=
 			os.join_path(
-				{mixologist.cache_dir, "mixologist.log"},
+				{mixologist_cache_dir, "mixologist.log"},
 				context.allocator,
 			) or_else log.panic("could not create log path")
 
@@ -545,8 +161,7 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
 
 		if os.exists(log_path) {
-			log_info, stat_err := os.stat(log_path, context.allocator)
-			defer os.file_info_delete(log_info, context.allocator)
+			log_info, stat_err := os.stat(log_path, context.temp_allocator)
 
 			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
@@ -564,7 +179,7 @@ mixologist_init_logging :: proc(mixologist: ^Mixologist) -> log.Logger {
 	}
 }
 
-mixologist_deinit_logging :: proc(mixologist: ^Mixologist, allocator := context.allocator) {
+mixologist_deinit_logging :: proc(allocator := context.allocator) {
 	when ODIN_DEBUG {
 		log.destroy_console_logger(context.logger, allocator)
 	} else {
@@ -572,7 +187,7 @@ mixologist_deinit_logging :: proc(mixologist: ^Mixologist, allocator := context.
 	}
 }
 
-mixologist_init_allocator :: proc(mixologist: ^Mixologist) -> runtime.Allocator {
+mixologist_init_allocator :: proc() -> runtime.Allocator {
 	when ODIN_DEBUG {
 		mem.tracking_allocator_init(&track, context.allocator)
 		return mem.tracking_allocator(&track)
@@ -581,7 +196,7 @@ mixologist_init_allocator :: proc(mixologist: ^Mixologist) -> runtime.Allocator 
 	}
 }
 
-mixologist_deinit_allocator :: proc(mixologist: ^Mixologist) {
+mixologist_deinit_allocator :: proc() {
 	when ODIN_DEBUG {
 		for _, leak in track.allocation_map {
 			if strings.contains(leak.location.file_path, "mixologist") {
