@@ -1,6 +1,7 @@
 package mixologist
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
@@ -164,9 +165,9 @@ mixologist_init_logging :: proc() -> log.Logger {
 			log.Default_Console_Logger_Opts + {.Thread_Id},
 		)
 	} else {
-		cache_dir, _ := os.user_cache_dir(context.temp_allocator)
+		cache_dir, _ := os.user_cache_dir(context.allocator)
 		defer delete(cache_dir)
-		mixologist_cache_dir, _ := os.join_path({cache_dir, "mixologist"}, context.temp_allocator)
+		mixologist_cache_dir, _ := os.join_path({cache_dir, "mixologist"}, context.allocator)
 
 		log_path :=
 			os.join_path(
@@ -178,7 +179,7 @@ mixologist_init_logging :: proc() -> log.Logger {
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
 
 		if os.exists(log_path) {
-			log_info, stat_err := os.stat(log_path, context.temp_allocator)
+			log_info, stat_err := os.stat(log_path, context.allocator)
 
 			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
