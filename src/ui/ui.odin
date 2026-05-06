@@ -49,6 +49,7 @@ Context :: struct {
 	fonts:               [dynamic; 16]Font,
 	images:              [dynamic; 16]Image,
 	// sdl3
+	window_frametime:    i32,
 	window:              ^sdl.Window,
 	window_size:         [2]c.float,
 	prev_window_size:    [2]c.float,
@@ -266,6 +267,7 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 		ctx.statuses += {.WINDOW_CLOSED}
 	}
 	ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
+	ctx.window_frametime = get_window_frametime(ctx.window)
 
 	device_props := sdl.CreateProperties()
 	defer sdl.DestroyProperties(device_props)
@@ -359,6 +361,23 @@ set_tray_icon :: proc(ctx: ^Context, icon: []u8) {
 	systray.set_icon_pixmap(&ctx.tray, {{ctx.tray_icon.w, ctx.tray_icon.h, pixel_slice}})
 }
 
+get_window_frametime :: proc(window: ^sdl.Window) -> i32 {
+	display_id := sdl.GetDisplayForWindow(window)
+	if display_id == 0 {
+		log.errorf("invalid display: %v", sdl.GetError())
+		return 16
+	}
+
+	display_mode := sdl.GetCurrentDisplayMode(display_id)
+	if display_mode == nil {
+		log.errorf("invalid display mode: %v", sdl.GetError())
+		return 16
+	}
+
+	frame_time_ms := display_mode.refresh_rate > 0 ? 1000.0 / display_mode.refresh_rate : 16
+	return i32(frame_time_ms)
+}
+
 tick :: proc(
 	ctx: ^Context,
 	ui_create_layout: proc(
@@ -368,21 +387,7 @@ tick :: proc(
 	) -> clay.ClayArray(clay.RenderCommand),
 	userdata: rawptr,
 ) {
-	// input reset
-	{
-		strings.builder_reset(&ctx.textbox_input)
-		ctx.mouse_pressed = {}
-		ctx.mouse_released = {}
-		ctx.scroll_delta = {}
-		ctx.keys_pressed = {}
-		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
-		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
-	}
-
-	systray.pump(&ctx.tray)
-
-	event: sdl.Event
-	for sdl.PollEvent(&event) {
+	handle_event :: proc(ctx: ^Context, event: ^sdl.Event) {
 		#partial switch event.type {
 		case .QUIT:
 			ctx.statuses += {.APP_EXIT}
@@ -394,6 +399,9 @@ tick :: proc(
 			toggle_window(ctx)
 		case .WINDOW_DISPLAY_SCALE_CHANGED:
 			ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
+			ctx.window_frametime = get_window_frametime(ctx.window)
+		case .WINDOW_DISPLAY_CHANGED:
+			ctx.window_frametime = get_window_frametime(ctx.window)
 		case .WINDOW_RESIZED:
 			ctx.statuses += {.WINDOW_RESIZED}
 		case .WINDOW_EXPOSED:
@@ -457,6 +465,26 @@ tick :: proc(
 				fn(ctx, .M)
 			}
 		}
+	}
+	// input reset
+	{
+		strings.builder_reset(&ctx.textbox_input)
+		ctx.mouse_pressed = {}
+		ctx.mouse_released = {}
+		ctx.scroll_delta = {}
+		ctx.keys_pressed = {}
+		ctx.prev_hovered_widget, ctx.hovered_widget = ctx.hovered_widget, {}
+		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
+	}
+
+	systray.pump(&ctx.tray)
+
+	event: sdl.Event
+	has_event := sdl.WaitEventTimeout(&event, ctx.window_frametime)
+	if !has_event do return
+	handle_event(ctx, &event)
+	for sdl.PollEvent(&event) {
+		handle_event(ctx, &event)
 	}
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
