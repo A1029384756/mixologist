@@ -117,6 +117,7 @@ cli_messages :: proc(cli: CLIState) {
 	}
 
 	if cli.opts.get_volume {
+		// todo fix
 		send_message({topic = .Volume, volume = {kind = .Get}}, true)
 	}
 }

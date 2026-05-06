@@ -108,7 +108,8 @@ main :: proc() {
 	file_manager_init()
 	if err := ipc_init(); err != nil {
 		if err == .EADDRINUSE {
-			log.fatalf("could not start mixologist ipc, is another instance already running?")
+			log.infof("mixologist already running, sending wake command")
+			send_message({topic = .Wake})
 		} else {
 			log.fatalf("could not start ipc: %v", err)
 		}

@@ -126,7 +126,7 @@ ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
 	}
 
 	#partial switch msg.topic {
-	case .Rule, .Volume:
+	case .Rule, .Volume, .Wake:
 		bus_publish(&bus, msg)
 	case:
 		log.errorf("unexpected topic %v", msg.topic)

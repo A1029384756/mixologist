@@ -10,7 +10,7 @@ import "core:sync/chan"
 Message :: struct {
 	sender:     Component,
 	topic:      Topic,
-	using data: struct #raw_union {
+	using data: struct {
 		volume:   Volume,
 		list:     ListString,
 		settings: Settings,
@@ -73,7 +73,7 @@ ListString :: struct {
 		Remove,
 		Update,
 	},
-	using data: struct #raw_union {
+	using data: struct {
 		val: string,
 		mod: struct {
 			prev, curr: string,
