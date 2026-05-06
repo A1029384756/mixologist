@@ -474,6 +474,10 @@ tick :: proc(
 		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
 	}
 
+	now := time.tick_now()
+	delta_time := f32(time.duration_seconds(time.tick_diff(ctx.prev_frame_time, now)))
+	ctx.prev_frame_time = now
+
 	systray.pump(&ctx.tray)
 
 	if .WINDOW_TOGGLED in ctx.statuses {
@@ -544,16 +548,8 @@ tick :: proc(
 
 	// runs during second layout pass to prevent issues
 	// with scroll container data from deleted rules
-	clay.UpdateScrollContainers(
-		false,
-		ctx.scroll_delta * 5,
-		f32(time.duration_seconds(time.tick_since(ctx.prev_frame_time))),
-	)
-	render_commands := ui_create_layout(
-		ctx,
-		f32(time.duration_seconds(time.tick_since(ctx.prev_frame_time))),
-		userdata,
-	)
+	clay.UpdateScrollContainers(false, ctx.scroll_delta * 5, delta_time)
+	render_commands := ui_create_layout(ctx, delta_time, userdata)
 
 	when ODIN_DEBUG {
 		layout_time := time.since(layout_start)
@@ -604,8 +600,6 @@ tick :: proc(
 			}
 		}
 	}
-
-	ctx.prev_frame_time = time.tick_now()
 }
 
 open_window :: proc(ctx: ^Context) {
