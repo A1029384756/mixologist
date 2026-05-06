@@ -236,9 +236,6 @@ Renderer_should_redraw :: proc(
 	}
 	ctx.renderer.cell_tl = cell_tl
 	ctx.renderer.cell_br = cell_br
-	if !cells_match {
-		log.debug(cell_tl, cell_br)
-	}
 	return !cells_match
 }
 

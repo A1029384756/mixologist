@@ -480,8 +480,7 @@ tick :: proc(
 	systray.pump(&ctx.tray)
 
 	event: sdl.Event
-	has_event := sdl.WaitEventTimeout(&event, ctx.window_frametime)
-	if !has_event do return
+	_ = sdl.WaitEventTimeout(&event, ctx.window_frametime)
 	handle_event(ctx, &event)
 	for sdl.PollEvent(&event) {
 		handle_event(ctx, &event)
