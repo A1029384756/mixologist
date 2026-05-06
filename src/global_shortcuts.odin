@@ -271,6 +271,7 @@ global_shortcuts_proc :: proc() {
 			message_unref(msg)
 		}
 		global_shortcuts_tick(ctx.conn)
+		free_all(context.temp_allocator)
 	}
 }
 

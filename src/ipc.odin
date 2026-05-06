@@ -71,6 +71,7 @@ ipc_proc :: proc() {
 			message_unref(msg)
 		}
 		ipc_poll(&ctx)
+		free_all(context.temp_allocator)
 	}
 }
 

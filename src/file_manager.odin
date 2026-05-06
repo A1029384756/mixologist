@@ -129,6 +129,7 @@ file_manager_proc :: proc() {
 		if modified_topics & {.Volume} != {} {
 			file_manager_volume_write(&ctx)
 		}
+		free_all(context.temp_allocator)
 	}
 }
 

@@ -62,6 +62,7 @@ gui_proc :: proc() {
 		gui_poll(&ctx)
 		gui_ui_tick(&ctx)
 		if ui.should_exit(&ctx.ui_ctx) do ctx.statuses += {.Exit}
+		free_all(context.temp_allocator)
 	}
 	_gui_deinit(&ctx)
 	bus_publish(&bus, {sender = .Gui, topic = .Quit})
@@ -420,22 +421,12 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 		)
 
 		if .SUBMIT in tb_res {
-			bus_publish(
-				&bus,
-				{
-					sender = .Gui,
-					topic = .Rule,
-					data = {
-						list = {
-							kind = .Update,
-							mod = {
-								prev = rule,
-								curr = string(ctx.active_line_buf[:ctx.active_line_len]),
-							},
-						},
-					},
-				},
-			)
+			update := ListString {
+				kind = .Update,
+				mod = {prev = rule, curr = string(ctx.active_line_buf[:ctx.active_line_len])},
+			}
+			bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = update}})
+			modify_string_list(&ctx.rules, update)
 			ctx.statuses += {.Rules}
 			ctx.active_line = 0
 			row_selected = false
@@ -457,14 +448,12 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 						5,
 					)
 					if .RELEASE in delete_res {
-						bus_publish(
-							&bus,
-							{
-								sender = .Gui,
-								topic = .Rule,
-								data = {list = {.Remove, {val = rule}}},
-							},
-						)
+						remove := ListString {
+							kind = .Remove,
+							val  = rule,
+						}
+						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = remove}})
+						modify_string_list(&ctx.rules, remove)
 						ctx.statuses += {.Rules}
 					}
 				}
@@ -499,20 +488,12 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 					)
 
 					if .RELEASE in apply_res {
-						bus_publish(
-							&bus,
-							{
-								sender = .Gui,
-								topic = .Rule,
-								list = {
-									kind = .Update,
-									mod = {
-										rule,
-										string(ctx.active_line_buf[:ctx.active_line_len]),
-									},
-								},
-							},
-						)
+						update := ListString {
+							kind = .Update,
+							mod  = {rule, string(ctx.active_line_buf[:ctx.active_line_len])},
+						}
+						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = update}})
+						modify_string_list(&ctx.rules, update)
 						ctx.statuses += {.Rules}
 						ctx.active_line = 0
 					}
@@ -752,17 +733,12 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				if .SUBMIT in tb_res {
 					if ctx.new_rule_len > 0 {
-						bus_publish(
-							&bus,
-							{
-								sender = .Gui,
-								topic = .Rule,
-								list = {
-									kind = .Add,
-									val = string(ctx.new_rule_buf[:ctx.new_rule_len]),
-								},
-							},
-						)
+						add := ListString {
+							kind = .Add,
+							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
+						}
+						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+						modify_string_list(&ctx.rules, add)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
@@ -799,31 +775,24 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				if .RELEASE in button_res {
 					if ctx.new_rule_len > 0 {
-						bus_publish(
-							&bus,
-							{
-								sender = .Gui,
-								topic = .Rule,
-								list = {
-									kind = .Add,
-									val = string(ctx.new_rule_buf[:ctx.new_rule_len]),
-								},
-							},
-						)
+						add := ListString {
+							kind = .Add,
+							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
+						}
+						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+						modify_string_list(&ctx.rules, add)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
 					}
 					if len(ctx.selected_programs) > 0 {
 						for program in ctx.selected_programs {
-							bus_publish(
-								&bus,
-								{
-									sender = .Gui,
-									topic = .Rule,
-									list = {kind = .Add, val = program},
-								},
-							)
+							add := ListString {
+								kind = .Add,
+								val  = program,
+							}
+							bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+							modify_string_list(&ctx.rules, add)
 						}
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
