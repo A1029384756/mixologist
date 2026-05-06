@@ -151,14 +151,21 @@ bus_publish :: proc(
 	// todo delete when no subscribers
 	msg := new(Message, allocator)
 	msg^ = _msg
-	if msg.list.val != "" {
-		msg.list.val = strings.clone(msg.list.val)
-	}
-	if msg.list.mod.prev != "" {
-		msg.list.mod.prev = strings.clone(msg.list.mod.prev)
-	}
-	if msg.list.mod.curr != "" {
-		msg.list.mod.curr = strings.clone(msg.list.mod.curr)
+	#partial switch msg.topic {
+	case .Rule, .Program:
+		switch msg.list.kind {
+		case .Add, .Remove:
+			if msg.list.val != "" {
+				msg.list.val = strings.clone(msg.list.val)
+			}
+		case .Update:
+			if msg.list.mod.prev != "" {
+				msg.list.mod.prev = strings.clone(msg.list.mod.prev)
+			}
+			if msg.list.mod.curr != "" {
+				msg.list.mod.curr = strings.clone(msg.list.mod.curr)
+			}
+		}
 	}
 
 	for s in snapshot {

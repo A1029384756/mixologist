@@ -124,6 +124,10 @@ gui_ui_tick :: proc(ctx: ^GUIContext) {
 
 _gui_deinit :: proc(ctx: ^GUIContext) {
 	ui.deinit(&ctx.ui_ctx)
+	for rule in ctx.rules {
+		delete(rule)
+	}
+	delete(ctx.rules)
 	for program in ctx.selected_programs {
 		delete(program)
 	}

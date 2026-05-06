@@ -69,6 +69,10 @@ file_manager_init :: proc() {
 }
 
 file_manager_deinit :: proc() {
+	for rule in ctx.config.rules {
+		delete(rule)
+	}
+	delete(ctx.config.rules)
 	subscriber_flush(&ctx.subscription)
 	subscriber_destroy(&ctx.subscription)
 	delete(ctx.volume_file)

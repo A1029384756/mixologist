@@ -152,6 +152,10 @@ daemon_deinit :: proc() {
 		pw.deinit()
 	}
 
+	for rule in ctx.rules {
+		delete(rule)
+	}
+	delete(ctx.rules)
 	for input in ctx.device_inputs {
 		delete(input)
 	}
