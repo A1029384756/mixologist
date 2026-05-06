@@ -28,7 +28,7 @@ Context :: struct {
 	active_widgets:      [dynamic; 16]clay.ElementId,
 	hovered_widget:      clay.ElementId,
 	prev_hovered_widget: clay.ElementId,
-	statuses:            Context_Statuses,
+	statuses:            ContextStatuses,
 	// input handling
 	_text_store:         [1024]u8, // global text input per frame
 	click_count:         int,
@@ -124,7 +124,7 @@ EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 DEBUG_PREV_TIME: time.Tick
 
-Context_Status :: enum {
+ContextStatus :: enum {
 	TEXTBOX_SELECTED,
 	TEXTBOX_JUST_SELECTED,
 	TEXTBOX_JUST_DESELECTED,
@@ -135,10 +135,11 @@ Context_Status :: enum {
 	WINDOW_CLOSED,
 	WINDOW_RESIZED,
 	WINDOW_MINIMIZED,
+	WINDOW_TOGGLED,
 	APP_EXIT,
 	MEMORY_DEBUG,
 }
-Context_Statuses :: bit_set[Context_Status]
+ContextStatuses :: bit_set[ContextStatus]
 
 WidgetResult :: enum {
 	CHANGE,
@@ -274,7 +275,7 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	// todo: fix mixed-gpu dmabuf in SDL
 	// sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, true)
 	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
-	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
+	sdl.SetBooleanProperty(device_props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, false)
 	ctx.device = sdl.CreateGPUDeviceWithProperties(device_props)
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
 	Renderer_init(ctx)
@@ -294,11 +295,7 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 		ctx.tray.userdata = ctx
 		ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
 			ctx := cast(^Context)userdata
-			if .WINDOW_CLOSED in ctx.statuses {
-				open_window(ctx)
-			} else {
-				close_window(ctx)
-			}
+			ctx.statuses += {.WINDOW_TOGGLED}
 		}
 		ctx.tray.menu.userdata = ctx
 		ctx.tray.menu.activate_cb = on_tray_menu_activate
@@ -479,6 +476,11 @@ tick :: proc(
 
 	systray.pump(&ctx.tray)
 
+	if .WINDOW_TOGGLED in ctx.statuses {
+		ctx.statuses -= {.WINDOW_TOGGLED}
+		toggle_window(ctx)
+	}
+
 	event: sdl.Event
 	if sdl.WaitEventTimeout(&event, ctx.window_frametime) {
 		handle_event(ctx, &event)
@@ -579,7 +581,8 @@ tick :: proc(
 	if Renderer_should_redraw(ctx, &render_commands) {
 		cmd_buffer := sdl.AcquireGPUCommandBuffer(ctx.device)
 		Renderer_draw(ctx, cmd_buffer, &render_commands)
-		_ = sdl.SubmitGPUCommandBuffer(cmd_buffer)
+		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
+		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
 	}
 
 	when ODIN_DEBUG {
@@ -679,15 +682,15 @@ widget_active :: proc(ctx: ^Context, id: clay.ElementId) -> bool {
 widget_focus :: proc(
 	ctx: ^Context,
 	id: clay.ElementId,
-	add_statuses: Context_Statuses = {},
-	remove_statuses: Context_Statuses = {},
+	add_statuses: ContextStatuses = {},
+	remove_statuses: ContextStatuses = {},
 ) {
 	if !slice.contains(ctx.active_widgets[:], id) do append(&ctx.active_widgets, id)
 	ctx.statuses -= remove_statuses
 	ctx.statuses += add_statuses
 }
 
-status_add :: proc(ctx: ^Context, statuses: Context_Statuses) {
+status_add :: proc(ctx: ^Context, statuses: ContextStatuses) {
 	ctx.statuses += statuses
 }
 
@@ -698,8 +701,8 @@ textbox_reset :: proc(ctx: ^Context, textlen: int) {
 unfocus :: proc(
 	ctx: ^Context,
 	id: clay.ElementId,
-	add_statuses: Context_Statuses = {},
-	remove_statuses: Context_Statuses = {},
+	add_statuses: ContextStatuses = {},
+	remove_statuses: ContextStatuses = {},
 ) {
 	idx, found := slice.linear_search(ctx.active_widgets[:], id)
 	if found do unordered_remove(&ctx.active_widgets, idx)
@@ -709,8 +712,8 @@ unfocus :: proc(
 
 unfocus_all :: proc(
 	ctx: ^Context,
-	add_statuses: Context_Statuses = {},
-	remove_statuses: Context_Statuses = {},
+	add_statuses: ContextStatuses = {},
+	remove_statuses: ContextStatuses = {},
 ) {
 	clear(&ctx.active_widgets)
 	ctx.statuses -= remove_statuses
