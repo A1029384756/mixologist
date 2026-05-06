@@ -224,8 +224,8 @@ Renderer_should_redraw :: proc(
 	cell_tl := [2]int{ctx.renderer.cell_wh.x, ctx.renderer.cell_wh.y}
 	cell_br := [2]int{0, 0}
 	cells_match := true
-	find_cell_mismatch: for y in 0 ..< ctx.renderer.cell_wh.y {
-		for x in 0 ..< ctx.renderer.cell_wh.x {
+	find_cell_mismatch: for y in 0 ..= ctx.renderer.cell_wh.y {
+		for x in 0 ..= ctx.renderer.cell_wh.x {
 			idx := x + y * ctx.renderer.cell_wh.x
 			if len(ctx.renderer.cells) != len(ctx.renderer.prev_buckets) {
 				cells_match = false
