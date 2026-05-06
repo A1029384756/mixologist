@@ -480,10 +480,11 @@ tick :: proc(
 	systray.pump(&ctx.tray)
 
 	event: sdl.Event
-	_ = sdl.WaitEventTimeout(&event, ctx.window_frametime)
-	handle_event(ctx, &event)
-	for sdl.PollEvent(&event) {
+	if sdl.WaitEventTimeout(&event, ctx.window_frametime) {
 		handle_event(ctx, &event)
+		for sdl.PollEvent(&event) {
+			handle_event(ctx, &event)
+		}
 	}
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
