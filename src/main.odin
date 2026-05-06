@@ -1,7 +1,6 @@
 package mixologist
 
 import "base:runtime"
-import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
