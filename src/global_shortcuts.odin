@@ -261,7 +261,7 @@ global_shortcuts_proc :: proc() {
 
 	should_exit := false
 	for !should_exit {
-		for msg in subscriber_poll(&ctx.subscription) {
+		for msg in subscriber_try_poll(&ctx.subscription) {
 			#partial switch msg.topic {
 			case .Quit:
 				should_exit = true

@@ -105,22 +105,23 @@ file_manager_proc :: proc() {
 	should_exit := false
 	for !should_exit {
 		modified_topics: Topics
-		for msg in subscriber_poll(&ctx.subscription) {
-			modified_topics += {msg.topic}
-			#partial switch msg.topic {
-			case .Settings:
-				ctx.config.settings = msg.settings
-			case .Rule:
-				modify_string_list(&ctx.config.rules, msg.list)
-			case .Volume:
-				modify_volume(&ctx.volume, msg.volume)
-			case .Quit:
-				should_exit = true
-			case:
-				log.errorf("unexpected \"%v\" message", msg.topic)
-			}
-			message_unref(msg)
+		msg, ok := subscriber_poll(&ctx.subscription)
+		if !ok do break
+
+		modified_topics += {msg.topic}
+		#partial switch msg.topic {
+		case .Settings:
+			ctx.config.settings = msg.settings
+		case .Rule:
+			modify_string_list(&ctx.config.rules, msg.list)
+		case .Volume:
+			modify_volume(&ctx.volume, msg.volume)
+		case .Quit:
+			should_exit = true
+		case:
+			log.errorf("unexpected \"%v\" message", msg.topic)
 		}
+		message_unref(msg)
 
 		if modified_topics & {.Settings, .Rule} != {} {
 			file_manager_config_write(&ctx)

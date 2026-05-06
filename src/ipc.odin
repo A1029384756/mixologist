@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:prof/spall"
 import "core:slice"
+import "core:sync"
 import "core:sys/linux"
 import "core:sys/posix"
 
@@ -56,7 +57,11 @@ ipc_proc :: proc() {
 
 	should_exit := false
 	for !should_exit {
-		for msg in subscriber_poll(&ctx.subscription) {
+		if sync.atomic_load_explicit(&quit_requested, .Relaxed) {
+			sync.atomic_store_explicit(&quit_requested, false, .Relaxed)
+			bus_publish(&bus, {topic = .Quit})
+		}
+		for msg in subscriber_try_poll(&ctx.subscription) {
 			#partial switch msg.topic {
 			case .Quit:
 				should_exit = true

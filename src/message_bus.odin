@@ -41,6 +41,7 @@ message_destroy :: proc(msg: ^Message) {
 }
 
 Component :: enum {
+	None,
 	Gui,
 	Ipc,
 	Daemon,
@@ -100,7 +101,7 @@ subscriber_destroy :: proc(s: ^Subscriber) {
 	chan.destroy(s.messages)
 }
 subscriber_poll :: proc(s: ^Subscriber) -> (msg: ^Message, ok: bool) {
-	return chan.try_recv(s.messages)
+	return chan.recv(s.messages)
 }
 subscriber_try_poll :: proc(s: ^Subscriber) -> (msg: ^Message, ok: bool) {
 	return chan.try_recv(s.messages)
@@ -147,8 +148,15 @@ bus_publish :: proc(
 	snapshot := slice.clone(b.subs[:], context.temp_allocator)
 	sync.unlock(&b.mu)
 
+	eligible := 0
+	for s in snapshot {
+		if _msg.topic not_in s.topics do continue
+		if s.id == _msg.sender do continue
+		eligible += 1
+	}
+	if eligible == 0 do return
+
 	// todo slab allocate and free list
-	// todo delete when no subscribers
 	msg := new(Message, allocator)
 	msg^ = _msg
 	#partial switch msg.topic {

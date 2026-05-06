@@ -6,6 +6,8 @@ import "core:mem"
 import "core:os"
 import "core:prof/spall"
 import "core:strings"
+import "core:sync"
+import "core:sys/posix"
 import "core:thread"
 
 PROFILING :: #config(profiling, false)
@@ -62,6 +64,12 @@ when PROFILING {
 	}
 }
 
+quit_requested: bool
+
+handle_term :: proc "c" (_: posix.Signal) {
+	sync.atomic_store_explicit(&quit_requested, true, .Relaxed)
+}
+
 main :: proc() {
 	when PROFILING {
 		spall_ctx = spall.context_create("mixologist_" + ODIN_OS_STRING + ".spall")
@@ -97,8 +105,16 @@ main :: proc() {
 	}
 
 	bus_init()
-	ipc_init()
 	file_manager_init()
+	if err := ipc_init(); err != nil {
+		if err == .EADDRINUSE {
+			log.fatalf("could not start mixologist ipc, is another instance already running?")
+		} else {
+			log.fatalf("could not start ipc: %v", err)
+		}
+		bus_deinit()
+		return
+	}
 	if global_shortcuts_init() {
 		features += {.GlobalShortcuts}
 	}
@@ -123,7 +139,8 @@ main :: proc() {
 		append(&threads, thread.create_and_start(gui_proc, context))
 	}
 
-	// todo set up signal handler that sends "Quit" event
+	posix.signal(.SIGINT, handle_term)
+	posix.signal(.SIGTERM, handle_term)
 	thread.join_multiple(..threads[:])
 
 	if .GlobalShortcuts in features {
