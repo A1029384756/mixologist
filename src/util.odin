@@ -18,7 +18,7 @@ spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 }
 
 proxy_set_volume :: proc(proxy: ^pw.proxy, volume: f32, num_channels: int) {
-	assert(proxy != nil)
+	if proxy == nil do return
 
 	buf: [256]u8
 	b: pw.spa_pod_builder

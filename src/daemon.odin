@@ -63,10 +63,23 @@ daemon_proc :: proc() {
 			#partial switch msg.topic {
 			case .Rule:
 				modify_string_list(&ctx.rules, msg.list)
+				switch msg.list.kind {
+				case .Add:
+					daemon_add_program(&ctx, msg.list.val)
+				case .Remove:
+					daemon_remove_program(&ctx, msg.list.val)
+				case .Update:
+					daemon_remove_program(&ctx, msg.list.mod.prev)
+					daemon_add_program(&ctx, msg.list.mod.curr)
+				}
 			case .Volume:
 				modify_volume(&ctx.volume, msg.volume)
+				default, aux := daemon_sink_volumes(ctx.volume)
+				daemon_set_volumes(&ctx, {default, aux})
 			case .Settings:
 				ctx.falloff = msg.settings.volume_falloff
+				default, aux := daemon_sink_volumes(ctx.volume)
+				daemon_set_volumes(&ctx, {default, aux})
 			case .Quit:
 				should_exit = true
 			case:
