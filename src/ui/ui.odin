@@ -474,6 +474,13 @@ tick :: proc(
 		ctx.statuses -= {.TEXTBOX_HOVERING, .BUTTON_HOVERING, .TEXTBOX_SELECTED, .WINDOW_RESIZED}
 	}
 
+	target_frametime := time.Millisecond * time.Duration(ctx.window_frametime)
+	since_last := time.tick_since(ctx.prev_frame_time)
+	if since_last < target_frametime {
+		time.sleep(target_frametime - since_last)
+	}
+
+	// measure tick-to-tick so delta_time includes the previous frame's vsync wait
 	now := time.tick_now()
 	delta_time := f32(time.duration_seconds(time.tick_diff(ctx.prev_frame_time, now)))
 	ctx.prev_frame_time = now
