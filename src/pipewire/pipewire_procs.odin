@@ -197,3 +197,39 @@ node_set_param :: proc(proxy: ^proxy, param_id: spa_param_type, flags: u32, pod:
 		panic("could not set param")
 	}
 }
+
+loop_get_fd :: proc(loop: ^loop) -> i32 {
+	_f := cast(^spa_loop_control_methods)((cast(^spa_interface)loop.control).cb).funcs
+	if _f != nil && _f.version >= VERSION_LOOP_CONTROL_METHODS && _f.get_fd != nil {
+		return i32(_f.get_fd((&(cast(^spa_interface)loop.control).cb).data))
+	} else {
+		panic("could not get loop fd")
+	}
+}
+
+loop_iterate :: proc(loop: ^loop, timeout_ms: i32) -> i32 {
+	_f := cast(^spa_loop_control_methods)((cast(^spa_interface)loop.control).cb).funcs
+	if _f != nil && _f.version >= VERSION_LOOP_CONTROL_METHODS && _f.iterate != nil {
+		return i32(_f.iterate((&(cast(^spa_interface)loop.control).cb).data, c.int(timeout_ms)))
+	} else {
+		panic("could not iterate loop")
+	}
+}
+
+loop_enter :: proc(loop: ^loop) {
+	_f := cast(^spa_loop_control_methods)((cast(^spa_interface)loop.control).cb).funcs
+	if _f != nil && _f.version >= VERSION_LOOP_CONTROL_METHODS && _f.enter != nil {
+		_f.enter((&(cast(^spa_interface)loop.control).cb).data)
+	} else {
+		panic("could not enter loop")
+	}
+}
+
+loop_leave :: proc(loop: ^loop) {
+	_f := cast(^spa_loop_control_methods)((cast(^spa_interface)loop.control).cb).funcs
+	if _f != nil && _f.version >= VERSION_LOOP_CONTROL_METHODS && _f.leave != nil {
+		_f.leave((&(cast(^spa_interface)loop.control).cb).data)
+	} else {
+		panic("could not leave loop")
+	}
+}

@@ -1,5 +1,6 @@
 package pipewire
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 
@@ -38,6 +39,16 @@ spa_loop :: struct {
 
 spa_loop_control :: struct {
 	iface: spa_interface,
+}
+
+spa_loop_control_methods :: struct {
+	version:  u32,
+	get_fd:   proc "c" (object: rawptr) -> c.int,
+	add_hook: proc "c" (object: rawptr, hook: ^spa_hook, hooks: rawptr, data: rawptr),
+	enter:    proc "c" (object: rawptr),
+	leave:    proc "c" (object: rawptr),
+	iterate:  proc "c" (object: rawptr, timeout_ms: c.int) -> c.int,
+	check:    proc "c" (object: rawptr) -> c.int,
 }
 
 spa_loop_utils :: struct {
