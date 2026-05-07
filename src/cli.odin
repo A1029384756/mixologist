@@ -9,13 +9,13 @@ import "core:os"
 import "core:strings"
 import "core:sys/linux"
 
-ProgramList :: distinct [dynamic]string
+RuleList :: distinct [dynamic]string
 
 CLIArgs :: struct {
 	set_volume:   f32 `usage:"volume to assign nodes"`,
 	shift_volume: f32 `usage:"volume to increment nodes"`,
-	add_rule:     ProgramList `usage:"rule to add"`,
-	remove_rule:  ProgramList `usage:"rule to remove"`,
+	add_rule:     RuleList `usage:"rule to add"`,
+	remove_rule:  RuleList `usage:"rule to remove"`,
 	get_volume:   bool `usage:"the current mixologist volume"`,
 	daemon:       bool `usage:"start mixologist in daemon mode (no window)"`,
 }
@@ -40,9 +40,9 @@ type_setter :: proc(
 	handled: bool,
 	alloc_error: runtime.Allocator_Error,
 ) {
-	if data_type == ProgramList {
+	if data_type == RuleList {
 		handled = true
-		list := cast(^ProgramList)data
+		list := cast(^RuleList)data
 		programs := unparsed_value
 		for program in strings.split_iterator(&programs, ",") {
 			append(list, program)
