@@ -17,6 +17,7 @@ IPCServer :: struct {
 	subscription:     Subscriber,
 	server_fd:        linux.Fd,
 	server_addr:      linux.Sock_Addr_Un,
+	volume:           f32,
 	_clients:         [dynamic; MAX_CLIENTS]linux.Poll_Fd,
 	_removed_clients: [dynamic; MAX_CLIENTS]linux.Fd,
 	_buf:             [BUF_SIZE]u8,
@@ -26,7 +27,7 @@ IPCServer :: struct {
 ctx: IPCServer
 
 ipc_init :: proc() -> linux.Errno {
-	subscriber_init(&ctx.subscription, .Ipc, {.Quit})
+	subscriber_init(&ctx.subscription, .Ipc, {.Quit, .Volume})
 	bus_subscribe(&bus, ctx.subscription)
 	posix.signal(.SIGPIPE, _ipc_handle_sigpipe)
 
@@ -65,6 +66,8 @@ ipc_proc :: proc() {
 			#partial switch msg.topic {
 			case .Quit:
 				should_exit = true
+			case .Volume:
+				modify_volume(&ctx.volume, msg.volume)
 			case:
 				log.errorf("unexpected \"%v\" message", msg.topic)
 			}
@@ -126,8 +129,20 @@ ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
 	}
 
 	#partial switch msg.topic {
-	case .Rule, .Volume, .Wake:
+	case .Rule, .Wake:
 		bus_publish(&bus, msg)
+	case .Volume:
+		v := msg.volume
+		switch v.kind {
+		case .Add:
+			ctx.volume += v.data
+			bus_publish(&bus, msg)
+		case .Set:
+			ctx.volume = v.data
+			bus_publish(&bus, msg)
+		case .Get:
+			ipc_send(&ctx, sender, {topic = .Volume, volume = {data = ctx.volume}})
+		}
 	case:
 		log.errorf("unexpected topic %v", msg.topic)
 	}
