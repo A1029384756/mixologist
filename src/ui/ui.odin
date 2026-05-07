@@ -1484,6 +1484,11 @@ _textbox :: proc(
 										1) /
 									2,
 								},
+							transition = {
+								handler = clay.EaseOut,
+								duration = 0.125,
+								properties = {.X},
+							},
 						},
 						) {
 						}
@@ -1507,6 +1512,11 @@ _textbox :: proc(
 								},
 							},
 							backgroundColor = text_config.textColor * {1, 1, 1, 0.25},
+							transition = {
+								handler = clay.EaseOut,
+								duration = 0.075,
+								properties = {.X, .Width},
+							},
 						},
 						) {
 						}
