@@ -1486,7 +1486,7 @@ _textbox :: proc(
 								},
 							transition = {
 								handler = clay.EaseOut,
-								duration = 0.125,
+								duration = 0.075,
 								properties = {.X},
 							},
 						},
