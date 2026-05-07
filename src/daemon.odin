@@ -68,12 +68,12 @@ daemon_proc :: proc() {
 			modify_string_list(&ctx.rules, msg.list)
 			switch msg.list.kind {
 			case .Add:
-				daemon_add_program(&ctx, msg.list.val)
+				daemon_add_rule(&ctx, msg.list.val)
 			case .Remove:
-				daemon_remove_program(&ctx, msg.list.val)
+				daemon_remove_rule(&ctx, msg.list.val)
 			case .Update:
-				daemon_remove_program(&ctx, msg.list.mod.prev)
-				daemon_add_program(&ctx, msg.list.mod.curr)
+				daemon_remove_rule(&ctx, msg.list.mod.prev)
+				daemon_add_rule(&ctx, msg.list.mod.curr)
 			}
 		case .Volume:
 			modify_volume(&ctx.volume, msg.volume)
@@ -485,10 +485,10 @@ daemon_sink_volumes :: proc(vol: f32) -> (def, aux: f32) {
 	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
 }
 
-_daemon_add_program :: proc(ctx: ^Daemon, program: string) {
-	log.debugf("internal adding program %s", program)
+_daemon_add_rule :: proc(ctx: ^Daemon, rule: string) {
+	log.debugf("internal adding rule %s", rule)
 	for id, node in ctx.default_sink.associated_nodes {
-		if !check_name(node.name, {program}) do continue
+		if !check_name(node.name, {rule}) do continue
 
 		log.debugf("found addition candidate %v with id %v", node.name, id)
 		delete_key(&ctx.default_sink.associated_nodes, id)
@@ -516,10 +516,10 @@ _daemon_add_program :: proc(ctx: ^Daemon, program: string) {
 	}
 }
 
-_daemon_remove_program :: proc(ctx: ^Daemon, program: string) {
-	log.debugf("internal removing program %s", program)
+_daemon_remove_rule :: proc(ctx: ^Daemon, rule: string) {
+	log.debugf("internal removing rule %s", rule)
 	for id, node in ctx.aux_sink.associated_nodes {
-		if !check_name(node.name, {program}) do continue
+		if !check_name(node.name, {rule}) do continue
 		log.debugf("found removal candidate %v with id %v", node.name, id)
 		delete_key(&ctx.aux_sink.associated_nodes, id)
 		map_insert(&ctx.default_sink.associated_nodes, id, node)
@@ -546,7 +546,7 @@ _daemon_remove_program :: proc(ctx: ^Daemon, program: string) {
 	}
 }
 
-daemon_invoke_add_program :: proc "c" (
+daemon_invoke_add_rule :: proc "c" (
 	loop: ^pw.loop,
 	async: bool,
 	seq: u32,
@@ -554,16 +554,16 @@ daemon_invoke_add_program :: proc "c" (
 	size: uint,
 	user_data: rawptr,
 ) -> i32 {
-	program := cast(^string)user_data
+	rule := cast(^string)user_data
 	context = ctx.pw_odin_ctx
-	log.debugf("invoke adding program %s", program^)
-	_daemon_add_program(&ctx, program^)
-	delete(program^)
-	free(program)
+	log.debugf("invoke adding rule %s", rule^)
+	_daemon_add_rule(&ctx, rule^)
+	delete(rule^)
+	free(rule)
 	return 0
 }
 
-daemon_invoke_remove_program :: proc "c" (
+daemon_invoke_remove_rule :: proc "c" (
 	loop: ^pw.loop,
 	async: bool,
 	seq: u32,
@@ -571,12 +571,12 @@ daemon_invoke_remove_program :: proc "c" (
 	size: uint,
 	user_data: rawptr,
 ) -> i32 {
-	program := cast(^string)user_data
+	rule := cast(^string)user_data
 	context = ctx.pw_odin_ctx
-	log.debugf("invoke removing program %s", program^)
-	_daemon_remove_program(&ctx, program^)
-	delete(program^)
-	free(program)
+	log.debugf("invoke removing rule %s", rule^)
+	_daemon_remove_rule(&ctx, rule^)
+	delete(rule^)
+	free(rule)
 	return 0
 }
 
@@ -604,22 +604,22 @@ daemon_set_volumes :: proc(ctx: ^Daemon, volumes: [2]f32) {
 	pw.loop_invoke(ctx.loop, daemon_invoke_set_volume, 0, nil, 0, false, volumes_ptr)
 }
 
-daemon_add_program :: proc(ctx: ^Daemon, program: string) {
-	assert(len(program) != 0)
-	log.debugf("adding program %s", program)
-	program := strings.clone(program)
-	program_ptr := new(string)
-	program_ptr^ = program
-	pw.loop_invoke(ctx.loop, daemon_invoke_add_program, 0, nil, 0, false, program_ptr)
+daemon_add_rule :: proc(ctx: ^Daemon, rule: string) {
+	assert(len(rule) != 0)
+	log.debugf("adding rule %s", rule)
+	rule := strings.clone(rule)
+	rule_ptr := new(string)
+	rule_ptr^ = rule
+	pw.loop_invoke(ctx.loop, daemon_invoke_add_rule, 0, nil, 0, false, rule_ptr)
 }
 
-daemon_remove_program :: proc(ctx: ^Daemon, program: string) {
-	assert(len(program) != 0)
-	log.debugf("removing program %s", program)
-	program := strings.clone(program)
-	program_ptr := new(string)
-	program_ptr^ = program
-	pw.loop_invoke(ctx.loop, daemon_invoke_remove_program, 0, nil, 0, false, program_ptr)
+daemon_remove_rule :: proc(ctx: ^Daemon, rule: string) {
+	assert(len(rule) != 0)
+	log.debugf("removing rule %s", rule)
+	rule := strings.clone(rule)
+	rule_ptr := new(string)
+	rule_ptr^ = rule
+	pw.loop_invoke(ctx.loop, daemon_invoke_remove_rule, 0, nil, 0, false, rule_ptr)
 }
 
 daemon_signal_stop :: proc(ctx: ^Daemon) {
