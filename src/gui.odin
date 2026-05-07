@@ -65,7 +65,7 @@ gui_proc :: proc() {
 		free_all(context.temp_allocator)
 	}
 	_gui_deinit(&ctx)
-	bus_publish(&bus, {sender = .Gui, topic = .Quit})
+	bus_publish({sender = .Gui, topic = .Quit})
 }
 
 Icons :: enum {
@@ -84,7 +84,7 @@ icons: [Icons]int
 
 gui_init :: proc() {
 	subscriber_init(&ctx.subscription, .Gui, AllTopics, context.allocator)
-	bus_subscribe(&bus, ctx.subscription)
+	bus_subscribe(ctx.subscription)
 }
 
 gui_deinit :: proc() {
@@ -303,7 +303,6 @@ volume_slider :: proc(ctx: ^GUIContext) {
 
 			if .CHANGE in slider_res {
 				bus_publish(
-					&bus,
 					{
 						sender = .Gui,
 						topic = .Volume,
@@ -425,7 +424,7 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 				kind = .Update,
 				mod = {prev = rule, curr = string(ctx.active_line_buf[:ctx.active_line_len])},
 			}
-			bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = update}})
+			bus_publish({sender = .Gui, topic = .Rule, data = {list = update}})
 			modify_string_list(&ctx.rules, update)
 			ctx.statuses += {.Rules}
 			ctx.active_line = 0
@@ -452,7 +451,7 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 							kind = .Remove,
 							val  = rule,
 						}
-						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = remove}})
+						bus_publish({sender = .Gui, topic = .Rule, data = {list = remove}})
 						modify_string_list(&ctx.rules, remove)
 						ctx.statuses += {.Rules}
 					}
@@ -492,7 +491,7 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 							kind = .Update,
 							mod  = {rule, string(ctx.active_line_buf[:ctx.active_line_len])},
 						}
-						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = update}})
+						bus_publish({sender = .Gui, topic = .Rule, data = {list = update}})
 						modify_string_list(&ctx.rules, update)
 						ctx.statuses += {.Rules}
 						ctx.active_line = 0
@@ -737,7 +736,7 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 							kind = .Add,
 							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
 						}
-						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+						bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
 						modify_string_list(&ctx.rules, add)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
@@ -779,7 +778,7 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 							kind = .Add,
 							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
 						}
-						bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+						bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
 						modify_string_list(&ctx.rules, add)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
@@ -791,7 +790,7 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 								kind = .Add,
 								val  = program,
 							}
-							bus_publish(&bus, {sender = .Gui, topic = .Rule, data = {list = add}})
+							bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
 							modify_string_list(&ctx.rules, add)
 						}
 						ctx.statuses += {.Rules}
@@ -888,14 +887,11 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 				)
 				if .CHANGE in dropdown_res {
 					settings_change = true
-					bus_publish(
-						&bus,
-						{sender = .Gui, topic = .Volume, volume = {.Set, ctx.volume}},
-					)
+					bus_publish({sender = .Gui, topic = .Volume, volume = {.Set, ctx.volume}})
 				}
 
 				if settings_change {
-					bus_publish(&bus, {sender = .Gui, topic = .Settings, settings = ctx.settings})
+					bus_publish({sender = .Gui, topic = .Settings, settings = ctx.settings})
 				}
 			}
 		}

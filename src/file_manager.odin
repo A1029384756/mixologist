@@ -34,7 +34,7 @@ ctx: FileManager
 
 file_manager_init :: proc() {
 	subscriber_init(&ctx.subscription, .FileManager, {.Settings, .Rule, .Volume, .Quit})
-	bus_subscribe(&bus, ctx.subscription)
+	bus_subscribe(ctx.subscription)
 
 	// config file
 	user_config_dir, _ := os.user_config_dir(context.temp_allocator)
@@ -82,11 +82,10 @@ file_manager_deinit :: proc() {
 
 file_manager_seed_state :: proc() {
 	for rule in ctx.config.rules {
-		bus_publish(&bus, {sender = .FileManager, topic = .Rule, list = {kind = .Add, val = rule}})
+		bus_publish({sender = .FileManager, topic = .Rule, list = {kind = .Add, val = rule}})
 	}
-	bus_publish(&bus, {sender = .FileManager, topic = .Settings, settings = ctx.config.settings})
+	bus_publish({sender = .FileManager, topic = .Settings, settings = ctx.config.settings})
 	bus_publish(
-		&bus,
 		{sender = .FileManager, topic = .Volume, volume = {kind = .Set, data = ctx.volume}},
 	)
 }

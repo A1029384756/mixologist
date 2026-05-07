@@ -79,7 +79,7 @@ node_init :: proc(
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		bus_publish(&bus, {sender = .Daemon, topic = .Program, list = {kind = .Add, val = name}})
+		bus_publish({sender = .Daemon, topic = .Program, list = {kind = .Add, val = name}})
 	}
 }
 
@@ -92,10 +92,7 @@ node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 
 	log.infof("destroying node: %v", node.name)
 	if node.name != "output.mixologist-default" && node.name != "output.mixologist-aux" {
-		bus_publish(
-			&bus,
-			{sender = .Daemon, topic = .Program, list = {kind = .Remove, val = node.name}},
-		)
+		bus_publish({sender = .Daemon, topic = .Program, list = {kind = .Remove, val = node.name}})
 	}
 
 	pw.proxy_destroy(node.proxy)

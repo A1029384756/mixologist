@@ -100,7 +100,7 @@ main :: proc() {
 	} else if !cli.option_sel {
 		features += {.Daemon, .Gui}
 	} else {
-		cli_messages(cli)
+		cli_messages()
 		return
 	}
 

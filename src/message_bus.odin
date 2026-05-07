@@ -112,41 +112,39 @@ subscriber_flush :: proc(s: ^Subscriber) {
 	}
 }
 
-bus: Bus
+ctx: Bus
 Bus :: struct {
 	subs: [dynamic]Subscriber,
 	mu:   sync.Mutex,
 }
 bus_init :: proc() {
-	bus.subs = make([dynamic]Subscriber, 0, 8)
+	ctx.subs = make([dynamic]Subscriber, 0, 8)
 }
 bus_deinit :: proc() {
-	delete(bus.subs)
+	delete(ctx.subs)
 }
-bus_subscribe :: proc(b: ^Bus, s: Subscriber) {
+bus_subscribe :: proc(s: Subscriber) {
 	s := s
-	sync.guard(&b.mu)
+	sync.guard(&ctx.mu)
 	context.user_ptr = &s
-	idx, already_subscribed := slice.linear_search_proc(b.subs[:], proc(sub: Subscriber) -> bool {
-		s := cast(^Subscriber)context.user_ptr
-		return s.messages == sub.messages
-	})
+	idx, already_subscribed := slice.linear_search_proc(
+		ctx.subs[:],
+		proc(sub: Subscriber) -> bool {
+			s := cast(^Subscriber)context.user_ptr
+			return s.messages == sub.messages
+		},
+	)
 	if already_subscribed {
-		b.subs[idx] = s
+		ctx.subs[idx] = s
 	} else {
-		append(&b.subs, s)
+		append(&ctx.subs, s)
 	}
 }
-bus_publish :: proc(
-	b: ^Bus,
-	_msg: Message,
-	allocator := context.allocator,
-	loc := #caller_location,
-) {
+bus_publish :: proc(_msg: Message, allocator := context.allocator, loc := #caller_location) {
 	log.debugf("publishing to bus from: %v", loc)
-	sync.lock(&b.mu)
-	snapshot := slice.clone(b.subs[:], context.temp_allocator)
-	sync.unlock(&b.mu)
+	sync.lock(&ctx.mu)
+	snapshot := slice.clone(ctx.subs[:], context.temp_allocator)
+	sync.unlock(&ctx.mu)
 
 	eligible := 0
 	for s in snapshot {

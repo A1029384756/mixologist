@@ -176,7 +176,7 @@ global_shortcuts_handler :: proc "c" (
 			volume.kind = .Set
 			volume.data = 0
 		}
-		bus_publish(&bus, {sender = .GlobalShortcuts, topic = .Volume, volume = volume})
+		bus_publish({sender = .GlobalShortcuts, topic = .Volume, volume = volume})
 		return .HANDLED
 	}
 	return .NOT_YET_HANDLED
@@ -210,7 +210,7 @@ ctx: GlobalShortcuts
 global_shortcuts_init :: proc() -> bool {
 	subscriber_init(&ctx.subscription, .GlobalShortcuts, {.Quit})
 	ctx.odin_ctx = context
-	bus_subscribe(&bus, ctx.subscription)
+	bus_subscribe(ctx.subscription)
 	gs_err := _global_shortcuts_init(
 		&ctx,
 		"dev.cstring.mixologist",

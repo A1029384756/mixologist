@@ -28,7 +28,7 @@ ctx: IPCServer
 
 ipc_init :: proc() -> linux.Errno {
 	subscriber_init(&ctx.subscription, .Ipc, {.Quit, .Volume})
-	bus_subscribe(&bus, ctx.subscription)
+	bus_subscribe(ctx.subscription)
 	posix.signal(.SIGPIPE, _ipc_handle_sigpipe)
 
 	sock_err: linux.Errno
@@ -60,7 +60,7 @@ ipc_proc :: proc() {
 	for !should_exit {
 		if sync.atomic_load_explicit(&quit_requested, .Relaxed) {
 			sync.atomic_store_explicit(&quit_requested, false, .Relaxed)
-			bus_publish(&bus, {topic = .Quit})
+			bus_publish({topic = .Quit})
 		}
 		for msg in subscriber_try_poll(&ctx.subscription) {
 			#partial switch msg.topic {
@@ -130,16 +130,16 @@ ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
 
 	#partial switch msg.topic {
 	case .Rule, .Wake:
-		bus_publish(&bus, msg)
+		bus_publish(msg)
 	case .Volume:
 		v := msg.volume
 		switch v.kind {
 		case .Add:
 			ctx.volume += v.data
-			bus_publish(&bus, msg)
+			bus_publish(msg)
 		case .Set:
 			ctx.volume = v.data
-			bus_publish(&bus, msg)
+			bus_publish(msg)
 		case .Get:
 			ipc_send(&ctx, sender, {topic = .Volume, volume = {data = ctx.volume}})
 		}

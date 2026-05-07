@@ -98,7 +98,7 @@ daemon_proc :: proc() {
 
 daemon_init :: proc() {
 	subscriber_init(&ctx.subscription, .Daemon, {.Rule, .Volume, .Settings, .Quit})
-	bus_subscribe(&bus, ctx.subscription)
+	bus_subscribe(ctx.subscription)
 	ctx.device_inputs = make(map[string]Link, DEFAULT_MAP_CAPACITY)
 	ctx.passthrough_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY)
 	ctx.passthrough_ports = make([dynamic]u32, DEFAULT_ARR_CAPACITY)

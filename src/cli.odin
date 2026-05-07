@@ -101,7 +101,12 @@ cli_deinit :: proc() {
 	delete(cli.opts.remove_rule)
 }
 
-cli_messages :: proc(cli: CLIState) {
+cli_messages :: proc() {
+	context.logger = log.create_console_logger(
+		get_log_level(),
+		log.Default_Console_Logger_Opts + {.Thread_Id},
+	)
+
 	if cli.set_volume {
 		send_message({topic = .Volume, volume = {kind = .Set, data = cli.opts.set_volume}})
 	} else if cli.add_volume {
@@ -135,7 +140,10 @@ send_message :: proc(msg: Message, recv := false) {
 	copy(client_addr.sun_path[:], SERVER_SOCKET)
 
 	connect_err := linux.connect(client_fd, &client_addr)
-	if connect_err != nil do log.panicf("could not connect to socket with error %v, message %v", connect_err, msg)
+	if connect_err != nil {
+		log.fatalf("could not connect to socket with error %v", connect_err)
+		os.exit(1)
+	}
 
 	bytes_sent, send_err := linux.send(client_fd, message, {})
 	if send_err != nil do log.panicf("could not send data with error %v", send_err)
