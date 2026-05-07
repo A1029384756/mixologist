@@ -585,6 +585,7 @@ tick :: proc(
 		Renderer_draw(ctx, cmd_buffer, &render_commands)
 		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
 		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
+		sdl.ReleaseGPUFence(ctx.device, fence)
 	}
 
 	when ODIN_DEBUG {
