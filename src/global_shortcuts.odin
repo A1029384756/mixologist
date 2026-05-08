@@ -156,7 +156,6 @@ global_shortcuts_handler :: proc "c" (
 			delete(activation.shortcut_id)
 		}
 		shortcut_id := shortcut_from_str(activation.shortcut_id)
-		volume := daemon.state.volume
 		switch shortcut_id {
 		case .Raise:
 			daemon_update_gui_volume({.Add, 0.1})
