@@ -149,16 +149,21 @@ daemon_update_gui_volume :: proc(volume: Volume) {
 	daemon.state_status += {.Volume}
 	modify_volume(&daemon.state.volume, volume)
 	pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
-	chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = volume})
+	if !shared_state.is_daemon {
+		chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = volume})
+	}
 }
 
 daemon_update_gui_rule :: proc(rule: ListString) {
 	daemon.state_status += {.Config}
-	chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = list_string_clone(rule)})
+	if !shared_state.is_daemon {
+		chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = list_string_clone(rule)})
+	}
 	modify_string_list(&daemon.state.rules, rule, false)
 }
 
 daemon_update_gui_program :: proc(program: ListString) {
+	if shared_state.is_daemon do return
 	chan.send(
 		shared_state.daemon_chan,
 		Message{kind = .Program, list = list_string_clone(program)},
@@ -169,9 +174,11 @@ daemon_update_gui_settings :: proc(settings: Settings) {
 	daemon.state_status += {.Config}
 	daemon.state.settings = settings
 	pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
+	if shared_state.is_daemon do return
 	chan.send(shared_state.daemon_chan, Message{kind = .Settings, settings = settings})
 }
 
 daemon_wake_gui :: proc() {
+	if shared_state.is_daemon do return
 	chan.send(shared_state.daemon_chan, Message{kind = .Wake})
 }
