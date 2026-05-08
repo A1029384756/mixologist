@@ -1488,7 +1488,7 @@ _textbox :: proc(
 							transition = {
 								handler = clay.EaseOut,
 								duration = 0.075,
-								properties = {.X},
+								properties = .TEXTBOX_JUST_SELECTED in ctx.statuses ? {} : {.X},
 							},
 						},
 						) {
