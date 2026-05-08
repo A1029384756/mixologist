@@ -326,7 +326,7 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	}
 }
 
-deinit :: proc(ctx: ^Context) {
+fini :: proc(ctx: ^Context) {
 	when ODIN_DEBUG {
 		delete(ctx.memory_debug.memory)
 	}

@@ -5,11 +5,13 @@ import "core:os"
 import "core:prof/spall"
 import "core:slice"
 import "core:strings"
+import "core:sync"
+import "core:sync/chan"
+import "core:sys/linux"
 import "ui"
 import "ui/clay"
 
 GUI_Context_Status :: enum u8 {
-	Exit,
 	AddingNew,
 	Adding,
 	Settings,
@@ -19,22 +21,17 @@ GUI_Context_Status :: enum u8 {
 }
 GUI_Context_Statuses :: bit_set[GUI_Context_Status]
 
-@(private = "file")
-ctx: GUIContext
-
+gui: GUIContext
 GUIContext :: struct {
+	state:             State,
 	ui_ctx:            ui.Context,
-	subscription:      Subscriber,
 	// rule modification
 	active_line_buf:   [1024]u8,
 	active_line_len:   int,
 	active_line:       int,
 	volume:            f32,
 	// rule addition
-	rules:             [dynamic]string,
-	programs:          [dynamic]string,
 	selected_programs: [dynamic]string,
-	settings:          Settings,
 	// custom rule creation
 	new_rule_buf:      [1024]u8,
 	new_rule_len:      int,
@@ -55,17 +52,16 @@ gui_proc :: proc() {
 		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
 	}
 
-	gui_poll(&ctx) // load initial state
-
-	_gui_init(&ctx, ctx.settings.start_minimized)
-	for (.Exit not_in ctx.statuses) {
-		gui_poll(&ctx)
-		gui_ui_tick(&ctx)
-		if ui.should_exit(&ctx.ui_ctx) do ctx.statuses += {.Exit}
+	gui_init_internal(&gui, gui.state.settings.start_minimized)
+	for !sync.atomic_load(&shared_state.should_quit) {
+		gui_poll(&gui)
+		gui_ui_tick(&gui)
+		if ui.should_exit(&gui.ui_ctx) {
+			sync.atomic_store(&shared_state.should_quit, true)
+		}
 		free_all(context.temp_allocator)
 	}
-	_gui_deinit(&ctx)
-	bus_publish({sender = .Gui, topic = .Quit})
+	gui_fini_internal(&gui)
 }
 
 Icons :: enum {
@@ -83,15 +79,10 @@ Icons :: enum {
 icons: [Icons]int
 
 gui_init :: proc() {
-	subscriber_init(&ctx.subscription, .Gui, AllTopics, context.allocator)
-	bus_subscribe(ctx.subscription)
+	state_populate(&gui.state)
 }
 
-gui_deinit :: proc() {
-	subscriber_flush(&ctx.subscription)
-}
-
-_gui_init :: proc(ctx: ^GUIContext, minimized: bool) {
+gui_init_internal :: proc(ctx: ^GUIContext, minimized: bool) {
 	ui.init(&ctx.ui_ctx, "Mixologist", minimized)
 	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
 	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
@@ -123,39 +114,25 @@ gui_ui_tick :: proc(ctx: ^GUIContext) {
 	}
 }
 
-_gui_deinit :: proc(ctx: ^GUIContext) {
-	ui.deinit(&ctx.ui_ctx)
-	for rule in ctx.rules {
-		delete(rule)
-	}
-	delete(ctx.rules)
-	for program in ctx.selected_programs {
-		delete(program)
-	}
-	delete(ctx.selected_programs)
-	for program in ctx.programs {
-		delete(program)
-	}
-	delete(ctx.programs)
+gui_fini_internal :: proc(ctx: ^GUIContext) {
+	ui.fini(&ctx.ui_ctx)
+	state_destroy(ctx.state)
 }
 
 gui_poll :: proc(ctx: ^GUIContext) {
-	for msg in subscriber_try_poll(&ctx.subscription) {
-		switch msg.topic {
-		case .Quit:
-			ctx.statuses += {.Exit}
+	for msg in chan.try_recv(shared_state.daemon_chan) {
+		switch msg.kind {
 		case .Wake:
 			ui.open_window(&ctx.ui_ctx)
 		case .Rule:
-			modify_string_list(&ctx.rules, msg.list)
+			modify_string_list(&ctx.state.rules, msg.list)
 		case .Program:
-			modify_string_list(&ctx.programs, msg.list)
+			modify_string_list(&ctx.state.programs, msg.list)
 		case .Volume:
 			modify_volume(&ctx.volume, msg.volume)
 		case .Settings:
-			ctx.settings = msg.settings
+			ctx.state.settings = msg.settings
 		}
-		message_unref(msg)
 	}
 }
 
@@ -225,7 +202,7 @@ create_layout :: proc(ctx: ^GUIContext, delta_time: f32) -> clay.ClayArray(clay.
 								cornerRadius = clay.CornerRadiusAll(10),
 							},
 							) {
-								for rule, i in ctx.rules do rule_line(ctx, rule, i + 1, len(ctx.rules))
+								for rule, i in ctx.state.rules do rule_line(ctx, rule, i + 1, len(ctx.state.rules))
 							}
 						}
 					}
@@ -302,13 +279,7 @@ volume_slider :: proc(ctx: ^GUIContext) {
 			)
 
 			if .CHANGE in slider_res {
-				bus_publish(
-					{
-						sender = .Gui,
-						topic = .Volume,
-						data = {volume = {kind = .Set, data = ctx.volume}},
-					},
-				)
+				gui_update_daemon_volume(ctx.volume)
 				ctx.statuses += {.Volume}
 			}
 
@@ -420,12 +391,9 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 		)
 
 		if .SUBMIT in tb_res {
-			update := ListString {
-				kind = .Update,
-				mod = {prev = rule, curr = string(ctx.active_line_buf[:ctx.active_line_len])},
-			}
-			bus_publish({sender = .Gui, topic = .Rule, data = {list = update}})
-			modify_string_list(&ctx.rules, update)
+			gui_update_daemon_rule(
+				{kind = .Update, mod = {rule, string(ctx.active_line_buf[:ctx.active_line_len])}},
+			)
 			ctx.statuses += {.Rules}
 			ctx.active_line = 0
 			row_selected = false
@@ -447,12 +415,7 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 						5,
 					)
 					if .RELEASE in delete_res {
-						remove := ListString {
-							kind = .Remove,
-							val  = rule,
-						}
-						bus_publish({sender = .Gui, topic = .Rule, data = {list = remove}})
-						modify_string_list(&ctx.rules, remove)
+						gui_update_daemon_rule({kind = .Remove, val = rule})
 						ctx.statuses += {.Rules}
 					}
 				}
@@ -487,12 +450,12 @@ rule_line :: proc(ctx: ^GUIContext, rule: string, idx, rule_count: int) {
 					)
 
 					if .RELEASE in apply_res {
-						update := ListString {
-							kind = .Update,
-							mod  = {rule, string(ctx.active_line_buf[:ctx.active_line_len])},
-						}
-						bus_publish({sender = .Gui, topic = .Rule, data = {list = update}})
-						modify_string_list(&ctx.rules, update)
+						gui_update_daemon_rule(
+							{
+								kind = .Update,
+								mod = {rule, string(ctx.active_line_buf[:ctx.active_line_len])},
+							},
+						)
 						ctx.statuses += {.Rules}
 						ctx.active_line = 0
 					}
@@ -604,15 +567,15 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 			}
 
 			found_count := 0
-			for program in ctx.programs {
+			for program in ctx.state.programs {
 				// todo this should be if it matches
-				if slice.contains(ctx.rules[:], program) {
+				if slice.contains(ctx.state.rules[:], program) {
 					found_count += 1
 				}
 			}
 
 			// todo maybe refactor
-			if len(ctx.programs) > 0 && found_count != len(ctx.programs) {
+			if len(ctx.state.programs) > 0 && found_count != len(ctx.state.programs) {
 				ui.textlabel("Open Programs", {textColor = TEXT, fontSize = 16})
 				if clay.UI()(
 				{
@@ -634,9 +597,9 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 						clip = {vertical = true, childOffset = clay.GetScrollOffset()},
 					},
 					) {
-						for program, idx in ctx.programs {
+						for program, idx in ctx.state.programs {
 							// todo this should be if it matches
-							if slice.contains(ctx.rules[:], program) {
+							if slice.contains(ctx.state.rules[:], program) {
 								continue
 							}
 
@@ -680,7 +643,7 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 									}
 								}
 							}
-							if idx < len(ctx.programs) - 1 - found_count {
+							if idx < len(ctx.state.programs) - 1 - found_count {
 								list_separator(SURFACE_1)
 							}
 						}
@@ -732,12 +695,9 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				if .SUBMIT in tb_res {
 					if ctx.new_rule_len > 0 {
-						add := ListString {
-							kind = .Add,
-							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
-						}
-						bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
-						modify_string_list(&ctx.rules, add)
+						gui_update_daemon_rule(
+							{kind = .Add, val = string(ctx.new_rule_buf[:ctx.new_rule_len])},
+						)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
@@ -774,24 +734,16 @@ rule_add_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				if .RELEASE in button_res {
 					if ctx.new_rule_len > 0 {
-						add := ListString {
-							kind = .Add,
-							val  = string(ctx.new_rule_buf[:ctx.new_rule_len]),
-						}
-						bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
-						modify_string_list(&ctx.rules, add)
+						gui_update_daemon_rule(
+							{kind = .Add, val = string(ctx.new_rule_buf[:ctx.new_rule_len])},
+						)
 						ctx.new_rule_len = 0
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
 					}
 					if len(ctx.selected_programs) > 0 {
 						for program in ctx.selected_programs {
-							add := ListString {
-								kind = .Add,
-								val  = program,
-							}
-							bus_publish({sender = .Gui, topic = .Rule, data = {list = add}})
-							modify_string_list(&ctx.rules, add)
+							gui_update_daemon_rule({kind = .Add, val = program})
 						}
 						ctx.statuses += {.Rules}
 						res += {.SUBMIT}
@@ -859,7 +811,7 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 				res, _ := switch_row(
 					ctx,
 					{text = "Minimize on Start", color = TEXT, size = 16},
-					&ctx.settings.start_minimized,
+					&ctx.state.settings.start_minimized,
 				)
 				if .RELEASE in res {
 					settings_change = true
@@ -870,7 +822,7 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 				remember_res, _ := switch_row(
 					ctx,
 					{text = "Remember Volume", color = TEXT, size = 16},
-					&ctx.settings.remember_volume,
+					&ctx.state.settings.remember_volume,
 				)
 				if .RELEASE in remember_res {
 					settings_change = true
@@ -878,7 +830,7 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				list_separator(SURFACE_1)
 
-				volume_mode := transmute(^int)&ctx.settings.volume_falloff
+				volume_mode := transmute(^int)&ctx.state.settings.volume_falloff
 				dropdown_res, _ := dropdown_row(
 					ctx,
 					{text = "Volume Falloff Curve", color = TEXT, size = 16},
@@ -887,11 +839,11 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 				)
 				if .CHANGE in dropdown_res {
 					settings_change = true
-					bus_publish({sender = .Gui, topic = .Volume, volume = {.Set, ctx.volume}})
+					gui_update_daemon_volume(ctx.volume)
 				}
 
 				if settings_change {
-					bus_publish({sender = .Gui, topic = .Settings, settings = ctx.settings})
+					gui_update_daemon_settings(ctx.state.settings)
 				}
 			}
 		}
@@ -964,4 +916,22 @@ dropdown_row :: proc(
 		)
 	}
 	return
+}
+
+gui_update_daemon_volume :: proc(volume: f32) {
+	gui.state.volume = volume
+	chan.send(shared_state.gui_chan, Message{kind = .Volume, volume = {kind = .Set, val = volume}})
+	eventfd_write(shared_state.state_eventfd)
+}
+
+gui_update_daemon_rule :: proc(rule: ListString) {
+	modify_string_list(&gui.state.rules, rule)
+	chan.send(shared_state.gui_chan, Message{kind = .Rule, list = rule})
+	eventfd_write(shared_state.state_eventfd)
+}
+
+gui_update_daemon_settings :: proc(settings: Settings) {
+	gui.state.settings = settings
+	chan.send(shared_state.gui_chan, Message{kind = .Settings, settings = settings})
+	eventfd_write(shared_state.state_eventfd)
 }

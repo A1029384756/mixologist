@@ -8,10 +8,6 @@ import "core:os"
 import "core:strings"
 import pw "pipewire"
 
-DEFAULT_MAP_CAPACITY :: #config(DEFAULT_MAP_CAPACITY, 128)
-DEFAULT_ARR_CAPACITY :: #config(DEFAULT_ARR_CAPACITY, 128)
-
-DEFAULT_RATE :: 48000
 DEFAULT_CHANNELS :: 2
 DEFAULT_CHANNEL_MAP :: "[ FL, FR ]"
 
@@ -75,11 +71,11 @@ node_init :: proc(
 	log.infof("initializing node: %v", name)
 	node.proxy = proxy
 	node.props = props
-	node.ports = make(map[string]u32, DEFAULT_MAP_CAPACITY, allocator)
+	node.ports = make(map[string]u32, allocator)
 	node.name = name
 
 	if name != "output.mixologist-default" && name != "output.mixologist-aux" {
-		bus_publish({sender = .Daemon, topic = .Program, list = {kind = .Add, val = name}})
+		daemon_update_gui_program({kind = .Add, val = name})
 	}
 }
 
@@ -92,7 +88,7 @@ node_destroy :: proc(node: ^Node, allocator := context.allocator) {
 
 	log.infof("destroying node: %v", node.name)
 	if node.name != "output.mixologist-default" && node.name != "output.mixologist-aux" {
-		bus_publish({sender = .Daemon, topic = .Program, list = {kind = .Remove, val = node.name}})
+		daemon_update_gui_program({kind = .Remove, val = node.name})
 	}
 
 	pw.proxy_destroy(node.proxy)
@@ -107,8 +103,8 @@ sink_init :: proc(
 	arena: ^virtual.Arena,
 ) {
 	ally := virtual.arena_allocator(arena)
-	sink.associated_nodes = make(map[u32]Node, DEFAULT_MAP_CAPACITY, ally)
-	sink.links = make([dynamic]Link, 0, DEFAULT_ARR_CAPACITY, ally)
+	sink.associated_nodes = make(map[u32]Node, ally)
+	sink.links = make([dynamic]Link, 0, ally)
 	sink.volume = node_volume
 
 	tmp := virtual.arena_temp_begin(arena)
@@ -169,9 +165,9 @@ sink_destroy :: proc(sink: ^Sink) {
 	pw.properties_free(sink.device.playback_props)
 }
 
-sink_set_volume :: proc(d: ^Daemon, sink: ^Sink, volume: f32) {
+sink_set_volume :: proc(d: ^PwContext, sink: ^Sink, volume: f32) {
 	sink.volume = volume
-	proxy_volume := volume_falloff(volume, d.falloff)
+	proxy_volume := volume_falloff(volume, daemon.state.settings.volume_falloff)
 	proxy_set_volume(sink.loopback_node.proxy, proxy_volume, len(sink.loopback_node.ports))
 }
 
@@ -194,4 +190,14 @@ volume_falloff :: proc(volume: f32, falloff: VolumeFalloff) -> f32 {
 		return volume * volume * volume
 	}
 	unreachable()
+}
+
+module_destroy :: proc "c" (data: rawptr) {
+	context = daemon.odin_ctx
+	sink := transmute(^Sink)data
+	pw.spa_hook_remove(&sink.device.module_listener)
+	for _, &node in sink.associated_nodes {
+		node_destroy(&node)
+	}
+	sink.device.module = nil
 }

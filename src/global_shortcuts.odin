@@ -5,17 +5,15 @@ import "core:fmt"
 import "core:log"
 import "core:math/rand"
 import "core:os"
-import "core:prof/spall"
 import "core:strings"
+import "core:sys/linux"
 import "core:time"
 import "dbus"
 
 GlobalShortcuts :: struct {
-	subscription:   Subscriber,
 	conn:           ^dbus.Connection,
 	session_handle: dbus.ObjectPath,
 	base:           string,
-	odin_ctx:       runtime.Context,
 }
 
 GlobalShortcut :: struct {
@@ -143,7 +141,7 @@ global_shortcuts_handler :: proc "c" (
 	msg: ^dbus.Message,
 	user_data: rawptr,
 ) -> dbus.HandlerResult {
-	context = ctx.odin_ctx
+	context = shared_state.odin_ctx
 	interface := cstring("org.freedesktop.portal.GlobalShortcuts")
 	activated: if dbus.message_is_signal(msg, interface, "Activated") {
 		activation: struct {
@@ -158,25 +156,20 @@ global_shortcuts_handler :: proc "c" (
 			delete(activation.shortcut_id)
 		}
 		shortcut_id := shortcut_from_str(activation.shortcut_id)
-		volume: Volume
+		volume := daemon.state.volume
 		switch shortcut_id {
 		case .Raise:
-			volume.kind = .Add
-			volume.data = 0.1
+			volume += 0.1
 		case .Lower:
-			volume.kind = .Add
-			volume.data = -0.1
+			volume -= -0.1
 		case .Max:
-			volume.kind = .Set
-			volume.data = 1
+			volume = 1
 		case .Min:
-			volume.kind = .Set
-			volume.data = -1
+			volume = -1
 		case .Reset:
-			volume.kind = .Set
-			volume.data = 0
+			volume = 0
 		}
-		bus_publish({sender = .GlobalShortcuts, topic = .Volume, volume = volume})
+		daemon_update_gui_volume(volume)
 		return .HANDLED
 	}
 	return .NOT_YET_HANDLED
@@ -207,10 +200,8 @@ global_shortcuts_generate_token :: proc(base: string, allocator := context.alloc
 @(private = "file")
 ctx: GlobalShortcuts
 
-global_shortcuts_init :: proc() -> bool {
-	subscriber_init(&ctx.subscription, .GlobalShortcuts, {.Quit})
-	ctx.odin_ctx = context
-	bus_subscribe(ctx.subscription)
+global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
+	context = shared_state.odin_ctx
 	gs_err := _global_shortcuts_init(
 		&ctx,
 		"dev.cstring.mixologist",
@@ -220,7 +211,7 @@ global_shortcuts_init :: proc() -> bool {
 		nil,
 		nil,
 	)
-	if gs_err != nil do return false
+	if gs_err != nil do return 0, false
 
 	global_shortcuts_create_session(&ctx)
 	listed_shortcuts, _ := global_shortcuts_list_shortcuts(&ctx)
@@ -245,40 +236,14 @@ global_shortcuts_init :: proc() -> bool {
 		bound_shortcuts, _ := global_shortcuts_bind_shortcuts(&ctx, shortcuts[:])
 		global_shortcuts_slice_delete(bound_shortcuts)
 	}
-	return true
+	has_fd := dbus.connection_get_unix_fd(ctx.conn, cast(^i32)(&fd))
+	if !has_fd do return 0, false
+	return
 }
 
-global_shortcuts_proc :: proc() {
-	when PROFILING {
-		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
-		defer delete(buffer_backing)
-
-		spall_buffer = spall.buffer_create(buffer_backing, u32(os.get_current_thread_id()))
-		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
-
-		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
-	}
-
-	should_exit := false
-	for !should_exit {
-		for msg in subscriber_try_poll(&ctx.subscription) {
-			#partial switch msg.topic {
-			case .Quit:
-				should_exit = true
-			case:
-				log.errorf("unexpected \"%v\" message", msg.topic)
-			}
-			message_unref(msg)
-		}
-		global_shortcuts_tick(ctx.conn)
-		free_all(context.temp_allocator)
-	}
-}
-
-global_shortcuts_deinit :: proc() {
-	_global_shortcuts_deinit(&ctx)
-	subscriber_flush(&ctx.subscription)
-	subscriber_destroy(&ctx.subscription)
+global_shortcuts_fini :: proc() {
+	dbus.connection_unref(ctx.conn)
+	delete(string(ctx.session_handle))
 }
 
 _global_shortcuts_init :: proc(
@@ -327,11 +292,6 @@ _global_shortcuts_init :: proc(
 	dbus.connection_add_filter(gs.conn, signal_handler, signal_userdata, signal_data_free)
 
 	return nil
-}
-
-_global_shortcuts_deinit :: proc(gs: ^GlobalShortcuts, allocator := context.allocator) {
-	dbus.connection_unref(gs.conn)
-	delete(string(gs.session_handle), allocator)
 }
 
 global_shortcuts_create_session :: proc(

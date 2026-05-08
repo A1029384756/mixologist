@@ -96,7 +96,7 @@ cli_init :: proc() {
 	flags.parse_or_exit(&cli.opts, os.args, .Odin)
 }
 
-cli_deinit :: proc() {
+cli_fini :: proc() {
 	delete(cli.opts.add_rule)
 	delete(cli.opts.remove_rule)
 }
@@ -108,25 +108,25 @@ cli_messages :: proc() {
 	)
 
 	if cli.set_volume {
-		send_message({topic = .Volume, volume = {kind = .Set, data = cli.opts.set_volume}})
+		cli_send_message({kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
 	} else if cli.add_volume {
-		send_message({topic = .Volume, volume = {kind = .Add, data = cli.opts.set_volume}})
+		cli_send_message({kind = .Volume, volume = {kind = .Add, val = cli.opts.set_volume}})
 	}
 
 	for program in cli.opts.add_rule {
-		send_message({topic = .Rule, list = {kind = .Add, val = program}})
+		cli_send_message({kind = .Rule, list = {kind = .Add, val = program}})
 	}
 
 	for program in cli.opts.remove_rule {
-		send_message({topic = .Rule, list = {kind = .Remove, val = program}})
+		cli_send_message({kind = .Rule, list = {kind = .Remove, val = program}})
 	}
 
 	if cli.opts.get_volume {
-		send_message({topic = .Volume, volume = {kind = .Get}}, true)
+		cli_send_message({kind = .Volume, volume = {kind = .Get}}, true)
 	}
 }
 
-send_message :: proc(msg: Message, recv := false) {
+cli_send_message :: proc(msg: Message, recv := false) {
 	message, encoding_err := cbor.marshal(msg)
 	assert(encoding_err == nil)
 	defer delete(message)
@@ -163,7 +163,7 @@ send_message :: proc(msg: Message, recv := false) {
 		response: Message
 		response_err := cbor.unmarshal(string(buf[:bytes_read]), &response)
 		if response_err != nil do log.panicf("unmarshal from server failed: %v", response_err)
-		res := response.volume.data
+		res := response.volume.val
 		fmt.println(res)
 		break
 	}

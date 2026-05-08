@@ -7,67 +7,35 @@ import "core:os"
 import "core:prof/spall"
 import "core:strings"
 import "core:sync"
+import "core:sync/chan"
+import "core:sys/linux"
 import "core:sys/posix"
 import "core:thread"
 
 PROFILING :: #config(profiling, false)
 
-Features :: bit_set[Feature]
-Feature :: enum {
-	GlobalShortcuts,
-	Daemon,
-	Gui,
+shared_state: SharedState
+SharedState :: struct {
+	odin_ctx:      runtime.Context,
+	gui_chan:      chan.Chan(Message),
+	daemon_chan:   chan.Chan(Message),
+	state_eventfd: linux.Fd,
+	quit_eventfd:  linux.Fd,
+	should_quit:   bool,
+	is_daemon:     bool,
 }
-
-Event :: union {
-	Rule_Add,
-	Rule_Remove,
-	Rule_Update,
-	Program_Add,
-	Program_Remove,
-	Settings,
-	Open,
+shared_state_init :: proc() {
+	shared_state.odin_ctx = context
+	shared_state.gui_chan, _ = chan.create_buffered(MessageChan, 128, context.allocator)
+	shared_state.daemon_chan, _ = chan.create_buffered(MessageChan, 128, context.allocator)
+	shared_state.quit_eventfd, _ = linux.eventfd(0, {})
+	shared_state.state_eventfd, _ = linux.eventfd(0, {})
 }
-Rule_Add :: distinct string
-Rule_Remove :: distinct string
-Program_Add :: distinct string
-Program_Remove :: distinct string
-Rule_Update :: struct {
-	prev: string,
-	cur:  string,
-}
-Open :: distinct rawptr
-
-when ODIN_DEBUG {
-	track: mem.Tracking_Allocator
-}
-
-when PROFILING {
-	spall_ctx: spall.Context
-	@(thread_local)
-	spall_buffer: spall.Buffer
-
-	@(instrumentation_enter)
-	spall_enter :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
-	}
-
-	@(instrumentation_exit)
-	spall_exit :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_end(&spall_ctx, &spall_buffer)
-	}
-}
-
-quit_requested: bool
-
-handle_term :: proc "c" (_: posix.Signal) {
-	sync.atomic_store_explicit(&quit_requested, true, .Relaxed)
+shared_state_fini :: proc() {
+	chan.destroy(shared_state.gui_chan)
+	chan.destroy(shared_state.daemon_chan)
+	linux.close(shared_state.quit_eventfd)
+	linux.close(shared_state.state_eventfd)
 }
 
 main :: proc() {
@@ -85,80 +53,53 @@ main :: proc() {
 	}
 
 	default_heap := context.allocator
-	context.logger = mixologist_init_logging()
-	defer mixologist_deinit_logging(default_heap)
+	context.logger = logging_init()
+	defer logging_fini(default_heap)
 
-	context.allocator = mixologist_init_allocator()
-	defer mixologist_deinit_allocator()
+	context.allocator = allocator_init()
+	defer allocator_fini()
 
-	// command line parsing
-	features: Features
 	cli_init()
-	defer cli_deinit()
+	defer cli_fini()
 	if cli.opts.daemon {
-		features += {.Daemon}
-	} else if !cli.option_sel {
-		features += {.Daemon, .Gui}
-	} else {
+		shared_state.is_daemon = true
+	} else if cli.option_sel {
 		cli_messages()
 		return
 	}
 
-	bus_init()
-	file_manager_init()
 	if err := ipc_init(); err != nil {
 		if err == .EADDRINUSE {
 			log.infof("mixologist already running, sending wake command")
-			send_message({topic = .Wake})
+			cli_send_message({kind = .Wake})
 		} else {
 			log.fatalf("could not start ipc: %v", err)
 		}
-		bus_deinit()
 		return
-	}
-	if global_shortcuts_init() {
-		features += {.GlobalShortcuts}
-	}
-	if .Daemon in features {
-		daemon_init()
-	}
-	if .Gui in features {
-		gui_init()
-	}
-
-	threads: [dynamic; 8]^thread.Thread
-	file_manager_seed_state()
-	append(&threads, thread.create_and_start(ipc_proc, context))
-	append(&threads, thread.create_and_start(file_manager_proc, context))
-	if .GlobalShortcuts in features {
-		append(&threads, thread.create_and_start(global_shortcuts_proc, context))
-	}
-	if .Daemon in features {
-		append(&threads, thread.create_and_start(daemon_proc, context))
-	}
-	if .Gui in features {
-		append(&threads, thread.create_and_start(gui_proc, context))
 	}
 
 	posix.signal(.SIGINT, handle_term)
 	posix.signal(.SIGTERM, handle_term)
-	thread.join_multiple(..threads[:])
 
-	if .GlobalShortcuts in features {
-		global_shortcuts_deinit()
+	config_init()
+	shared_state_init()
+
+	daemon_init()
+	if shared_state.is_daemon {
+		daemon_proc()
+	} else {
+		gui_init()
+		gui := thread.create_and_start(gui_proc, context)
+		daemon_proc()
+		thread.join(gui)
 	}
-	if .Daemon in features {
-		daemon_deinit()
-	}
-	if .Gui in features {
-		gui_deinit()
-	}
-	file_manager_deinit()
-	ipc_deinit()
-	bus_deinit()
+	daemon_fini()
+
+	shared_state_fini()
+	config_fini()
 }
 
-mixologist_init_logging :: proc() -> log.Logger {
+logging_init :: proc() -> log.Logger {
 	when ODIN_DEBUG {
 		return log.create_console_logger(
 			get_log_level(),
@@ -197,7 +138,7 @@ mixologist_init_logging :: proc() -> log.Logger {
 	}
 }
 
-mixologist_deinit_logging :: proc(allocator := context.allocator) {
+logging_fini :: proc(allocator := context.allocator) {
 	when ODIN_DEBUG {
 		log.destroy_console_logger(context.logger, allocator)
 	} else {
@@ -205,7 +146,7 @@ mixologist_deinit_logging :: proc(allocator := context.allocator) {
 	}
 }
 
-mixologist_init_allocator :: proc() -> runtime.Allocator {
+allocator_init :: proc() -> runtime.Allocator {
 	when ODIN_DEBUG {
 		mem.tracking_allocator_init(&track, context.allocator)
 		return mem.tracking_allocator(&track)
@@ -214,7 +155,7 @@ mixologist_init_allocator :: proc() -> runtime.Allocator {
 	}
 }
 
-mixologist_deinit_allocator :: proc() {
+allocator_fini :: proc() {
 	when ODIN_DEBUG {
 		for _, leak in track.allocation_map {
 			if strings.contains(leak.location.file_path, "mixologist") {
@@ -222,4 +163,36 @@ mixologist_deinit_allocator :: proc() {
 			}
 		}
 	}
+}
+
+when ODIN_DEBUG {
+	track: mem.Tracking_Allocator
+}
+
+when PROFILING {
+	spall_ctx: spall.Context
+	@(thread_local)
+	spall_buffer: spall.Buffer
+
+	@(instrumentation_enter)
+	spall_enter :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	}
+
+	@(instrumentation_exit)
+	spall_exit :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_end(&spall_ctx, &spall_buffer)
+	}
+}
+
+handle_term :: proc "c" (_: posix.Signal) {
+	context = shared_state.odin_ctx
+	sync.atomic_store_explicit(&shared_state.should_quit, true, .Relaxed)
+	eventfd_write(shared_state.quit_eventfd)
 }

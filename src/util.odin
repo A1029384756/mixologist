@@ -7,6 +7,7 @@ import "core:log"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:sys/linux"
 import "core:sys/posix"
 import pw "pipewire"
 
@@ -108,7 +109,7 @@ Cleanup_Loop :: struct {
 	sync:          c.int,
 }
 
-reset_links :: proc(ctx: ^Daemon) {
+reset_links :: proc(ctx: ^PwContext) {
 	sinks := [?]^Sink{&ctx.default_sink, &ctx.aux_sink}
 
 	cleanup_loop: Cleanup_Loop
@@ -209,10 +210,37 @@ modify_volume :: proc(vol: ^f32, v: Volume, loc := #caller_location) {
 	log.debugf("modifying volume by: %v", loc)
 	switch v.kind {
 	case .Add:
-		vol^ += v.data
+		vol^ += v.val
 	case .Set:
-		vol^ = v.data
+		vol^ = v.val
 	case .Get:
 		log.error("unexpectected \"get\"")
+	}
+	vol^ = clamp(vol^, -1, 1)
+}
+
+eventfd_write :: proc(fd: linux.Fd) {
+	one := 1
+	bytes := transmute([8]u8)one
+	linux.write(fd, bytes[:])
+}
+
+timerfd_arm :: proc(fd: linux.Fd, time_ms: int) {
+	linux.timerfd_settime(
+		fd,
+		{},
+		&{value = {time_sec = uint(time_ms / 1000), time_nsec = uint(time_ms % 1000) * 1_000_000}},
+		nil,
+	)
+}
+
+state_populate :: proc(state: ^State) {
+	if cfg, ok := config_read(); ok {
+		state.rules = cfg.rules
+		state.settings = cfg.settings
+	}
+
+	if volume, ok := config_volume_read(); ok && state.settings.remember_volume {
+		state.volume = volume
 	}
 }
