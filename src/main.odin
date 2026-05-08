@@ -32,6 +32,10 @@ shared_state_init :: proc() {
 	shared_state.state_eventfd, _ = linux.eventfd(0, {})
 }
 shared_state_fini :: proc() {
+	message_chan_flush(shared_state.gui_chan)
+	message_chan_flush(shared_state.daemon_chan)
+	chan.close(shared_state.gui_chan)
+	chan.close(shared_state.daemon_chan)
 	chan.destroy(shared_state.gui_chan)
 	chan.destroy(shared_state.daemon_chan)
 	linux.close(shared_state.quit_eventfd)

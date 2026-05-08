@@ -92,6 +92,7 @@ config_read :: proc() -> (config: Config, ok: bool) {
 }
 
 config_write :: proc(config: Config) {
+	log.debug("writing out config")
 	config_json, json_err := json.marshal(
 		config,
 		{pretty = true},
@@ -124,6 +125,7 @@ config_volume_read :: proc() -> (volume: f32, ok: bool) {
 }
 
 config_volume_write :: proc(volume: f32) {
+	log.debug("writing out volume")
 	volume_buf: [312]byte
 	volume_string := fmt.bprintf(volume_buf[:], "%f", volume)
 	err := os.write_entire_file(ctx.volume_file, transmute([]u8)volume_string)

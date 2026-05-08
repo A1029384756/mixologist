@@ -68,7 +68,8 @@ ipc_handle_client :: proc(fd: linux.Fd) -> (disconnected: bool) {
 
 ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
 	msg: Message
-	unmarshal_err := cbor.unmarshal(string(bytes), &msg)
+	// todo validate
+	unmarshal_err := cbor.unmarshal(string(bytes), &msg, allocator = context.temp_allocator)
 	if unmarshal_err != nil {
 		log.errorf("could not unmarshal message from %v: %v", sender, unmarshal_err)
 		return

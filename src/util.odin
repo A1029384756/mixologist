@@ -181,27 +181,48 @@ get_log_level :: #force_inline proc() -> runtime.Logger_Level {
 	}
 }
 
-modify_string_list :: proc(arr: ^[dynamic]string, ls: ListString, loc := #caller_location) {
+modify_string_list :: proc(
+	arr: ^[dynamic]string,
+	ls: ListString,
+	owned: bool,
+	loc := #caller_location,
+) {
 	log.debugf("modifying list string by: %v", loc)
 	switch ls.kind {
 	case .Add:
-		append(arr, strings.clone(ls.val))
+		if owned {
+			append(arr, ls.val)
+		} else {
+			append(arr, strings.clone(ls.val))
+		}
 	case .Remove:
 		idx, found := slice.linear_search(arr[:], ls.val)
 		if found {
 			delete(arr[idx])
 			unordered_remove(arr, idx)
 		}
+		if owned {
+			delete(ls.val)
+		}
 	case .Update:
 		prev := ls.mod.prev
 		curr := ls.mod.curr
+		defer if owned do delete(prev)
 		idx, found := slice.linear_search(arr[:], prev)
 		if found {
 			delete(arr[idx])
-			arr[idx] = strings.clone(curr)
+			if owned {
+				arr[idx] = curr
+			} else {
+				arr[idx] = strings.clone(curr)
+			}
 		} else {
 			log.warnf("could not find list item %s, still inserting %s", prev, curr)
-			append(arr, strings.clone(curr))
+			if owned {
+				append(arr, curr)
+			} else {
+				append(arr, strings.clone(curr))
+			}
 		}
 	}
 }

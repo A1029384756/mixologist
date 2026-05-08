@@ -110,9 +110,17 @@ daemon_process_messages :: proc() {
 		#partial switch msg.kind {
 		case .Rule:
 			daemon.state_status += {.Config}
-			modify_string_list(&daemon.state.rules, msg.list)
-		case .Program:
-			modify_string_list(&daemon.state.programs, msg.list)
+			list := msg.list
+			switch list.kind {
+			case .Add:
+				pw_add_rule(list.val)
+			case .Remove:
+				pw_remove_rule(list.val)
+			case .Update:
+				pw_remove_rule(list.mod.prev)
+				pw_add_rule(list.mod.curr)
+			}
+			modify_string_list(&daemon.state.rules, msg.list, true)
 		case .Volume:
 			daemon.state_status += {.Volume}
 			modify_volume(&daemon.state.volume, msg.volume)
@@ -120,6 +128,7 @@ daemon_process_messages :: proc() {
 		case .Settings:
 			daemon.state_status += {.Config}
 			daemon.state.settings = msg.settings
+			pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
 		case:
 			log.errorf("unexpected %v", msg.kind)
 		}
@@ -145,13 +154,15 @@ daemon_update_gui_volume :: proc(volume: Volume) {
 
 daemon_update_gui_rule :: proc(rule: ListString) {
 	daemon.state_status += {.Config}
-	modify_string_list(&daemon.state.rules, rule)
-	chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = rule})
+	chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = list_string_clone(rule)})
+	modify_string_list(&daemon.state.rules, rule, false)
 }
 
-daemon_update_gui_program :: proc(rule: ListString) {
-	modify_string_list(&daemon.state.programs, rule)
-	chan.send(shared_state.daemon_chan, Message{kind = .Program, list = rule})
+daemon_update_gui_program :: proc(program: ListString) {
+	chan.send(
+		shared_state.daemon_chan,
+		Message{kind = .Program, list = list_string_clone(program)},
+	)
 }
 
 daemon_update_gui_settings :: proc(settings: Settings) {

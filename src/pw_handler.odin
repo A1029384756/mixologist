@@ -417,7 +417,7 @@ pw_sink_volumes :: proc(vol: f32) -> (def, aux: f32) {
 	return vol < 0 ? 1 : 1 - vol, vol > 0 ? 1 : vol + 1
 }
 
-pw_add_rule :: proc(ctx: ^PwContext, rule: string) {
+pw_add_rule :: proc(rule: string) {
 	assert(len(rule) > 0)
 	log.infof("adding rule %s", rule)
 	for id, node in ctx.default_sink.associated_nodes {
@@ -449,7 +449,7 @@ pw_add_rule :: proc(ctx: ^PwContext, rule: string) {
 	}
 }
 
-pw_remove_rule :: proc(ctx: ^PwContext, rule: string) {
+pw_remove_rule :: proc(rule: string) {
 	assert(len(rule) > 0)
 	log.infof("removing rule %s", rule)
 	for id, node in ctx.aux_sink.associated_nodes {
