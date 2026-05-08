@@ -75,6 +75,20 @@ ipc_message_handler :: proc(bytes: []u8, sender: linux.Fd) {
 	}
 
 	#partial switch msg.kind {
+	case .Rule:
+		daemon_update_gui_rule(msg.list)
+	case .Wake:
+		daemon_wake_gui()
+	case .Volume:
+		v := msg.volume
+		switch v.kind {
+		case .Add, .Set:
+			daemon_update_gui_volume(v)
+		case .Get:
+			ipc_send(sender, {kind = .Volume, volume = {val = daemon.state.volume}})
+		}
+	case:
+		log.errorf("unexpected %v", msg.kind)
 	}
 }
 

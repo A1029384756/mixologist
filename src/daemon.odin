@@ -1,14 +1,15 @@
 package mixologist
 
+import "core:log"
+import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
+import pw "pipewire"
 
 daemon: Daemon
 Daemon :: struct {
 	state:             State,
-	pw_fd:             linux.Fd,
-	gs_fd:             linux.Fd,
-	ipc_fd:            linux.Fd,
+	state_status:      StateDirtyFlags,
 	config_save_timer: linux.Fd,
 	volume_save_timer: linux.Fd,
 	fds:               [dynamic]linux.Poll_Fd,
@@ -21,7 +22,7 @@ FD_PW :: 2
 FD_IPC :: 3
 FD_CFG :: 4
 FD_VOL :: 5
-FD_DBUS :: 6
+FD_GS :: 6
 
 daemon_init :: proc() {
 	state_populate(&daemon.state)
@@ -43,8 +44,85 @@ daemon_init :: proc() {
 }
 
 daemon_proc :: proc() {
-	for {
+	should_exit := false
+	for !should_exit {
+		daemon.state_status = {}
+		_, poll_err := linux.poll(daemon.fds[:], -1)
+		if poll_err != nil && poll_err != .EINTR {
+			log.errorf("daemon polling error: %v", poll_err)
+		}
+
+		if daemon.fds[FD_QUIT].revents >= {.IN} {
+			fd_drain(shared_state.quit_eventfd)
+			should_exit = true
+			break
+		}
+		if daemon.fds[FD_STATE].revents >= {.IN} {
+			fd_drain(shared_state.state_eventfd)
+			daemon_process_messages()
+		}
+		if daemon.fds[FD_PW].revents >= {.IN} {
+			pw.loop_iterate(pw_get_loop(), 0)
+		}
+		if daemon.fds[FD_IPC].revents >= {.IN} {
+			new_fd := ipc_accept_one()
+			append(&daemon.fds, linux.Poll_Fd{fd = new_fd, events = {.IN}})
+		}
+		if daemon.n_sys_fds - 1 == FD_GS && daemon.fds[FD_GS].revents >= {.IN} {
+			global_shortcuts_tick()
+		}
+
+		#reverse for &client_fd, idx in daemon.fds[daemon.n_sys_fds:] {
+			if client_fd.revents >= {.IN} {
+				disconnected := ipc_handle_client(client_fd.fd)
+				if disconnected {
+					linux.close(client_fd.fd)
+					unordered_remove(&daemon.fds, idx + daemon.n_sys_fds)
+				}
+			}
+		}
+
+		if .Config in daemon.state_status {
+			timerfd_arm(daemon.config_save_timer, 1000)
+		}
+		if .Volume in daemon.state_status {
+			timerfd_arm(daemon.volume_save_timer, 1000)
+		}
+		if daemon.fds[FD_CFG].revents >= {.IN} {
+			fd_drain(daemon.config_save_timer)
+			config_write({daemon.state.rules, daemon.state.settings})
+		}
+		if daemon.fds[FD_VOL].revents >= {.IN} {
+			fd_drain(daemon.volume_save_timer)
+			config_volume_write(daemon.state.volume)
+		}
+
+		if sync.atomic_load(&shared_state.should_quit) {
+			should_exit = true
+		}
+
 		free_all(context.temp_allocator)
+	}
+}
+
+daemon_process_messages :: proc() {
+	for msg in chan.try_recv(shared_state.gui_chan) {
+		#partial switch msg.kind {
+		case .Rule:
+			daemon.state_status += {.Config}
+			modify_string_list(&daemon.state.rules, msg.list)
+		case .Program:
+			modify_string_list(&daemon.state.programs, msg.list)
+		case .Volume:
+			daemon.state_status += {.Volume}
+			modify_volume(&daemon.state.volume, msg.volume)
+			pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
+		case .Settings:
+			daemon.state_status += {.Config}
+			daemon.state.settings = msg.settings
+		case:
+			log.errorf("unexpected %v", msg.kind)
+		}
 	}
 }
 
@@ -52,16 +130,21 @@ daemon_fini :: proc() {
 	state_destroy(daemon.state)
 	linux.close(daemon.config_save_timer)
 	linux.close(daemon.volume_save_timer)
+	delete(daemon.fds)
 	global_shortcuts_fini()
+	ipc_fini()
 	pw_fini()
 }
 
-daemon_update_gui_volume :: proc(volume: f32) {
-	daemon.state.volume = volume
-	chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = {.Set, volume}})
+daemon_update_gui_volume :: proc(volume: Volume) {
+	daemon.state_status += {.Volume}
+	modify_volume(&daemon.state.volume, volume)
+	pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
+	chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = volume})
 }
 
 daemon_update_gui_rule :: proc(rule: ListString) {
+	daemon.state_status += {.Config}
 	modify_string_list(&daemon.state.rules, rule)
 	chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = rule})
 }
@@ -72,6 +155,12 @@ daemon_update_gui_program :: proc(rule: ListString) {
 }
 
 daemon_update_gui_settings :: proc(settings: Settings) {
+	daemon.state_status += {.Config}
 	daemon.state.settings = settings
+	pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
 	chan.send(shared_state.daemon_chan, Message{kind = .Settings, settings = settings})
+}
+
+daemon_wake_gui :: proc() {
+	chan.send(shared_state.daemon_chan, Message{kind = .Wake})
 }

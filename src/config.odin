@@ -21,15 +21,15 @@ State :: struct {
 	settings: Settings,
 }
 
+StateDirty :: enum {
+	Config,
+	Volume,
+}
+StateDirtyFlags :: bit_set[StateDirty]
+
 state_destroy :: proc(state: State) {
-	for rule in state.rules {
-		delete(rule)
-	}
-	delete(state.rules)
-	for program in state.programs {
-		delete(program)
-	}
-	delete(state.programs)
+	str_arr_delete(state.rules)
+	str_arr_delete(state.programs)
 }
 
 Config :: struct {

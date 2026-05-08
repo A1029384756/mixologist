@@ -54,10 +54,11 @@ gui_proc :: proc() {
 
 	gui_init_internal(&gui, gui.state.settings.start_minimized)
 	for !sync.atomic_load(&shared_state.should_quit) {
-		gui_poll(&gui)
+		gui_process_messages(&gui)
 		gui_ui_tick(&gui)
 		if ui.should_exit(&gui.ui_ctx) {
 			sync.atomic_store(&shared_state.should_quit, true)
+			gui_demand_daemon_exit()
 		}
 		free_all(context.temp_allocator)
 	}
@@ -117,9 +118,10 @@ gui_ui_tick :: proc(ctx: ^GUIContext) {
 gui_fini_internal :: proc(ctx: ^GUIContext) {
 	ui.fini(&ctx.ui_ctx)
 	state_destroy(ctx.state)
+	str_arr_delete(ctx.selected_programs)
 }
 
-gui_poll :: proc(ctx: ^GUIContext) {
+gui_process_messages :: proc(ctx: ^GUIContext) {
 	for msg in chan.try_recv(shared_state.daemon_chan) {
 		switch msg.kind {
 		case .Wake:
@@ -934,4 +936,8 @@ gui_update_daemon_settings :: proc(settings: Settings) {
 	gui.state.settings = settings
 	chan.send(shared_state.gui_chan, Message{kind = .Settings, settings = settings})
 	eventfd_write(shared_state.state_eventfd)
+}
+
+gui_demand_daemon_exit :: proc() {
+	eventfd_write(shared_state.quit_eventfd)
 }

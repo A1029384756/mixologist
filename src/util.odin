@@ -225,6 +225,11 @@ eventfd_write :: proc(fd: linux.Fd) {
 	linux.write(fd, bytes[:])
 }
 
+fd_drain :: proc(fd: linux.Fd) {
+	buf: [8]u8
+	linux.read(fd, buf[:])
+}
+
 timerfd_arm :: proc(fd: linux.Fd, time_ms: int) {
 	linux.timerfd_settime(
 		fd,
@@ -243,4 +248,11 @@ state_populate :: proc(state: ^State) {
 	if volume, ok := config_volume_read(); ok && state.settings.remember_volume {
 		state.volume = volume
 	}
+}
+
+str_arr_delete :: proc(arr: [dynamic]string) {
+	for elem in arr {
+		delete(elem)
+	}
+	delete(arr)
 }

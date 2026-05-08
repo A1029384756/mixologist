@@ -130,6 +130,10 @@ global_add :: proc "c" (
 	free_all(context.temp_allocator)
 }
 
+pw_get_loop :: proc() -> ^pw.loop {
+	return ctx.loop
+}
+
 global_destroy :: proc "c" (data: rawptr, id: u32) {
 	ctx := cast(^PwContext)data
 	context = shared_state.odin_ctx
@@ -474,4 +478,10 @@ pw_remove_rule :: proc(ctx: ^PwContext, rule: string) {
 			}
 		}
 	}
+}
+
+pw_set_volumes :: proc(volumes: [2]f32) {
+	log.debugf("setting pipewire volumes: %v", volumes)
+	sink_set_volume(&ctx, &ctx.default_sink, volumes[0])
+	sink_set_volume(&ctx, &ctx.aux_sink, volumes[1])
 }

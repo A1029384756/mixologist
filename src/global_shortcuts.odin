@@ -132,8 +132,8 @@ shortcut_from_str :: proc(input: string) -> Shortcut {
 	}
 }
 
-global_shortcuts_tick :: proc(conn: ^dbus.Connection) -> bool {
-	return bool(dbus.connection_read_write_dispatch(conn, 5))
+global_shortcuts_tick :: proc() {
+	dbus.connection_read_write_dispatch(ctx.conn, 0)
 }
 
 global_shortcuts_handler :: proc "c" (
@@ -159,17 +159,16 @@ global_shortcuts_handler :: proc "c" (
 		volume := daemon.state.volume
 		switch shortcut_id {
 		case .Raise:
-			volume += 0.1
+			daemon_update_gui_volume({.Add, 0.1})
 		case .Lower:
-			volume -= -0.1
+			daemon_update_gui_volume({.Add, -0.1})
 		case .Max:
-			volume = 1
+			daemon_update_gui_volume({.Set, 1})
 		case .Min:
-			volume = -1
+			daemon_update_gui_volume({.Set, -1})
 		case .Reset:
-			volume = 0
+			daemon_update_gui_volume({.Set, 0})
 		}
-		daemon_update_gui_volume(volume)
 		return .HANDLED
 	}
 	return .NOT_YET_HANDLED
@@ -238,7 +237,7 @@ global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	}
 	has_fd := dbus.connection_get_unix_fd(ctx.conn, cast(^i32)(&fd))
 	if !has_fd do return 0, false
-	return
+	return fd, true
 }
 
 global_shortcuts_fini :: proc() {
