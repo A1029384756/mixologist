@@ -84,6 +84,7 @@ init :: proc(tray: ^Systray, item: StatusNotifierTray, allocator := context.allo
 	dbus.error_init(&err)
 
 	tray.connection = dbus.bus_get_private(.SESSION, &err)
+	dbus.connection_set_exit_on_disconnect(tray.connection, false)
 	if dbus.error_is_set(&err) {
 		dbus.error_free(&err)
 		return false

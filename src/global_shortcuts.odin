@@ -240,7 +240,7 @@ global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
 }
 
 global_shortcuts_fini :: proc() {
-	dbus.connection_unref(ctx.conn)
+	dbus.connection_close(ctx.conn)
 	delete(string(ctx.session_handle))
 }
 
@@ -254,7 +254,8 @@ _global_shortcuts_init :: proc(
 ) -> Error {
 	err: dbus.Error
 	dbus.error_init(&err)
-	gs.conn = dbus.bus_get(.SESSION, &err)
+	gs.conn = dbus.bus_get_private(.SESSION, &err)
+	dbus.connection_set_exit_on_disconnect(gs.conn, false)
 	if dbus.error_is_set(&err) do return err.message
 
 	gs.base = session_base
