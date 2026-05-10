@@ -35,6 +35,21 @@ modules:
       - '/lib/cmake'
       - '/share/aclocal'
       - '/lib/pkgconfig'
+  - name: plutosvg
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - '-DPLUTOSVG_BUILD_EXAMPLES=OFF'
+    sources:
+      - type: git
+        url: https://github.com/sammycage/plutosvg.git
+        commit: 31f7d2675416cd777c8e86220b035364873b2a8b
+    cleanup:
+      - '/include/plutosvg'
+      - '/include/plutovg'
+      - '/lib/cmake/plutosvg'
+      - '/lib/cmake/plutovg'
+      - '/lib/pkgconfig'
   - name: odin
     buildsystem: simple
     build-commands:
