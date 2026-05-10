@@ -5,9 +5,14 @@ import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
 import pw "pipewire"
+import sdl "vendor:sdl3"
 
 daemon: Daemon
 Daemon :: struct {
+	features:          bit_set[enum {
+		Shortcuts,
+		Tray,
+	}],
 	state:             State,
 	state_status:      StateDirtyFlags,
 	config_save_timer: linux.Fd,
@@ -22,7 +27,8 @@ FD_PW :: 2
 FD_IPC :: 3
 FD_CFG :: 4
 FD_VOL :: 5
-FD_GS :: 6
+FD_GS: int
+FD_TRAY: int
 
 daemon_init :: proc() {
 	state_populate(&daemon.state)
@@ -39,6 +45,15 @@ daemon_init :: proc() {
 	append(&daemon.fds, linux.Poll_Fd{fd = daemon.volume_save_timer, events = {.IN}})
 	if gs_fd, has_gs := global_shortcuts_init(); has_gs {
 		append(&daemon.fds, linux.Poll_Fd{fd = gs_fd, events = {.IN}})
+		daemon.features += {.Shortcuts}
+		FD_GS = len(daemon.fds) - 1
+	}
+	if !shared_state.is_daemon {
+		if tray_fd, has_tray := systray_init(); has_tray {
+			append(&daemon.fds, linux.Poll_Fd{fd = tray_fd, events = {.IN}})
+			daemon.features += {.Tray}
+			FD_TRAY = len(daemon.fds) - 1
+		}
 	}
 	daemon.n_sys_fds = len(daemon.fds)
 }
@@ -68,8 +83,13 @@ daemon_proc :: proc() {
 			new_fd := ipc_accept_one()
 			append(&daemon.fds, linux.Poll_Fd{fd = new_fd, events = {.IN}})
 		}
-		if daemon.n_sys_fds - 1 == FD_GS && daemon.fds[FD_GS].revents >= {.IN} {
+		if .Shortcuts in daemon.features && daemon.fds[FD_GS].revents >= {.IN} {
 			global_shortcuts_tick()
+		}
+		if !shared_state.is_daemon &&
+		   .Tray in daemon.features &&
+		   daemon.fds[FD_TRAY].revents >= {.IN} {
+			systray_tick()
 		}
 
 		#reverse for &client_fd, idx in daemon.fds[daemon.n_sys_fds:] {
@@ -95,10 +115,6 @@ daemon_proc :: proc() {
 		if daemon.fds[FD_VOL].revents >= {.IN} {
 			fd_drain(daemon.volume_save_timer)
 			config_volume_write(daemon.state.volume)
-		}
-
-		if sync.atomic_load(&shared_state.should_quit) {
-			should_exit = true
 		}
 
 		free_all(context.temp_allocator)
@@ -141,6 +157,9 @@ daemon_fini :: proc() {
 	linux.close(daemon.volume_save_timer)
 	delete(daemon.fds)
 	global_shortcuts_fini()
+	if !shared_state.is_daemon {
+		systray_fini()
+	}
 	ipc_fini()
 	pw_fini()
 }
@@ -181,4 +200,7 @@ daemon_update_gui_settings :: proc(settings: Settings) {
 daemon_wake_gui :: proc() {
 	if shared_state.is_daemon do return
 	chan.send(shared_state.daemon_chan, Message{kind = .Wake})
+	if sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) {
+		_ = sdl.PushEvent(&{})
+	}
 }

@@ -11,6 +11,7 @@ import "core:sync/chan"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:thread"
+import sdl "vendor:sdl3"
 
 PROFILING :: #config(profiling, false)
 
@@ -21,7 +22,6 @@ SharedState :: struct {
 	daemon_chan:   chan.Chan(Message),
 	state_eventfd: linux.Fd,
 	quit_eventfd:  linux.Fd,
-	should_quit:   bool,
 	is_daemon:     bool,
 }
 shared_state_init :: proc() {
@@ -197,6 +197,8 @@ when PROFILING {
 
 handle_term :: proc "c" (_: posix.Signal) {
 	context = shared_state.odin_ctx
-	sync.atomic_store_explicit(&shared_state.should_quit, true, .Relaxed)
+	if sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) {
+		_ = sdl.PushEvent(&{type = .QUIT})
+	}
 	eventfd_write(shared_state.quit_eventfd)
 }

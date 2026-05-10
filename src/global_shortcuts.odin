@@ -133,7 +133,8 @@ shortcut_from_str :: proc(input: string) -> Shortcut {
 }
 
 global_shortcuts_tick :: proc() {
-	dbus.connection_read_write_dispatch(ctx.conn, 0)
+	dbus.connection_read_write(ctx.conn, 0)
+	for dbus.connection_dispatch(ctx.conn) == .DATA_REMAINS {}
 }
 
 global_shortcuts_handler :: proc "c" (

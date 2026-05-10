@@ -1,6 +1,6 @@
 package systray
 
-import "../../dbus"
+import "../dbus"
 import "base:runtime"
 import "core:log"
 import "core:slice"

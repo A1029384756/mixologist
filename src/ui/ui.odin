@@ -14,7 +14,6 @@ import "core:slice"
 import "core:strings"
 import "core:text/edit"
 import "core:time"
-import "systray"
 import sdl "vendor:sdl3"
 import img "vendor:sdl3/image"
 import ttf "vendor:sdl3/ttf"
@@ -56,10 +55,6 @@ Context :: struct {
 	start_time:          time.Tick,
 	prev_frame_time:     time.Tick,
 	scaling:             c.float,
-	tray:                systray.Systray,
-	tray_id_show:        i32,
-	tray_id_quit:        i32,
-	tray_icon:           ^sdl.Surface,
 	// renderer
 	renderer:            Renderer,
 	device:              ^sdl.GPUDevice,
@@ -280,32 +275,6 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 	_ = sdl.ClaimWindowForGPUDevice(ctx.device, ctx.window)
 	Renderer_init(ctx)
 
-	create_menu: {
-		systray.init(
-			&ctx.tray,
-			{
-				category = "ApplicationStatus",
-				id = string(title),
-				title = string(title),
-				status = "Active",
-				menu = "/StatusNotifierItem/menu",
-			},
-		) or_break create_menu
-		systray.set_tooltip(&ctx.tray, {title = "Mixologist"})
-		ctx.tray.userdata = ctx
-		ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
-			ctx := cast(^Context)userdata
-			ctx.statuses += {.WINDOW_TOGGLED}
-		}
-		ctx.tray.menu.userdata = ctx
-		ctx.tray.menu.activate_cb = on_tray_menu_activate
-
-		show_label := minimized ? "Show Window" : "Hide Window"
-		ctx.tray_id_show = systray.menu_add_item(&ctx.tray.menu, 0, {label = show_label})
-		_ = systray.menu_add_item(&ctx.tray.menu, 0, {type = .Separator})
-		ctx.tray_id_quit = systray.menu_add_item(&ctx.tray.menu, 0, {label = "Quit"})
-	}
-
 	TEXT_CURSOR = sdl.CreateSystemCursor(.TEXT)
 	HAND_CURSOR = sdl.CreateSystemCursor(.POINTER)
 	DEFAULT_CURSOR = sdl.GetDefaultCursor()
@@ -331,8 +300,6 @@ fini :: proc(ctx: ^Context) {
 		delete(ctx.memory_debug.memory)
 	}
 
-	systray.deinit(&ctx.tray)
-
 	virtual.arena_destroy(&ctx.font_allocator)
 	delete(ctx.clay_memory)
 
@@ -345,17 +312,6 @@ fini :: proc(ctx: ^Context) {
 	Renderer_destroy(ctx)
 
 	sdl.DestroyWindow(ctx.window)
-}
-
-set_tray_icon :: proc(ctx: ^Context, icon: []u8) {
-	icon_io := sdl.IOFromConstMem(raw_data(icon), len(icon))
-	loaded_icon := img.Load_IO(icon_io, true)
-	ctx.tray_icon = sdl.ConvertSurface(loaded_icon, .ARGB32)
-	pixel_slice := slice.bytes_from_ptr(
-		ctx.tray_icon.pixels,
-		int(ctx.tray_icon.w * ctx.tray_icon.h * 4),
-	)
-	systray.set_icon_pixmap(&ctx.tray, {{ctx.tray_icon.w, ctx.tray_icon.h, pixel_slice}})
 }
 
 get_window_frametime :: proc(window: ^sdl.Window) -> i32 {
@@ -484,8 +440,6 @@ tick :: proc(
 	delta_time := f32(time.duration_seconds(time.tick_diff(ctx.prev_frame_time, now)))
 	ctx.prev_frame_time = now
 
-	systray.pump(&ctx.tray)
-
 	if .WINDOW_TOGGLED in ctx.statuses {
 		ctx.statuses -= {.WINDOW_TOGGLED}
 		toggle_window(ctx)
@@ -611,25 +565,13 @@ tick :: proc(
 
 open_window :: proc(ctx: ^Context) {
 	ctx.statuses -= {.WINDOW_CLOSED}
-	systray.menu_set_label(&ctx.tray.menu, ctx.tray_id_show, "Hide Window")
 	sdl.ShowWindow(ctx.window)
 	sdl.RaiseWindow(ctx.window)
 }
 
 close_window :: proc(ctx: ^Context) {
 	ctx.statuses += {.WINDOW_CLOSED}
-	systray.menu_set_label(&ctx.tray.menu, ctx.tray_id_show, "Show Window")
 	sdl.HideWindow(ctx.window)
-}
-
-on_tray_menu_activate :: proc(menu: ^systray.Menu, id: i32, userdata: rawptr) {
-	ctx := cast(^Context)userdata
-	switch id {
-	case ctx.tray_id_show:
-		toggle_window(ctx)
-	case ctx.tray_id_quit:
-		ctx.statuses += {.APP_EXIT}
-	}
 }
 
 toggle_window :: proc(ctx: ^Context) {

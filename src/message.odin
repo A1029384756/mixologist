@@ -15,6 +15,7 @@ Message :: struct {
 MessageKind :: enum {
 	Wake,
 	Rule,
+	Toggle,
 	Volume,
 	Program,
 	Settings,

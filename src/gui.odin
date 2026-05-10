@@ -39,6 +39,8 @@ GUIContext :: struct {
 	program_scrollbar: ui.Scrollbar_Data,
 	// config state
 	statuses:          GUI_Context_Statuses,
+	// atomic
+	finished_setup:    bool,
 }
 
 gui_proc :: proc() {
@@ -53,15 +55,12 @@ gui_proc :: proc() {
 	}
 
 	gui_init_internal(&gui, gui.state.settings.start_minimized)
-	for !sync.atomic_load(&shared_state.should_quit) {
+	for !ui.should_exit(&gui.ui_ctx) {
 		gui_process_messages(&gui)
 		gui_ui_tick(&gui)
-		if ui.should_exit(&gui.ui_ctx) {
-			sync.atomic_store(&shared_state.should_quit, true)
-			gui_demand_daemon_exit()
-		}
 		free_all(context.temp_allocator)
 	}
+	gui_demand_daemon_exit()
 	gui_fini_internal(&gui)
 }
 
@@ -85,7 +84,6 @@ gui_init :: proc() {
 
 gui_init_internal :: proc(ctx: ^GUIContext, minimized: bool) {
 	ui.init(&ctx.ui_ctx, "Mixologist", minimized)
-	ui.set_tray_icon(&ctx.ui_ctx, #load("../data/mixologist.svg"))
 	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
 	// odinfmt:disable
 	icons[.Game]     = ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64})
@@ -99,6 +97,7 @@ gui_init_internal :: proc(ctx: ^GUIContext, minimized: bool) {
 	icons[.Dropdown] = ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/dropdown-symbolic.svg"), {64, 64})
 	icons[.Close]    = ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/close-symbolic.svg"), {64, 64})
 	// odinfmt:enable
+	sync.atomic_store_explicit(&ctx.finished_setup, true, .Relaxed)
 }
 
 gui_ui_tick :: proc(ctx: ^GUIContext) {
@@ -126,6 +125,8 @@ gui_process_messages :: proc(ctx: ^GUIContext) {
 		switch msg.kind {
 		case .Wake:
 			ui.open_window(&ctx.ui_ctx)
+		case .Toggle:
+			ui.toggle_window(&ctx.ui_ctx)
 		case .Rule:
 			modify_string_list(&ctx.state.rules, msg.list, true)
 		case .Program:

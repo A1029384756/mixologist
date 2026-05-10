@@ -1,6 +1,6 @@
 package systray
 
-import "../../dbus"
+import "../dbus"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
@@ -147,7 +147,8 @@ init :: proc(tray: ^Systray, item: StatusNotifierTray, allocator := context.allo
 }
 
 pump :: proc(tray: ^Systray) {
-	dbus.connection_read_write_dispatch(tray.connection, 0)
+	dbus.connection_read_write(tray.connection, 0)
+	for dbus.connection_dispatch(tray.connection) == .DATA_REMAINS {}
 }
 
 deinit :: proc(tray: ^Systray) {
