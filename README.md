@@ -3,7 +3,7 @@
 
 A utility for mixing your audio between programs.
 Experience changing audio levels without having
-to dig through a volume mixer wtih quick and easy
+to dig through a volume mixer with quick and easy
 program based filtering.
 
 Mixologist uses [PipeWire](https://pipewire.org) to
@@ -43,13 +43,15 @@ Mixologist can either be launched in GUI mode (default)
 or daemon mode (`-daemon`). Once Mixologist is open,
 `mixologist` can then be used as shown:
 ```
+Usage:
+        mixologist [-add-rule] [-daemon] [-get-volume] [-remove-rule] [-set-volume] [-shift-volume]
 Flags:
-        -add-program:<string>, multiple     | name of program to add to aux
-        -daemon                             | start mixologist in daemon mode (no window)
-        -get-volume                         | the current mixologist volume
-        -remove-program:<string>, multiple  | name of program to remove from aux
-        -set-volume:<f32>                   | volume to assign nodes
-        -shift-volume:<f32>                 | volume to increment nodes
+        -add-rule:<RuleList>     | rule to add
+        -daemon                  | start mixologist in daemon mode (no window)
+        -get-volume              | the current mixologist volume
+        -remove-rule:<RuleList>  | rule to remove
+        -set-volume:<f32>        | volume to assign nodes
+        -shift-volume:<f32>      | volume to increment nodes
 ```
 
 Mixologist exits to the tray and is "always running" unless
