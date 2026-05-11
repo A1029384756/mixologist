@@ -10,13 +10,20 @@ jobs:
     runs-on: node-lts
     steps:
       - uses: actions/checkout@v6
-      - name: Install Dependencies
+      - name: Install Repo Dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            glslang-tools clang libpipewire-0.3-0 \
+            glslang-tools meson clang libpipewire-0.3-0 \
             libdbus-1-dev libsdl3-dev libsdl3-ttf-dev \
             libsdl3-image-dev
+      - name: Install PlutoSVG
+        run: |
+          git clone --depth 1 https://github.com/sammycage/plutosvg.git /tmp/plutosvg
+          cd /tmp/plutosvg
+          meson setup build
+          meson compile -C build
+          meson install -C build
       - name: Install Odin (latest)
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
