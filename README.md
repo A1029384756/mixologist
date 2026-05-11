@@ -32,6 +32,8 @@ Dependencies:
 - `sdl3`
 - `sdl3_ttf`
 - `sdl3_image`
+- `plutosvg`
+- `plutovg`
 
 ```
 $ make
