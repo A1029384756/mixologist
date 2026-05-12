@@ -91,6 +91,14 @@ config_read :: proc() -> (config: Config, ok: bool) {
 	return config, true
 }
 
+config_clean :: proc(config: ^Config) {
+	for rule, idx in config.rules {
+		if len(rule) != 0 do continue
+		ordered_remove(&config.rules, idx)
+		delete(rule)
+	}
+}
+
 config_write :: proc(config: Config) {
 	log.debug("writing out config")
 	config_json, json_err := json.marshal(

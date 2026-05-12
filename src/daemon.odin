@@ -136,7 +136,7 @@ daemon_process_messages :: proc() {
 				pw_remove_rule(list.mod.prev)
 				pw_add_rule(list.mod.curr)
 			}
-			modify_string_list(&daemon.state.rules, msg.list, true)
+			list_string_modify(&daemon.state.rules, msg.list, true)
 		case .Volume:
 			daemon.state_status += {.Volume}
 			modify_volume(&daemon.state.volume, msg.volume)
@@ -178,7 +178,7 @@ daemon_update_gui_rule :: proc(rule: ListString) {
 	if !shared_state.is_daemon {
 		chan.send(shared_state.daemon_chan, Message{kind = .Rule, list = list_string_clone(rule)})
 	}
-	modify_string_list(&daemon.state.rules, rule, false)
+	list_string_modify(&daemon.state.rules, rule, false)
 }
 
 daemon_update_gui_program :: proc(program: ListString) {

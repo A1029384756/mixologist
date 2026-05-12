@@ -128,9 +128,9 @@ gui_process_messages :: proc(ctx: ^GUIContext) {
 		case .Toggle:
 			ui.toggle_window(&ctx.ui_ctx)
 		case .Rule:
-			modify_string_list(&ctx.state.rules, msg.list, true)
+			list_string_modify(&ctx.state.rules, msg.list, true)
 		case .Program:
-			modify_string_list(&ctx.state.programs, msg.list, true)
+			list_string_modify(&ctx.state.programs, msg.list, true)
 		case .Volume:
 			modify_volume(&ctx.volume, msg.volume)
 		case .Settings:
@@ -927,9 +927,19 @@ gui_update_daemon_volume :: proc(volume: f32) {
 }
 
 gui_update_daemon_rule :: proc(rule: ListString) {
+	rule := rule
+	switch rule.kind {
+	case .Add, .Remove:
+		if len(rule.val) == 0 do return
+	case .Update:
+		if len(rule.mod.curr) == 0 {
+			rule.val = rule.mod.prev
+			rule.kind = .Remove
+		}
+	}
 	chan.send(shared_state.gui_chan, Message{kind = .Rule, list = list_string_clone(rule)})
 	eventfd_write(shared_state.state_eventfd)
-	modify_string_list(&gui.state.rules, rule, false)
+	list_string_modify(&gui.state.rules, rule, false)
 }
 
 gui_update_daemon_settings :: proc(settings: Settings) {
