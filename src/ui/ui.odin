@@ -56,6 +56,7 @@ Context :: struct {
 	prev_frame_time:     time.Tick,
 	scaling:             c.float,
 	// renderer
+	rerender_frames:     int,
 	renderer:            Renderer,
 	device:              ^sdl.GPUDevice,
 	memory_debug:        Memory_Debug_Data,
@@ -118,8 +119,10 @@ DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
 EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 DEBUG_PREV_TIME: time.Tick
+RERENDER_TIMEOUT_FRAMES :: 2
 
 ContextStatus :: enum {
+	WINDOW_RENDER,
 	TEXTBOX_SELECTED,
 	TEXTBOX_JUST_SELECTED,
 	TEXTBOX_JUST_DESELECTED,
@@ -364,8 +367,11 @@ tick :: proc(
 		case .MOUSE_WHEEL:
 			ctx.scroll_delta = {event.wheel.x, event.wheel.y}
 		case .TEXT_INPUT:
+			ctx.statuses += {.WINDOW_RENDER}
 			strings.write_string(&ctx.textbox_input, string(event.text.text))
 		case .MOUSE_BUTTON_UP, .MOUSE_BUTTON_DOWN:
+			ctx.statuses += {.WINDOW_RENDER}
+			ctx.rerender_frames = RERENDER_TIMEOUT_FRAMES
 			fn := event.type == .MOUSE_BUTTON_UP ? _input_mouse_up : _input_mouse_down
 			switch event.button.button {
 			case 1:
@@ -380,6 +386,7 @@ tick :: proc(
 				fn(ctx, .SIDE_2)
 			}
 		case .KEY_UP, .KEY_DOWN:
+			ctx.statuses += {.WINDOW_RENDER}
 			fn := event.type == .KEY_UP ? _input_key_up : _input_key_down
 			#partial switch event.key.scancode {
 			case .LSHIFT, .RSHIFT:
@@ -446,12 +453,22 @@ tick :: proc(
 	}
 
 	event: sdl.Event
-	if sdl.WaitEventTimeout(&event, ctx.window_frametime) {
+	event_status := false
+	if .WINDOW_RENDER in ctx.statuses {
+		event_status = sdl.WaitEventTimeout(&event, ctx.window_frametime)
+	} else {
+		event_status = sdl.WaitEvent(&event)
+		ctx.prev_frame_time = time.tick_now()
+	}
+	if event_status {
 		handle_event(ctx, &event)
 		for sdl.PollEvent(&event) {
 			handle_event(ctx, &event)
 		}
 	}
+
+	ctx.rerender_frames -= 1
+	ctx.rerender_frames = clamp(ctx.rerender_frames, 0, max(int))
 
 	// [INFO] sdl.WaitAndAcquireGPUSwapchainTexture will hang if
 	// we do not return early
@@ -540,6 +557,10 @@ tick :: proc(
 		fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd_buffer)
 		_ = sdl.WaitForGPUFences(ctx.device, true, &fence, 1)
 		sdl.ReleaseGPUFence(ctx.device, fence)
+		ctx.statuses += {.WINDOW_RENDER}
+		ctx.rerender_frames = RERENDER_TIMEOUT_FRAMES
+	} else if ctx.rerender_frames == 0 {
+		ctx.statuses -= {.WINDOW_RENDER}
 	}
 
 	when ODIN_DEBUG {
