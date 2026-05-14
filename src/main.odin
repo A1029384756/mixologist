@@ -57,6 +57,8 @@ main :: proc() {
 	}
 
 	default_heap := context.allocator
+	directories_init(default_heap, context.temp_allocator)
+
 	context.logger = logging_init()
 	defer logging_fini(default_heap)
 
@@ -101,6 +103,37 @@ main :: proc() {
 
 	shared_state_fini()
 	config_fini()
+	directories_fini(default_heap)
+}
+
+directories: Directories
+Directories :: struct {
+	config: string,
+	cache:  string,
+}
+directories_init :: proc(allocator, temp_allocator: runtime.Allocator) {
+	user_config_dir, _ := os.user_config_dir(temp_allocator)
+	directories.config, _ = os.join_path({user_config_dir, "mixologist"}, allocator)
+	if !os.exists(directories.config) {
+		config_dir_err := os.make_directory_all(directories.config)
+		if config_dir_err != nil {
+			panic("could not create config dir")
+		}
+	}
+
+	user_cache_dir, _ := os.user_cache_dir(temp_allocator)
+	directories.cache, _ = os.join_path({user_cache_dir, "mixologist"}, allocator)
+	if !os.exists(directories.cache) {
+		cache_dir_err := os.make_directory_all(directories.cache)
+		if cache_dir_err != nil {
+			panic("could not create config dir")
+		}
+	}
+}
+
+directories_fini :: proc(allocator: runtime.Allocator) {
+	delete(directories.cache, allocator)
+	delete(directories.config, allocator)
 }
 
 logging_init :: proc() -> log.Logger {
@@ -110,21 +143,17 @@ logging_init :: proc() -> log.Logger {
 			log.Default_Console_Logger_Opts + {.Thread_Id},
 		)
 	} else {
-		cache_dir, _ := os.user_cache_dir(context.allocator)
-		defer delete(cache_dir)
-		mixologist_cache_dir, _ := os.join_path({cache_dir, "mixologist"}, context.allocator)
-
 		log_path :=
 			os.join_path(
-				{mixologist_cache_dir, "mixologist.log"},
-				context.allocator,
+				{directories.cache, "mixologist.log"},
+				context.temp_allocator,
 			) or_else log.panic("could not create log path")
 
 		open_flags := os.File_Flags{.Write, .Create}
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
 
 		if os.exists(log_path) {
-			log_info, stat_err := os.stat(log_path, context.allocator)
+			log_info, stat_err := os.stat(log_path, context.temp_allocator)
 
 			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
@@ -133,7 +162,7 @@ logging_init :: proc() -> log.Logger {
 			}
 		}
 
-		log_file := os.open(log_path, open_flags) or_else log.panic("could not access log file")
+		log_file := os.open(log_path, open_flags) or_else panic("could not access log file")
 		return log.create_file_logger(
 			log_file,
 			get_log_level(),

@@ -9,7 +9,6 @@ import "core:strconv"
 @(private = "file")
 ctx: ConfigCtx
 ConfigCtx :: struct {
-	config_dir:  string,
 	config_file: string,
 	volume_file: string,
 }
@@ -44,36 +43,13 @@ Settings :: struct {
 }
 
 config_init :: proc() {
-	// config file
-	user_config_dir, _ := os.user_config_dir(context.temp_allocator)
-	ctx.config_dir, _ = os.join_path({user_config_dir, "mixologist"}, context.allocator)
-	if !os.exists(ctx.config_dir) {
-		config_dir_err := os.make_directory_all(ctx.config_dir)
-		if config_dir_err != nil {
-			log.panicf("could not create config dir: %v", config_dir_err)
-		}
-	}
-	ctx.config_file, _ = os.join_path({ctx.config_dir, "mixologist.json"}, context.allocator)
-
-	// volume file
-	cache_dir, _ := os.user_cache_dir(context.temp_allocator)
-	mixologist_cache_dir, _ := os.join_path({cache_dir, "mixologist"}, context.temp_allocator)
-	if !os.exists(mixologist_cache_dir) {
-		cache_dir_err := os.make_directory_all(mixologist_cache_dir)
-		if cache_dir_err != nil {
-			log.panicf("could not create cache dir: %v", cache_dir_err)
-		}
-	}
-	ctx.volume_file, _ = os.join_path(
-		{mixologist_cache_dir, "mixologist.volume"},
-		context.allocator,
-	)
+	ctx.config_file, _ = os.join_path({directories.config, "mixologist.json"}, context.allocator)
+	ctx.volume_file, _ = os.join_path({directories.cache, "mixologist.volume"}, context.allocator)
 }
 
 config_fini :: proc() {
 	delete(ctx.volume_file)
 	delete(ctx.config_file)
-	delete(ctx.config_dir)
 }
 
 config_read :: proc() -> (config: Config, ok: bool) {
