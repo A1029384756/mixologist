@@ -17,12 +17,13 @@ PROFILING :: #config(profiling, false)
 
 shared_state: SharedState
 SharedState :: struct {
-	odin_ctx:      runtime.Context,
-	gui_chan:      chan.Chan(Message),
-	daemon_chan:   chan.Chan(Message),
-	state_eventfd: linux.Fd,
-	quit_eventfd:  linux.Fd,
-	is_daemon:     bool,
+	odin_ctx:       runtime.Context,
+	gui_chan:       chan.Chan(Message),
+	daemon_chan:    chan.Chan(Message),
+	state_eventfd:  linux.Fd,
+	quit_eventfd:   linux.Fd,
+	is_daemon:      bool,
+	gui_pump_event: sdl.EventType,
 }
 shared_state_init :: proc() {
 	shared_state.odin_ctx = context

@@ -10,6 +10,7 @@ import "core:sync/chan"
 import "core:sys/linux"
 import "ui"
 import "ui/clay"
+import sdl "vendor:sdl3"
 
 GUI_Context_Status :: enum u8 {
 	AddingNew,
@@ -85,6 +86,7 @@ gui_init :: proc() {
 gui_init_internal :: proc(ctx: ^GUIContext, minimized: bool) {
 	ui.init(&ctx.ui_ctx, "Mixologist", minimized)
 	ui.load_font_mem(&ctx.ui_ctx, #load("resources/fonts/Roboto-Regular.ttf"), 16)
+	shared_state.gui_pump_event = cast(sdl.EventType)sdl.RegisterEvents(1)
 	// odinfmt:disable
 	icons[.Game]     = ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/gamepad2-symbolic.svg"), {64, 64})
 	icons[.Music]    = ui.load_image_mem(&ctx.ui_ctx, #load("resources/images/music-note-symbolic.svg"), {64, 64})

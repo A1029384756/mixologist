@@ -3,5 +3,6 @@ builds/
 .idea/
 .flatpak-builder/
 repo/
+builddir/
 TODO.md
 *.spall

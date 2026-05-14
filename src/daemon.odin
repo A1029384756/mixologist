@@ -172,7 +172,7 @@ daemon_update_gui_volume :: proc(volume: Volume) {
 	if shared_state.is_daemon do return
 	if !sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) do return
 	chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = volume})
-	_ = sdl.PushEvent(&{})
+	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
 daemon_update_gui_rule :: proc(rule: ListString) {
@@ -183,7 +183,7 @@ daemon_update_gui_rule :: proc(rule: ListString) {
 				shared_state.daemon_chan,
 				Message{kind = .Rule, list = list_string_clone(rule)},
 			)
-			_ = sdl.PushEvent(&{})
+			_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 		}
 	}
 	list_string_modify(&daemon.state.rules, rule, false)
@@ -196,7 +196,7 @@ daemon_update_gui_program :: proc(program: ListString) {
 		shared_state.daemon_chan,
 		Message{kind = .Program, list = list_string_clone(program)},
 	)
-	_ = sdl.PushEvent(&{})
+	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
 daemon_update_gui_settings :: proc(settings: Settings) {
@@ -206,13 +206,13 @@ daemon_update_gui_settings :: proc(settings: Settings) {
 	if shared_state.is_daemon do return
 	if !sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) do return
 	chan.send(shared_state.daemon_chan, Message{kind = .Settings, settings = settings})
-	_ = sdl.PushEvent(&{})
+	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
 daemon_wake_gui :: proc() {
 	if shared_state.is_daemon do return
 	if sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) {
 		chan.send(shared_state.daemon_chan, Message{kind = .Wake})
-		_ = sdl.PushEvent(&{})
+		_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 	}
 }
