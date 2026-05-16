@@ -119,7 +119,7 @@ DOUBLE_CLICK_INTERVAL :: 300 * time.Millisecond
 EVENT_DELAY :: 33 * time.Millisecond
 DEBUG_LAYOUT_TIMER_INTERVAL :: time.Second
 DEBUG_PREV_TIME: time.Tick
-RERENDER_TIMEOUT_FRAMES :: 2
+RERENDER_TIMEOUT_FRAMES :: 4
 
 ContextStatus :: enum {
 	WINDOW_RENDER,
