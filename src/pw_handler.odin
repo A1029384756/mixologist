@@ -204,7 +204,8 @@ node_handler :: proc(ctx: ^PwContext, id, version: u32, type: cstring, props: ^p
 			log.infof("could not find application name for node with id %d", id)
 			return
 		}
-		if media_class == "Audio/Source/Virtual" {
+		if media_class == "Audio/Source/Virtual" ||
+		   daemon_matches(ctx, string(application_name), daemon.state.passthrough[:]) {
 			proxy := pw.registry_bind(ctx.registry, id, type, version, 0)
 			node: Node
 			name_str := strings.clone_from_cstring(node_name)
@@ -219,7 +220,7 @@ node_handler :: proc(ctx: ^PwContext, id, version: u32, type: cstring, props: ^p
 		node: Node
 		name_str := strings.clone_from_cstring(node_name)
 		node_init(&node, proxy, props, name_str)
-		if daemon_rule_matches(ctx, string(application_name)) {
+		if daemon_matches(ctx, string(application_name), daemon.state.rules[:]) {
 			ctx.aux_sink.associated_nodes[id] = node
 			log.infof(
 				"registered application node of id %d and name %s to aux sink",
@@ -237,11 +238,11 @@ node_handler :: proc(ctx: ^PwContext, id, version: u32, type: cstring, props: ^p
 	}
 }
 
-daemon_rule_matches :: proc(ctx: ^PwContext, rule: string) -> bool {
-	for check in daemon.state.rules {
-		matcher := match.matcher_init(rule, check)
+daemon_matches :: proc(ctx: ^PwContext, needle: string, haystack: []string) -> bool {
+	for check in haystack {
+		matcher := match.matcher_init(needle, check)
 		match_result, match_ok := match.matcher_match(&matcher)
-		if match_ok && len(match_result) == len(rule) {
+		if match_ok && len(match_result) == len(needle) {
 			return true
 		}
 	}

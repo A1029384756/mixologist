@@ -110,7 +110,13 @@ daemon_proc :: proc() {
 		}
 		if daemon.fds[FD_CFG].revents >= {.IN} {
 			fd_drain(daemon.config_save_timer)
-			config_write({daemon.state.rules, daemon.state.settings})
+			config_write(
+				{
+					rules = daemon.state.rules,
+					passthrough = daemon.state.passthrough,
+					settings = daemon.state.settings,
+				},
+			)
 		}
 		if daemon.fds[FD_VOL].revents >= {.IN} {
 			fd_drain(daemon.volume_save_timer)

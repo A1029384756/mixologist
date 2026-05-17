@@ -216,7 +216,9 @@ timerfd_arm :: proc(fd: linux.Fd, time_ms: int) {
 
 state_populate :: proc(state: ^State) {
 	if cfg, ok := config_read(); ok {
+		// todo make more resilient to additional config fields
 		state.rules = cfg.rules
+		state.passthrough = cfg.passthrough
 		state.settings = cfg.settings
 	}
 

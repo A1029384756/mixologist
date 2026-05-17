@@ -14,10 +14,11 @@ ConfigCtx :: struct {
 }
 
 State :: struct {
-	rules:    [dynamic]string,
-	programs: [dynamic]string,
-	volume:   f32,
-	settings: Settings,
+	rules:       [dynamic]string,
+	programs:    [dynamic]string,
+	passthrough: [dynamic]string,
+	volume:      f32,
+	settings:    Settings,
 }
 
 StateDirty :: enum {
@@ -32,8 +33,9 @@ state_destroy :: proc(state: State) {
 }
 
 Config :: struct {
-	rules:    [dynamic]string,
-	settings: Settings,
+	rules:       [dynamic]string,
+	passthrough: [dynamic]string,
+	settings:    Settings,
 }
 
 Settings :: struct {
