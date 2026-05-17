@@ -57,7 +57,6 @@ gui_proc :: proc() {
 
 	gui_init_internal(&gui, gui.state.settings.start_minimized)
 	for !ui.should_exit(&gui.ui_ctx) {
-		gui_process_messages(&gui)
 		gui_ui_tick(&gui)
 		free_all(context.temp_allocator)
 	}
@@ -103,7 +102,7 @@ gui_init_internal :: proc(ctx: ^GUIContext, minimized: bool) {
 }
 
 gui_ui_tick :: proc(ctx: ^GUIContext) {
-	ui.tick(&ctx.ui_ctx, gui_create_layout, ctx)
+	ui.tick(&ctx.ui_ctx, gui_create_layout, gui_process_messages, ctx)
 	if !ui.window_closed(&ctx.ui_ctx) {
 		if .Volume in ctx.statuses {
 			ctx.statuses -= {.Volume}
@@ -122,7 +121,8 @@ gui_fini_internal :: proc(ctx: ^GUIContext) {
 	str_arr_delete(ctx.selected_programs)
 }
 
-gui_process_messages :: proc(ctx: ^GUIContext) {
+gui_process_messages :: proc(ctx: rawptr) {
+	ctx := cast(^GUIContext)ctx
 	for msg in chan.try_recv(shared_state.daemon_chan) {
 		switch msg.kind {
 		case .Wake:

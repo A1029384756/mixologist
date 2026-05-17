@@ -341,6 +341,8 @@ tick :: proc(
 		delta_time: f32,
 		userdata: rawptr,
 	) -> clay.ClayArray(clay.RenderCommand),
+	// todo make less bad
+	ui_process_events: proc(userdata: rawptr),
 	userdata: rawptr,
 ) {
 	handle_event :: proc(ctx: ^Context, event: ^sdl.Event) {
@@ -467,6 +469,7 @@ tick :: proc(
 		}
 	}
 
+	ui_process_events(userdata)
 	ctx.rerender_frames -= 1
 	ctx.rerender_frames = clamp(ctx.rerender_frames, 0, max(int))
 
