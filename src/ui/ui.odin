@@ -50,6 +50,8 @@ Context :: struct {
 	// sdl3
 	window_frametime:    i32,
 	window:              ^sdl.Window,
+	titlebar_region:     clay.BoundingBox,
+	titlebar_buttons:    [dynamic; 16]clay.BoundingBox,
 	window_size:         [2]c.float,
 	prev_window_size:    [2]c.float,
 	start_time:          time.Tick,
@@ -260,11 +262,12 @@ init :: proc(ctx: ^Context, title: cstring, minimized: bool) {
 		title,
 		800,
 		600,
-		{.RESIZABLE, .HIGH_PIXEL_DENSITY} + (minimized ? {.HIDDEN} : {}),
+		{.RESIZABLE, .HIGH_PIXEL_DENSITY, .BORDERLESS} + (minimized ? {.HIDDEN} : {}),
 	)
 	if minimized {
 		ctx.statuses += {.WINDOW_CLOSED}
 	}
+	sdl.SetWindowHitTest(ctx.window, window_hit_test, ctx)
 	ctx.scaling = sdl.GetWindowDisplayScale(ctx.window)
 	ctx.window_frametime = get_window_frametime(ctx.window)
 
@@ -518,6 +521,7 @@ tick :: proc(
 
 	// run layout twice to avoid 1-frame
 	// delay of immediate mode
+	clear(&ctx.titlebar_buttons)
 	_ = ui_create_layout(ctx, 0, userdata)
 	{
 		strings.builder_reset(&ctx.textbox_input)
@@ -529,6 +533,7 @@ tick :: proc(
 	// runs during second layout pass to prevent issues
 	// with scroll container data from deleted rules
 	clay.UpdateScrollContainers(false, ctx.scroll_delta * 5, delta_time)
+	clear(&ctx.titlebar_buttons)
 	render_commands := ui_create_layout(ctx, delta_time, userdata)
 
 	when ODIN_DEBUG {
@@ -585,6 +590,66 @@ tick :: proc(
 			}
 		}
 	}
+}
+
+window_hit_test :: proc "c" (
+	win: ^sdl.Window,
+	point: ^sdl.Point,
+	data: rawptr,
+) -> sdl.HitTestResult {
+	context = odin_context
+	ctx := cast(^Context)data
+
+	CORNER_RADIUS :: 144
+	SIDE_PADDING :: 6
+	size_x, size_y: c.int
+	_ = sdl.GetWindowSize(win, &size_x, &size_y)
+	left := point.x < SIDE_PADDING && point.x > -SIDE_PADDING
+	right := point.x < size_x + SIDE_PADDING && point.x > size_x - SIDE_PADDING
+	top := point.y < SIDE_PADDING && point.y > -SIDE_PADDING
+	bottom := point.y < size_y + SIDE_PADDING && point.y > size_y - SIDE_PADDING
+
+	point := cast([2]c.int)point^
+	top_left := [2]c.int{0, 0}
+	bottom_left := [2]c.int{0, size_y}
+	top_right := [2]c.int{size_x, 0}
+	bottom_right := [2]c.int{size_x, size_y}
+
+	length2 :: proc(v: [2]c.int) -> c.int {
+		return v.x * v.x + v.y * v.y
+	}
+	if length2(point - top_left) < CORNER_RADIUS {
+		return .RESIZE_TOPLEFT
+	} else if length2(point - bottom_left) < CORNER_RADIUS {
+		return .RESIZE_BOTTOMLEFT
+	} else if length2(point - top_right) < CORNER_RADIUS {
+		return .RESIZE_TOPRIGHT
+	} else if length2(point - bottom_right) < CORNER_RADIUS {
+		return .RESIZE_BOTTOMRIGHT
+	} else if left {
+		return .RESIZE_LEFT
+	} else if right {
+		return .RESIZE_RIGHT
+	} else if top {
+		return .RESIZE_TOP
+	} else if bottom {
+		return .RESIZE_BOTTOM
+	}
+
+	fpoint := sdl.FPoint{f32(point.x), f32(point.y)}
+	for button in ctx.titlebar_buttons {
+		if sdl.PointInRectFloat(fpoint, transmute(sdl.FRect)button) {
+			return .NORMAL
+		}
+	}
+	if sdl.PointInRectFloat(fpoint, transmute(sdl.FRect)ctx.titlebar_region) {
+		return .DRAGGABLE
+	}
+	return .NORMAL
+}
+
+set_titlebar_region :: proc(ctx: ^Context, bounds: clay.BoundingBox) {
+	ctx.titlebar_region = bounds
 }
 
 open_window :: proc(ctx: ^Context) {
@@ -1794,11 +1859,11 @@ modal_fade_in_out :: proc "c" (
 }
 ModalConfig :: struct {
 	background_color: clay.Color,
-	attachment:       clay.FloatingAttachToElement,
+	attachment:       clay.FloatingElementConfig,
 }
-modal_configure :: proc(config: ModalConfig = {{}, .Root}) -> bool {
+modal_configure :: proc(config: ModalConfig = {{}, {attachTo = .Root}}) -> bool {
 	elem_config := clay.ElementDeclaration {
-		floating = {attachTo = config.attachment},
+		floating = config.attachment,
 		layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}},
 		backgroundColor = config.background_color,
 		transition = {

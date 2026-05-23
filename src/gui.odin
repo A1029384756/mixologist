@@ -153,8 +153,85 @@ gui_create_layout :: proc(
 
 create_layout :: proc(ctx: ^GUIContext, delta_time: f32) -> clay.ClayArray(clay.RenderCommand) {
 	clay.BeginLayout()
-	if clay.UI(clay.ID("root"))({layout = {sizing = {clay.SizingGrow(), clay.SizingGrow()}}}) {
-		if clay.UI()(
+	if clay.UI(clay.ID("root"))(
+	{layout = {layoutDirection = .TopToBottom, sizing = {clay.SizingGrow(), clay.SizingGrow()}}},
+	) {
+		tb: if clay.UI(clay.ID("titlebar"))(
+		{
+			layout = {
+				layoutDirection = .LeftToRight,
+				sizing = {clay.SizingGrow(), clay.SizingFixed(36)},
+				childAlignment = {y = .Center},
+				padding = clay.PaddingAll(6),
+			},
+			backgroundColor = MANTLE,
+		},
+		) {
+			title_element := clay.GetElementData(clay.ID("titlebar"))
+			if !title_element.found do break tb
+			if clay.Hovered() {
+				ui.set_titlebar_region(&ctx.ui_ctx, title_element.boundingBox)
+			}
+
+			ui.spacer(&ctx.ui_ctx)
+			ui.textlabel("Mixologist", {textColor = TEXT, fontSize = 16})
+			ui.spacer(&ctx.ui_ctx)
+
+			if clay.UI()(
+			{
+				layout = {
+					childAlignment = {y = .Center},
+					childGap = 6,
+					padding = clay.PaddingAll(6),
+				},
+				floating = {
+					attachTo = .Parent,
+					attachment = {element = .RightCenter, parent = .RightCenter},
+				},
+			},
+			) {
+				settings_res, settings_id := ui.button(
+					&ctx.ui_ctx,
+					{ui.IconConfig{id = icons[.Settings], size = 24, color = TEXT}},
+					{sizing = {clay.SizingFixed(28), clay.SizingFixed(28)}},
+					clay.CornerRadiusAll(4),
+					OVERLAY_0,
+					SURFACE_2,
+					SURFACE_1,
+					0,
+				)
+				if .RELEASE in settings_res {
+					if .Settings in ctx.statuses {
+						ctx.statuses -= {.Settings}
+					} else {
+						ctx.statuses += {.Settings}
+					}
+				}
+				settings_data := clay.GetElementData(settings_id)
+				if settings_data.found {
+					append(&ctx.ui_ctx.titlebar_buttons, settings_data.boundingBox)
+				}
+
+				close_res, close_id := ui.button(
+					&ctx.ui_ctx,
+					{ui.IconConfig{icons[.Close], 20, TEXT}},
+					{},
+					clay.CornerRadiusAll(max(f32)),
+					SURFACE_2,
+					SURFACE_1,
+					SURFACE_0,
+					2,
+				)
+				if .RELEASE in close_res {
+					ui.toggle_window(&ctx.ui_ctx)
+				}
+				close_data := clay.GetElementData(close_id)
+				if close_data.found {
+					append(&ctx.ui_ctx.titlebar_buttons, close_data.boundingBox)
+				}
+			}
+		}
+		if clay.UI(clay.ID("content"))(
 		{
 			layout = {
 				layoutDirection = .TopToBottom,
@@ -238,21 +315,6 @@ volume_slider :: proc(ctx: ^GUIContext) {
 		backgroundColor = SURFACE_0,
 	},
 	) {
-		res, _ := ui.button(
-			&ctx.ui_ctx,
-			{ui.IconConfig{id = icons[.Settings], size = 32, color = TEXT}},
-			{sizing = {clay.SizingFixed(48), clay.SizingFixed(48)}},
-			clay.CornerRadiusAll(0),
-			OVERLAY_0,
-			SURFACE_2,
-			SURFACE_1,
-			0,
-		)
-
-		if .RELEASE in res {
-			ctx.statuses += {.Settings}
-		}
-
 		if clay.UI()(
 		{
 			layout = {
@@ -504,7 +566,10 @@ list_separator :: proc(color: clay.Color = SURFACE_0) {
 
 rule_add_modal :: proc(ctx: ^GUIContext) {
 	if .Adding in ctx.statuses {
-		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root}) {
+		parent_id := clay.ID("content")
+		if ui.modal(clay.ID(#procedure))(
+		{CRUST * {1, 1, 1, 0.75}, {attachTo = .ElementWithId, parentId = parent_id.id}},
+		) {
 			res, _ := rule_add_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.Adding}
 		}
@@ -513,7 +578,10 @@ rule_add_modal :: proc(ctx: ^GUIContext) {
 
 settings_modal :: proc(ctx: ^GUIContext) {
 	if .Settings in ctx.statuses {
-		if ui.modal(clay.ID(#procedure))({CRUST * {1, 1, 1, 0.75}, .Root}) {
+		parent_id := clay.ID("content")
+		if ui.modal(clay.ID(#procedure))(
+		{CRUST * {1, 1, 1, 0.75}, {attachTo = .ElementWithId, parentId = parent_id.id}},
+		) {
 			res, _ := settings_menu(ctx)
 			if .CANCEL in res || .SUBMIT in res do ctx.statuses -= {.Settings}
 		}
