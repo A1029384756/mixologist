@@ -17,7 +17,7 @@ Daemon :: struct {
 	state_status:      StateDirtyFlags,
 	config_save_timer: linux.Fd,
 	volume_save_timer: linux.Fd,
-	fds:               [dynamic]linux.Poll_Fd,
+	fds:               [dynamic; 16]linux.Poll_Fd,
 	n_sys_fds:         int,
 }
 
@@ -80,8 +80,7 @@ daemon_proc :: proc() {
 			pw.loop_iterate(pw_get_loop(), 0)
 		}
 		if daemon.fds[FD_IPC].revents >= {.IN} {
-			new_fd := ipc_accept_one()
-			append(&daemon.fds, linux.Poll_Fd{fd = new_fd, events = {.IN}})
+			ipc_server_tick()
 		}
 		if .Shortcuts in daemon.features && daemon.fds[FD_GS].revents >= {.IN} {
 			global_shortcuts_tick()
@@ -90,16 +89,6 @@ daemon_proc :: proc() {
 		   .Tray in daemon.features &&
 		   daemon.fds[FD_TRAY].revents >= {.IN} {
 			systray_tick()
-		}
-
-		#reverse for &client_fd, idx in daemon.fds[daemon.n_sys_fds:] {
-			if client_fd.revents >= {.IN} {
-				disconnected := ipc_handle_client(client_fd.fd)
-				if disconnected {
-					linux.close(client_fd.fd)
-					unordered_remove(&daemon.fds, idx + daemon.n_sys_fds)
-				}
-			}
 		}
 
 		if .Config in daemon.state_status {
@@ -161,7 +150,6 @@ daemon_fini :: proc() {
 	state_destroy(daemon.state)
 	linux.close(daemon.config_save_timer)
 	linux.close(daemon.volume_save_timer)
-	delete(daemon.fds)
 	global_shortcuts_fini()
 	if !shared_state.is_daemon {
 		systray_fini()

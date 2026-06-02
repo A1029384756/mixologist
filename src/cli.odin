@@ -1,13 +1,12 @@
 package mixologist
 
 import "base:runtime"
-import "core:encoding/cbor"
 import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
-import "core:sys/linux"
+import "dbus"
 
 RuleList :: distinct [dynamic]string
 
@@ -107,64 +106,86 @@ cli_messages :: proc() {
 		log.Default_Console_Logger_Opts + {.Thread_Id},
 	)
 
+	err: dbus.Error
+	dbus.error_init(&err)
+	defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
+	conn := dbus.bus_get_private(.SESSION, &err)
+	if dbus.error_is_set(&err) {
+		log.error("could not connect to session bus, exiting...")
+		return
+	}
+
 	if cli.set_volume {
-		cli_send_message({kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
+		cli_send_message(conn, {kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
 	} else if cli.add_volume {
-		cli_send_message({kind = .Volume, volume = {kind = .Add, val = cli.opts.set_volume}})
+		cli_send_message(conn, {kind = .Volume, volume = {kind = .Add, val = cli.opts.set_volume}})
 	}
 
 	for program in cli.opts.add_rule {
-		cli_send_message({kind = .Rule, list = {kind = .Add, val = program}})
+		cli_send_message(conn, {kind = .Rule, list = {kind = .Add, val = program}})
 	}
 
 	for program in cli.opts.remove_rule {
-		cli_send_message({kind = .Rule, list = {kind = .Remove, val = program}})
+		cli_send_message(conn, {kind = .Rule, list = {kind = .Remove, val = program}})
 	}
 
 	if cli.opts.get_volume {
-		cli_send_message({kind = .Volume, volume = {kind = .Get}}, true)
+		cli_send_message(conn, {kind = .Volume, volume = {kind = .Get}}, true)
 	}
+	dbus.connection_flush(conn)
+	dbus.connection_close(conn)
 }
 
-cli_send_message :: proc(msg: Message, recv := false) {
-	message, encoding_err := cbor.marshal(msg)
-	assert(encoding_err == nil)
-	defer delete(message)
+cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
+	err: dbus.Error
+	dbus.error_init(&err)
+	defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
 
-	client_fd, socket_err := linux.socket(.UNIX, .STREAM, {.NONBLOCK}, .HOPOPT)
-	defer linux.close(client_fd)
-	if socket_err != nil do log.panicf("could not create socket with error %v", socket_err)
-
-	client_addr: linux.Sock_Addr_Un
-	client_addr.sun_family = .UNIX
-	copy(client_addr.sun_path[:], SERVER_SOCKET)
-
-	connect_err := linux.connect(client_fd, &client_addr)
-	if connect_err != nil {
-		log.fatalf("could not connect to socket with error %v", connect_err)
-		os.exit(1)
-	}
-
-	bytes_sent, send_err := linux.send(client_fd, message, {})
-	if send_err != nil do log.panicf("could not send data with error %v", send_err)
-	log.debugf("sent bytes %d bytes to server", bytes_sent)
-	if !recv do return
-
-	buf: [1024]u8
-	for {
-		bytes_read, recv_err := linux.recv(client_fd, buf[:], {})
-		if recv_err != nil {
-			if recv_err == .EWOULDBLOCK || recv_err == .EAGAIN do continue
-			else do log.panicf("could not recv data with error %v", recv_err)
+	#partial switch msg.kind {
+	case .Wake:
+		wake_msg := dbus.message_new_signal(IPC_OBJECT_PATH, IPC_INTERFACE, IPC_SIGNAL_WAKE)
+		defer dbus.message_unref(wake_msg)
+		dbus.connection_send(conn, wake_msg, nil)
+	case .Rule:
+		rule_msg := dbus.message_new_method_call(
+			IPC_INTERFACE,
+			IPC_OBJECT_PATH,
+			IPC_INTERFACE,
+			IPC_METHOD_RULE,
+		)
+		defer dbus.message_unref(rule_msg)
+		if err := dbus.marshal(rule_msg, msg.list); err != nil {
+			log.panic("could not marshal rule message")
 		}
-
-		log.logf(.Debug, "recieved %d bytes from server", bytes_read)
-
-		response: Message
-		response_err := cbor.unmarshal(string(buf[:bytes_read]), &response)
-		if response_err != nil do log.panicf("unmarshal from server failed: %v", response_err)
-		res := response.volume.val
-		fmt.println(res)
-		break
+		dbus.connection_send(conn, rule_msg, nil)
+	case .Volume:
+		rule_msg := dbus.message_new_method_call(
+			IPC_INTERFACE,
+			IPC_OBJECT_PATH,
+			IPC_INTERFACE,
+			IPC_METHOD_VOLUME,
+		)
+		defer dbus.message_unref(rule_msg)
+		if err := dbus.marshal(rule_msg, msg.volume); err != nil {
+			log.panicf("could not marshal volume message: %v", err)
+		}
+		if msg.volume.kind == .Get {
+			reply := dbus.connection_send_with_reply_and_block(
+				conn,
+				rule_msg,
+				dbus.TIMEOUT_USE_DEFAULT,
+				&err,
+			)
+			defer dbus.message_unref(reply)
+			v: Volume
+			if err := dbus.unmarshal(reply, &v); err != nil {
+				log.panicf("could not unmarshal volume response: %v", err)
+			}
+			fmt.println(v.val)
+		} else {
+			dbus.connection_send(conn, rule_msg, nil)
+		}
+	case:
+		log.panicf("unexpected message kind via ipc")
 	}
 }

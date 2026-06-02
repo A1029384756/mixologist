@@ -220,14 +220,37 @@ marshal_any :: proc(
 		case:
 			return .Unsupported_Type
 		}
+	case runtime.Type_Info_Enum:
+		t: Type
+		if base.size == 1 {
+			t = .BYTE
+		} else if base.size == 2 {
+			t = .INT16
+		} else if base.size == 4 {
+			t = .INT32
+		} else if base.size == 8 {
+			t = .INT64
+		} else {
+			return .Unsupported_Type
+		}
+		if !message_iter_append_basic(it, t, val.data) do return .Iter_Op_Failed
 	case runtime.Type_Info_Boolean:
 		bv: BasicValue
 		bv.bool_val = bool_t((^bool)(val.data)^)
 		if !message_iter_append_basic(it, .BOOLEAN, &bv.bool_val) do return .Iter_Op_Failed
 	case runtime.Type_Info_Float:
-		if base.size != 8 do return .Unsupported_Type
 		bv: BasicValue
-		bv.dbl = (^f64)(val.data)^
+		if base.size == 8 {
+			bv.dbl = (^f64)(val.data)^
+		} else if base.size == 4 {
+			val := (^f32)(val.data)^
+			bv.dbl = f64(val)
+		} else if base.size == 2 {
+			val := (^f16)(val.data)^
+			bv.dbl = f64(val)
+		} else {
+			return .Unsupported_Type
+		}
 		if !message_iter_append_basic(it, .DOUBLE, &bv.dbl) do return .Iter_Op_Failed
 	case runtime.Type_Info_String:
 		return marshal_basic_string(it, val, .STRING, temp_allocator)
@@ -462,15 +485,36 @@ unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) 
 		case:
 			return .Unsupported_Type
 		}
+	case runtime.Type_Info_Enum:
+		bv: BasicValue
+		message_iter_get_basic(it, &bv)
+		if base.size == 1 {
+			(^byte)(val.data)^ = bv.byt
+		} else if base.size == 2 {
+			(^i16)(val.data)^ = bv.int16
+		} else if base.size == 4 {
+			(^i32)(val.data)^ = bv.int32
+		} else if base.size == 8 {
+			(^i64)(val.data)^ = bv.int64
+		} else {
+			return .Unsupported_Type
+		}
 	case runtime.Type_Info_Boolean:
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
 		(^bool)(val.data)^ = bool(bv.bool_val)
 	case runtime.Type_Info_Float:
-		if base.size != 8 do return .Unsupported_Type
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
-		(^f64)(val.data)^ = bv.dbl
+		if base.size == 8 {
+			(^f64)(val.data)^ = bv.dbl
+		} else if base.size == 4 {
+			(^f32)(val.data)^ = f32(bv.dbl)
+		} else if base.size == 2 {
+			(^f16)(val.data)^ = f16(bv.dbl)
+		} else {
+			return .Unsupported_Type
+		}
 	case runtime.Type_Info_String:
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)

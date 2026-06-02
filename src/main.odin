@@ -11,6 +11,7 @@ import "core:sync/chan"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:thread"
+import "dbus"
 import sdl "vendor:sdl3"
 
 PROFILING :: #config(profiling, false)
@@ -76,9 +77,20 @@ main :: proc() {
 	}
 
 	if err := ipc_init(); err != nil {
-		if err == .EADDRINUSE {
+		defer ipc_fini()
+		if err == .NameTaken {
 			log.infof("mixologist already running, sending wake command")
-			cli_send_message({kind = .Wake})
+			err: dbus.Error
+			dbus.error_init(&err)
+			defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
+			conn := dbus.bus_get_private(.SESSION, &err)
+			if dbus.error_is_set(&err) {
+				log.error("could not connect to session bus, exiting...")
+				return
+			}
+			cli_send_message(conn, {kind = .Wake})
+			dbus.connection_flush(conn)
+			dbus.connection_close(conn)
 		} else {
 			log.fatalf("could not start ipc: %v", err)
 		}
