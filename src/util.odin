@@ -4,11 +4,12 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:log"
-import "core:slice"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
+import "dbus"
 import pw "pipewire"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
@@ -232,4 +233,51 @@ str_arr_delete :: proc(arr: [dynamic]string) {
 		delete(elem)
 	}
 	delete(arr)
+}
+
+dbus_open_connection_with_name :: proc(
+	suffix := "",
+) -> (
+	conn: ^dbus.Connection,
+	name: cstring,
+	err: IpcError,
+) {
+	dbus_err: dbus.Error
+	dbus.error_init(&dbus_err)
+	defer if dbus.error_is_set(&dbus_err) {dbus.error_free(&dbus_err)}
+
+	conn = dbus.bus_get_private(.SESSION, &dbus_err)
+	if dbus.error_is_set(&dbus_err) {
+		err = .CannotConnect
+		return
+	}
+
+	if app_id, found := os.lookup_env("FLATPAK_ID", context.allocator); found {
+		if suffix != "" {
+			name = fmt.caprintf("%s.%s", app_id, suffix)
+		} else {
+			name = fmt.caprintf("%s", app_id)
+		}
+		delete(app_id, context.allocator)
+	} else {
+		if suffix != "" {
+			name = fmt.caprintf("dev.cstring.mixologist.%s", suffix)
+		} else {
+			name = fmt.caprintf("dev.cstring.mixologist")
+		}
+	}
+
+	log.debug("requesting name:", name)
+	ret_code := dbus.bus_request_name(conn, name, {.DO_NOT_QUEUE}, &dbus_err)
+	if dbus.error_is_set(&dbus_err) {
+		err = .CannotConnect
+		return
+	}
+
+	if ret_code != .REPLY_PRIMARY_OWNER {
+		err = .NameTaken
+		return
+	}
+
+	return
 }

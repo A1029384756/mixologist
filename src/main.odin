@@ -1,6 +1,7 @@
 package mixologist
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
@@ -79,15 +80,15 @@ main :: proc() {
 	if err := ipc_init(); err != nil {
 		defer ipc_fini()
 		if err == .NameTaken {
-			log.infof("mixologist already running, sending wake command")
-			err: dbus.Error
-			dbus.error_init(&err)
-			defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
-			conn := dbus.bus_get_private(.SESSION, &err)
-			if dbus.error_is_set(&err) {
-				log.error("could not connect to session bus, exiting...")
-				return
+			fmt.println("mixologist already running, sending wake command")
+			conn, name, err := dbus_open_connection_with_name(
+				fmt.tprintf("client-%v", os.get_pid()),
+			)
+			if err != nil {
+				log.panicf("could not open client connection with name: %v", err)
 			}
+			defer delete(name)
+
 			cli_send_message(conn, {kind = .Wake})
 			dbus.connection_flush(conn)
 			dbus.connection_close(conn)

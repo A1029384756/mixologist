@@ -6,7 +6,6 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm20
 command: dev.cstring.mixologist
 finish-args:
-  - --share=network
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11

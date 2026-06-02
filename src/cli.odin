@@ -100,20 +100,14 @@ cli_fini :: proc() {
 	delete(cli.opts.remove_rule)
 }
 
-cli_messages :: proc() {
+cli_messages :: proc() -> IpcError {
 	context.logger = log.create_console_logger(
 		get_log_level(),
 		log.Default_Console_Logger_Opts + {.Thread_Id},
 	)
 
-	err: dbus.Error
-	dbus.error_init(&err)
-	defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
-	conn := dbus.bus_get_private(.SESSION, &err)
-	if dbus.error_is_set(&err) {
-		log.error("could not connect to session bus, exiting...")
-		return
-	}
+	conn, name := dbus_open_connection_with_name(fmt.tprintf("client-%v", os.get_pid())) or_return
+	defer delete(name)
 
 	if cli.set_volume {
 		cli_send_message(conn, {kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
@@ -134,6 +128,7 @@ cli_messages :: proc() {
 	}
 	dbus.connection_flush(conn)
 	dbus.connection_close(conn)
+	return nil
 }
 
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
@@ -143,7 +138,12 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 
 	#partial switch msg.kind {
 	case .Wake:
-		wake_msg := dbus.message_new_signal(IPC_OBJECT_PATH, IPC_INTERFACE, IPC_SIGNAL_WAKE)
+		wake_msg := dbus.message_new_method_call(
+			IPC_INTERFACE,
+			IPC_OBJECT_PATH,
+			IPC_INTERFACE,
+			IPC_METHOD_WAKE,
+		)
 		defer dbus.message_unref(wake_msg)
 		dbus.connection_send(conn, wake_msg, nil)
 	case .Rule:

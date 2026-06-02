@@ -1,8 +1,6 @@
 package mixologist
 
 import "core:log"
-import "core:os"
-import "core:strings"
 import "core:sys/linux"
 import "dbus"
 
@@ -23,42 +21,12 @@ IpcError :: enum {
 
 IPC_INTERFACE :: "dev.cstring.mixologist"
 IPC_OBJECT_PATH :: "/dev/cstring/mixologist"
-IPC_SIGNAL_MATCH ::
-	"type='signal',interface='" + IPC_INTERFACE + "',path='" + IPC_OBJECT_PATH + "'"
-IPC_METHOD_MATCH ::
-	"type='method',interface='" + IPC_INTERFACE + "',path='" + IPC_OBJECT_PATH + "'"
-IPC_SIGNAL_WAKE :: "wake"
+IPC_METHOD_WAKE :: "wake"
 IPC_METHOD_RULE :: "rule"
 IPC_METHOD_VOLUME :: "volume"
 
 ipc_init :: proc() -> IpcError {
-	// connect to and activate bus
-	dbus_err: dbus.Error
-	dbus.error_init(&dbus_err)
-	defer if dbus.error_is_set(&dbus_err) {dbus.error_free(&dbus_err)}
-
-	ctx.conn = dbus.bus_get_private(.SESSION, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {return .CannotConnect}
-	dbus.connection_set_exit_on_disconnect(ctx.conn, false)
-
-	if app_id, found := os.lookup_env("FLATPAK_ID", context.allocator); found {
-		ctx.service_name = strings.clone_to_cstring(app_id)
-		delete(app_id, context.allocator)
-	} else {
-		ctx.service_name = strings.clone_to_cstring("dev.cstring.mixologist")
-	}
-	ret_code := dbus.bus_request_name(ctx.conn, ctx.service_name, {.DO_NOT_QUEUE}, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {return .CannotConnect}
-
-	if ret_code != .REPLY_PRIMARY_OWNER {return .NameTaken}
-
-	// register signals and messages
-	dbus.bus_add_match(ctx.conn, IPC_SIGNAL_MATCH, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {return .SetupErr}
-
-	dbus.bus_add_match(ctx.conn, IPC_SIGNAL_MATCH, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {return .SetupErr}
-
+	ctx.conn, ctx.service_name = dbus_open_connection_with_name() or_return
 	dbus.connection_add_filter(ctx.conn, ipc_dbus_handler, nil, nil)
 	return nil
 }
@@ -70,7 +38,7 @@ ipc_dbus_handler :: proc "c" (
 ) -> dbus.HandlerResult {
 	context = shared_state.odin_ctx
 
-	if dbus.message_is_signal(message, IPC_INTERFACE, IPC_SIGNAL_WAKE) {
+	if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_WAKE) {
 		daemon_wake_gui()
 		return .HANDLED
 	} else if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_RULE) {
@@ -116,6 +84,8 @@ ipc_server_tick :: proc() {
 }
 
 ipc_fini :: proc() {
-	dbus.connection_close(ctx.conn)
+	if ctx.conn != nil {
+		dbus.connection_close(ctx.conn)
+	}
 	delete(ctx.service_name)
 }
