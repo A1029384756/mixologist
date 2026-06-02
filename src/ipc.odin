@@ -40,6 +40,9 @@ ipc_dbus_handler :: proc "c" (
 
 	if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_WAKE) {
 		daemon_wake_gui()
+		reply := dbus.message_new_method_return(message)
+		defer dbus.message_unref(reply)
+		dbus.connection_send(ctx.conn, reply, nil)
 		return .HANDLED
 	} else if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_RULE) {
 		ls: ListString
@@ -49,6 +52,9 @@ ipc_dbus_handler :: proc "c" (
 			return .NOT_YET_HANDLED
 		}
 		daemon_update_gui_rule(ls)
+		reply := dbus.message_new_method_return(message)
+		defer dbus.message_unref(reply)
+		dbus.connection_send(ctx.conn, reply, nil)
 		return .HANDLED
 	} else if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_VOLUME) {
 		v: Volume
@@ -60,6 +66,9 @@ ipc_dbus_handler :: proc "c" (
 		switch v.kind {
 		case .Add, .Set:
 			daemon_update_gui_volume(v)
+			reply := dbus.message_new_method_return(message)
+			defer dbus.message_unref(reply)
+			dbus.connection_send(ctx.conn, reply, nil)
 		case .Get:
 			reply := dbus.message_new_method_return(message)
 			defer dbus.message_unref(reply)

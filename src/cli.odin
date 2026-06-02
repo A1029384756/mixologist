@@ -5,6 +5,7 @@ import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:relative"
 import "core:strings"
 import "dbus"
 
@@ -144,8 +145,7 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 			IPC_INTERFACE,
 			IPC_METHOD_WAKE,
 		)
-		defer dbus.message_unref(wake_msg)
-		dbus.connection_send(conn, wake_msg, nil)
+		_send_and_recv(conn, wake_msg)
 	case .Rule:
 		rule_msg := dbus.message_new_method_call(
 			IPC_INTERFACE,
@@ -157,7 +157,7 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 		if err := dbus.marshal(rule_msg, msg.list); err != nil {
 			log.panic("could not marshal rule message")
 		}
-		dbus.connection_send(conn, rule_msg, nil)
+		_send_and_recv(conn, rule_msg)
 	case .Volume:
 		rule_msg := dbus.message_new_method_call(
 			IPC_INTERFACE,
@@ -183,9 +183,21 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 			}
 			fmt.println(v.val)
 		} else {
-			dbus.connection_send(conn, rule_msg, nil)
+			_send_and_recv(conn, rule_msg)
 		}
 	case:
 		log.panicf("unexpected message kind via ipc")
 	}
+}
+
+_send_and_recv :: proc(conn: ^dbus.Connection, msg: ^dbus.Message) {
+	err: dbus.Error
+	dbus.error_init(&err)
+	defer if dbus.error_is_set(&err) {
+		log.error("error sending message")
+		dbus.error_free(&err)
+	}
+
+	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	dbus.message_unref(reply)
 }
