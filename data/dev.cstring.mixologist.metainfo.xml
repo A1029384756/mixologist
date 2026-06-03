@@ -36,16 +36,18 @@
   <content_rating type="oars-1.1" />
 
 	<releases>
-		<release version="dev-03-06-2026" date="2026-03-06-2026">
-			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-03-06-2026</url>
+		<release version="dev-24-04-2026" date="2026-04-24">
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-20-04-2026</url>
 			<description>
 				<p>Release description</p>
 				<ul>
-					<li>[systray] moved systray into poll server</li>
-					<li>[ui] reduced gui idle cpu load by blocking</li>
-					<li>[ui] updated zero length rules to count as a deletion</li>
-					<li>[ui] fix ordering of state updates</li>
-					<li>[ipc] moved from abstract socket to dbus for ipc</li>
+					<li>[flatpak] update to latest SDL</li>
+					<li>[all] update odin to dev-2026-04</li>
+					<li>[ui] migrate to fixed-cap dynamic arrays</li>
+					<li>[ui] remove low-power gpu preference because of instability on multi-gpu systems</li>
+					<li>[main] fixed logging uaf</li>
+					<li>[ui] updated to clay transitions api</li>
+					<li>[ui] simplified rerender logic to hashing render commands</li>
 				</ul>
 			</description>
 		</release>
@@ -68,18 +70,16 @@
 				</ul>
 			</description>
 		</release>
-		<release version="dev-24-04-2026" date="2026-04-24">
-			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-20-04-2026</url>
+		<release version="dev-03-06-2026" date="2026-03-06-2026">
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-03-06-2026</url>
 			<description>
 				<p>Release description</p>
 				<ul>
-					<li>[flatpak] update to latest SDL</li>
-					<li>[all] update odin to dev-2026-04</li>
-					<li>[ui] migrate to fixed-cap dynamic arrays</li>
-					<li>[ui] remove low-power gpu preference because of instability on multi-gpu systems</li>
-					<li>[main] fixed logging uaf</li>
-					<li>[ui] updated to clay transitions api</li>
-					<li>[ui] simplified rerender logic to hashing render commands</li>
+					<li>[systray] moved systray into poll server</li>
+					<li>[ui] reduced gui idle cpu load by blocking</li>
+					<li>[ui] updated zero length rules to count as a deletion</li>
+					<li>[ui] fix ordering of state updates</li>
+					<li>[ipc] moved from abstract socket to dbus for ipc</li>
 				</ul>
 			</description>
 		</release>
