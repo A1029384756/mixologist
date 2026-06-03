@@ -138,20 +138,10 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 
 	#partial switch msg.kind {
 	case .Wake:
-		wake_msg := dbus.message_new_method_call(
-			IPC_INTERFACE,
-			IPC_OBJECT_PATH,
-			IPC_INTERFACE,
-			IPC_METHOD_WAKE,
-		)
+		wake_msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, IPC_METHOD_WAKE)
 		_send_and_recv(conn, wake_msg)
 	case .Rule:
-		rule_msg := dbus.message_new_method_call(
-			IPC_INTERFACE,
-			IPC_OBJECT_PATH,
-			IPC_INTERFACE,
-			IPC_METHOD_RULE,
-		)
+		rule_msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, IPC_METHOD_RULE)
 		defer dbus.message_unref(rule_msg)
 		if err := dbus.marshal(rule_msg, msg.list); err != nil {
 			log.panic("could not marshal rule message")
@@ -159,9 +149,9 @@ cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 		_send_and_recv(conn, rule_msg)
 	case .Volume:
 		rule_msg := dbus.message_new_method_call(
-			IPC_INTERFACE,
+			APP_ID,
 			IPC_OBJECT_PATH,
-			IPC_INTERFACE,
+			APP_ID,
 			IPC_METHOD_VOLUME,
 		)
 		defer dbus.message_unref(rule_msg)

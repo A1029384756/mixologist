@@ -261,9 +261,9 @@ dbus_open_connection_with_name :: proc(
 		delete(app_id, context.allocator)
 	} else {
 		if suffix != "" {
-			name = fmt.caprintf("dev.cstring.mixologist.%s", suffix)
+			name = fmt.caprintf("%s.%s", APP_ID, suffix)
 		} else {
-			name = fmt.caprintf("dev.cstring.mixologist")
+			name = fmt.caprintf("%s", APP_ID)
 		}
 	}
 

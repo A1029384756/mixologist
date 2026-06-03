@@ -203,7 +203,7 @@ global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	context = shared_state.odin_ctx
 	gs_err := _global_shortcuts_init(
 		&ctx,
-		"dev.cstring.mixologist",
+		APP_ID,
 		"mixologist",
 		{.ACTIVATED},
 		global_shortcuts_handler,

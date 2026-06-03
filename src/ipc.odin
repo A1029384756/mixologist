@@ -1,6 +1,8 @@
 package mixologist
 
+import "core:fmt"
 import "core:log"
+import "core:strings"
 import "core:sys/linux"
 import "dbus"
 
@@ -19,13 +21,15 @@ IpcError :: enum {
 	SetupErr,
 }
 
-IPC_INTERFACE :: "dev.cstring.mixologist"
-IPC_OBJECT_PATH :: "/dev/cstring/mixologist"
+IPC_OBJECT_PATH: cstring
 IPC_METHOD_WAKE :: "wake"
 IPC_METHOD_RULE :: "rule"
 IPC_METHOD_VOLUME :: "volume"
 
 ipc_init :: proc() -> IpcError {
+	path_cleaned, _ := strings.replace(APP_ID, ".", "/", -1)
+	IPC_OBJECT_PATH = fmt.caprintf("/%s", path_cleaned)
+	delete(path_cleaned)
 	ctx.conn, ctx.service_name = dbus_open_connection_with_name() or_return
 	dbus.connection_add_filter(ctx.conn, ipc_dbus_handler, nil, nil)
 	return nil
@@ -38,13 +42,13 @@ ipc_dbus_handler :: proc "c" (
 ) -> dbus.HandlerResult {
 	context = shared_state.odin_ctx
 
-	if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_WAKE) {
+	if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_WAKE) {
 		daemon_wake_gui()
 		reply := dbus.message_new_method_return(message)
 		defer dbus.message_unref(reply)
 		dbus.connection_send(ctx.conn, reply, nil)
 		return .HANDLED
-	} else if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_RULE) {
+	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_RULE) {
 		ls: ListString
 		err := dbus.unmarshal(message, &ls)
 		if err != nil {
@@ -56,7 +60,7 @@ ipc_dbus_handler :: proc "c" (
 		defer dbus.message_unref(reply)
 		dbus.connection_send(ctx.conn, reply, nil)
 		return .HANDLED
-	} else if dbus.message_is_method_call(message, IPC_INTERFACE, IPC_METHOD_VOLUME) {
+	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_VOLUME) {
 		v: Volume
 		err := dbus.unmarshal(message, &v)
 		if err != nil {
@@ -97,4 +101,5 @@ ipc_fini :: proc() {
 		dbus.connection_close(ctx.conn)
 	}
 	delete(ctx.service_name)
+	delete(IPC_OBJECT_PATH)
 }

@@ -15,6 +15,7 @@ import "core:thread"
 import "dbus"
 import sdl "vendor:sdl3"
 
+APP_ID :: #config(app_id, "dev.cstring.mixologist")
 PROFILING :: #config(profiling, false)
 
 shared_state: SharedState
