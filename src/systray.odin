@@ -92,6 +92,6 @@ on_tray_menu_activate :: proc(menu: ^systray.Menu, id: i32, userdata: rawptr) {
 		chan.send(shared_state.daemon_chan, Message{kind = .Toggle})
 		_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 	case ctx.tray_id_quit:
-		handle_term(.NONE)
+		handle_term(.SIGINT)
 	}
 }

@@ -104,6 +104,7 @@ main :: proc() {
 		return
 	}
 
+	// todo move to rt_sigaction in dev-2026-06
 	posix.signal(.SIGINT, handle_term)
 	posix.signal(.SIGTERM, handle_term)
 

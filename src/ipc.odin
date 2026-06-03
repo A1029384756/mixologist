@@ -20,13 +20,28 @@ IpcError :: enum {
 }
 
 IPC_OBJECT_PATH: cstring
-IPC_METHOD_WAKE :: "wake"
-IPC_METHOD_RULE :: "rule"
-IPC_METHOD_VOLUME :: "volume"
+IPC_SIGNAL_WAKE :: "Wake"
+IPC_METHOD_RULE :: "Rule"
+IPC_METHOD_VOLUME :: "Volume"
+
+IPC_DBUS_INTROSPECTION :: #load("mixologist-introspect.xml", string)
 
 ipc_init :: proc() -> IpcError {
 	ctx.conn, ctx.service_name = dbus_open_connection_with_name() or_return
-	dbus.connection_add_filter(ctx.conn, ipc_dbus_handler, nil, nil)
+
+	dbus_err: dbus.Error
+	dbus.error_init(&dbus_err)
+	dbus.connection_try_register_object_path(
+		ctx.conn,
+		IPC_OBJECT_PATH,
+		&{message_function = ipc_dbus_handler},
+		nil,
+		&dbus_err,
+	)
+	if dbus.error_is_set(&dbus_err) {
+		dbus.error_free(&dbus_err)
+		return .SetupErr
+	}
 	return nil
 }
 
@@ -37,37 +52,47 @@ ipc_dbus_handler :: proc "c" (
 ) -> dbus.HandlerResult {
 	context = shared_state.odin_ctx
 
-	if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_WAKE) {
-		daemon_wake_gui()
-		dbus_method_return(ctx.conn, message)
-		return .HANDLED
-	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_RULE) {
-		ls: ListString
-		err := dbus.unmarshal(message, &ls, context.temp_allocator)
-		if err != nil {
-			log.errorf("could not unmarshal message: %v", err)
-			return .NOT_YET_HANDLED
+	iface := string(dbus.message_get_interface(message))
+	member := string(dbus.message_get_member(message))
+	log.debug(iface, member)
+	switch iface {
+	case "org.freedesktop.DBus.Introspectable":
+		if member == "Introspect" {
+			dbus_method_return(ctx.conn, message, IPC_DBUS_INTROSPECTION)
 		}
-		daemon_update_gui_rule(ls)
-		dbus_method_return(ctx.conn, message)
-		return .HANDLED
-	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_VOLUME) {
-		v: Volume
-		err := dbus.unmarshal(message, &v, context.temp_allocator)
-		if err != nil {
-			log.errorf("could not unmarshal message: %v", err)
-			return .NOT_YET_HANDLED
-		}
-		switch v.kind {
-		case .Add, .Set:
-			daemon_update_gui_volume(v)
+	case APP_ID:
+		switch member {
+		case IPC_SIGNAL_WAKE:
+			daemon_wake_gui()
 			dbus_method_return(ctx.conn, message)
-		case .Get:
-			dbus_method_return(ctx.conn, message, Volume{val = daemon.state.volume})
+			return .HANDLED
+		case IPC_METHOD_RULE:
+			ls: ListString
+			err := dbus.unmarshal(message, &ls, context.temp_allocator)
+			if err != nil {
+				log.errorf("could not unmarshal message: %v", err)
+				return .NOT_YET_HANDLED
+			}
+			daemon_update_gui_rule(ls)
+			dbus_method_return(ctx.conn, message)
+			return .HANDLED
+		case IPC_METHOD_VOLUME:
+			v: Volume
+			err := dbus.unmarshal(message, &v, context.temp_allocator)
+			if err != nil {
+				log.errorf("could not unmarshal message: %v", err)
+				return .NOT_YET_HANDLED
+			}
+			switch v.kind {
+			case .Add, .Set:
+				daemon_update_gui_volume(v)
+				dbus_method_return(ctx.conn, message)
+			case .Get:
+				dbus_method_return(ctx.conn, message, Volume{val = daemon.state.volume})
+			}
+			return .HANDLED
 		}
-		return .HANDLED
 	}
-
 	return .NOT_YET_HANDLED
 }
 

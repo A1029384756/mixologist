@@ -1,0 +1,18 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="dev.cstring.mixologist">
+		<method name="Wake"></method>
+
+    <method name="Rule">
+			<arg type="x" name="kind" direction="in"/>
+			<arg type="(s(ss))" name="data" direction="in"/>
+    </method>
+
+    <method name="Volume">
+			<arg type="x" name="kind" direction="in"/>
+			<arg type="d" name="val" direction="in"/>
+			<arg type="x" name="outkind" direction="out"/>
+			<arg type="d" name="outval" direction="out"/>
+    </method>
+  </interface>
+</node>

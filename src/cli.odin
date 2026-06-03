@@ -134,7 +134,7 @@ cli_messages :: proc() -> IpcError {
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 	#partial switch msg.kind {
 	case .Wake:
-		dbus_method_call(conn, IPC_METHOD_WAKE)
+		dbus_method_call(conn, IPC_SIGNAL_WAKE)
 	case .Rule:
 		dbus_method_call(conn, IPC_METHOD_RULE, msg.list)
 	case .Volume:
