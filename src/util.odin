@@ -282,6 +282,11 @@ dbus_open_connection_with_name :: proc(
 	return
 }
 
+dbus_method_call :: proc {
+	dbus_method_call_void,
+	dbus_method_call_data,
+}
+
 dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, contents: any = nil) {
 	err: dbus.Error
 	dbus.error_init(&err)
@@ -291,16 +296,12 @@ dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, contents:
 	}
 
 	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
-	if contents != nil {
-		if err := dbus.marshal(msg, contents); err != nil {
-			log.panic("could not marshal rule message")
-		}
-	}
+	if contents != nil {dbus.marshal(msg, contents)}
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
 	dbus.message_unref(reply)
 }
 
-dbus_method_call :: proc(
+dbus_method_call_data :: proc(
 	$RT: typeid,
 	conn: ^dbus.Connection,
 	method: cstring,
@@ -315,25 +316,18 @@ dbus_method_call :: proc(
 
 	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
 	defer dbus.message_unref(msg)
-	if contents != nil {
-		if err := dbus.marshal(msg, contents); err != nil {
-			log.panicf("could not marshal volume message: %v", err)
-		}
-	}
+	if contents != nil {dbus.marshal(msg, contents)}
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
 	defer dbus.message_unref(reply)
+
 	res: RT
-	if err := dbus.unmarshal(reply, &res); err != nil {
-		log.panicf("could not unmarshal volume response: %v", err)
-	}
+	dbus.unmarshal(reply, &res)
 	return res
 }
 
 dbus_method_return :: proc(conn: ^dbus.Connection, msg: ^dbus.Message, contents: any = nil) {
 	reply := dbus.message_new_method_return(msg)
 	defer dbus.message_unref(reply)
-	if contents != nil {
-		dbus.marshal(reply, contents)
-	}
+	if contents != nil {dbus.marshal(reply, contents)}
 	dbus.connection_send(conn, reply, nil)
 }

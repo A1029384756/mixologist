@@ -134,15 +134,15 @@ cli_messages :: proc() -> IpcError {
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 	#partial switch msg.kind {
 	case .Wake:
-		dbus_method_call_void(conn, IPC_METHOD_WAKE)
+		dbus_method_call(conn, IPC_METHOD_WAKE)
 	case .Rule:
-		dbus_method_call_void(conn, IPC_METHOD_RULE, msg.list)
+		dbus_method_call(conn, IPC_METHOD_RULE, msg.list)
 	case .Volume:
 		if msg.volume.kind == .Get {
 			vol := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg.volume)
 			fmt.println(vol.val)
 		} else {
-			dbus_method_call_void(conn, IPC_METHOD_VOLUME, msg.volume)
+			dbus_method_call(conn, IPC_METHOD_VOLUME, msg.volume)
 		}
 	case:
 		log.panicf("unexpected message kind via ipc")
