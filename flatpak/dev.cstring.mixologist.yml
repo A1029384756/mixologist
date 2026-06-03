@@ -74,7 +74,7 @@ modules:
     build-commands:
       - make install EXTRA_ODIN_FLAGS='-extra-linker-flags:"-Wl,-rpath,/app/lib -L/app/lib" -no-rpath' PREFIX='/app' APP_ID=$FLATPAK_ID
       - desktop-file-edit --set-key="Exec" --set-value=$FLATPAK_ID --set-icon=$FLATPAK_ID /app/share/applications/$FLATPAK_ID.desktop
-      - install -Dm0644 data/$FLATPAK_ID.metainfo.xml /app/share/metainfo/$FLATPAK_ID.metainfo.xml
+      - install -Dm0644 data/dev.cstring.mixologist.metainfo.xml /app/share/metainfo/$FLATPAK_ID.metainfo.xml
     sources:
       - type: dir
         path: ..

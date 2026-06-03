@@ -32,12 +32,44 @@
 	</description>
 
 	<launchable type="desktop-id">dev.cstring.mixologist.desktop</launchable>
-	<url type="homepage">https://github.com/A1029384756/mixologist</url>
+	<url type="homepage">https://git.cstring.dev/haydengray/mixologist</url>
   <content_rating type="oars-1.1" />
 
 	<releases>
+		<release version="dev-03-06-2026" date="2026-03-06-2026">
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-03-06-2026</url>
+			<description>
+				<p>Release description</p>
+				<ul>
+					<li>[systray] moved systray into poll server</li>
+					<li>[ui] reduced gui idle cpu load by blocking</li>
+					<li>[ui] updated zero length rules to count as a deletion</li>
+					<li>[ui] fix ordering of state updates</li>
+					<li>[ipc] moved from abstract socket to dbus for ipc</li>
+				</ul>
+			</description>
+		</release>
+		<release version="dev-10-05-2026" date="2026-05-10">
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-10-05-2026</url>
+			<description>
+				<p>Release description</p>
+				<ul>
+					<li>[flatpak] updated SDL to latest version to improve window resize performance</li>
+					<li>[gui] improve drop-shadow rendering and added to modals</li>
+					<li>[gui] modal backgrounds now fade in/out</li>
+					<li>[flatpak] added support for aarch64 builds</li>
+					<li>[renderer] partial rerenders</li>
+					<li>[pipewire] fixed leak of passthrough nodes</li>
+					<li>[gui] added animations to various UI elements</li>
+					<li>[flatpak] stricter permissions</li>
+					<li>[rearchitecture] moved to a blocking poll server, reducing idle cpu load substantially</li>
+					<li>[rearchitecture] debounced file operations, resulting in fewer spurious disk writes</li>
+					<li>[cli] renaming of options</li>
+				</ul>
+			</description>
+		</release>
 		<release version="dev-24-04-2026" date="2026-04-24">
-			<url type="details">https://github.com/A1029384756/mixologist/releases/tag/dev-20-04-2026</url>
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-20-04-2026</url>
 			<description>
 				<p>Release description</p>
 				<ul>
