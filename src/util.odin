@@ -282,7 +282,7 @@ dbus_open_connection_with_name :: proc(
 	return
 }
 
-dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, content: any = nil) {
+dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, contents: any = nil) {
 	err: dbus.Error
 	dbus.error_init(&err)
 	defer if dbus.error_is_set(&err) {
@@ -291,8 +291,8 @@ dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, content: 
 	}
 
 	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
-	if content != nil {
-		if err := dbus.marshal(msg, content); err != nil {
+	if contents != nil {
+		if err := dbus.marshal(msg, contents); err != nil {
 			log.panic("could not marshal rule message")
 		}
 	}
