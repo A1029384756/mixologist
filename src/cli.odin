@@ -5,7 +5,6 @@ import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:os"
-import "core:relative"
 import "core:strings"
 import "dbus"
 
