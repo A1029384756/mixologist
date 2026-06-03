@@ -134,15 +134,22 @@ cli_messages :: proc() -> IpcError {
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
 	#partial switch msg.kind {
 	case .Wake:
-		dbus_method_call(conn, IPC_SIGNAL_WAKE)
+		err := dbus_method_call(conn, IPC_SIGNAL_WAKE)
+		if err != nil {log.errorf("could not complete dbus method call: %v", err)}
 	case .Rule:
-		dbus_method_call(conn, IPC_METHOD_RULE, msg.list)
+		err := dbus_method_call(conn, IPC_METHOD_RULE, msg.list)
+		if err != nil {log.errorf("could not complete dbus method call: %v", err)}
 	case .Volume:
 		if msg.volume.kind == .Get {
-			vol := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg.volume)
-			fmt.println(vol.val)
+			vol, err := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg.volume)
+			if err != nil {
+				log.errorf("could not complete dbus method call: %v", err)
+			} else {
+				fmt.println(vol.val)
+			}
 		} else {
-			dbus_method_call(conn, IPC_METHOD_VOLUME, msg.volume)
+			err := dbus_method_call(conn, IPC_METHOD_VOLUME, msg.volume)
+			if err != nil {log.errorf("could not complete dbus method call: %v", err)}
 		}
 	case:
 		log.panicf("unexpected message kind via ipc")

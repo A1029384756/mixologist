@@ -282,23 +282,41 @@ dbus_open_connection_with_name :: proc(
 	return
 }
 
+DBusError :: enum {
+	None,
+	Send,
+	Marshal,
+	Unmarshal,
+}
+
 dbus_method_call :: proc {
 	dbus_method_call_void,
 	dbus_method_call_data,
 }
 
-dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, contents: any = nil) {
+dbus_method_call_void :: proc(
+	conn: ^dbus.Connection,
+	method: cstring,
+	contents: any = nil,
+) -> DBusError {
 	err: dbus.Error
 	dbus.error_init(&err)
-	defer if dbus.error_is_set(&err) {
-		log.error("error sending message")
-		dbus.error_free(&err)
-	}
 
 	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
-	if contents != nil {dbus.marshal(msg, contents)}
+	defer dbus.message_unref(msg)
+	if contents != nil {
+		if marshal_err := dbus.marshal(msg, contents); marshal_err != nil {
+			return .Marshal
+		}
+	}
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	if dbus.error_is_set(&err) {
+		dbus.error_free(&err)
+		return .Send
+	}
+
 	dbus.message_unref(reply)
+	return nil
 }
 
 dbus_method_call_data :: proc(
@@ -306,23 +324,32 @@ dbus_method_call_data :: proc(
 	conn: ^dbus.Connection,
 	method: cstring,
 	contents: any = nil,
-) -> RT {
+) -> (
+	RT,
+	DBusError,
+) {
 	err: dbus.Error
 	dbus.error_init(&err)
-	defer if dbus.error_is_set(&err) {
-		log.error("error sending message")
-		dbus.error_free(&err)
-	}
 
 	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
 	defer dbus.message_unref(msg)
-	if contents != nil {dbus.marshal(msg, contents)}
+	if contents != nil {
+		if marshal_err := dbus.marshal(msg, contents); marshal_err != nil {
+			return {}, .Marshal
+		}
+	}
 	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	if dbus.error_is_set(&err) {
+		dbus.error_free(&err)
+		return {}, .Send
+	}
 	defer dbus.message_unref(reply)
 
 	res: RT
-	dbus.unmarshal(reply, &res)
-	return res
+	if unmarshal_err := dbus.unmarshal(reply, &res); unmarshal_err != nil {
+		return {}, .Unmarshal
+	}
+	return res, nil
 }
 
 dbus_method_return :: proc(conn: ^dbus.Connection, msg: ^dbus.Message, contents: any = nil) {
