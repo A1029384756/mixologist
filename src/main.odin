@@ -69,6 +69,11 @@ main :: proc() {
 	context.allocator = allocator_init()
 	defer allocator_fini()
 
+	path_cleaned, _ := strings.replace(APP_ID, ".", "/", -1)
+	IPC_OBJECT_PATH = fmt.caprintf("/%s", path_cleaned)
+	delete(path_cleaned)
+	defer delete(IPC_OBJECT_PATH)
+
 	cli_init()
 	defer cli_fini()
 	if cli.opts.daemon {

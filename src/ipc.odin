@@ -1,8 +1,6 @@
 package mixologist
 
-import "core:fmt"
 import "core:log"
-import "core:strings"
 import "core:sys/linux"
 import "dbus"
 
@@ -27,9 +25,6 @@ IPC_METHOD_RULE :: "rule"
 IPC_METHOD_VOLUME :: "volume"
 
 ipc_init :: proc() -> IpcError {
-	path_cleaned, _ := strings.replace(APP_ID, ".", "/", -1)
-	IPC_OBJECT_PATH = fmt.caprintf("/%s", path_cleaned)
-	delete(path_cleaned)
 	ctx.conn, ctx.service_name = dbus_open_connection_with_name() or_return
 	dbus.connection_add_filter(ctx.conn, ipc_dbus_handler, nil, nil)
 	return nil
@@ -44,25 +39,21 @@ ipc_dbus_handler :: proc "c" (
 
 	if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_WAKE) {
 		daemon_wake_gui()
-		reply := dbus.message_new_method_return(message)
-		defer dbus.message_unref(reply)
-		dbus.connection_send(ctx.conn, reply, nil)
+		dbus_method_return(ctx.conn, message)
 		return .HANDLED
 	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_RULE) {
 		ls: ListString
-		err := dbus.unmarshal(message, &ls)
+		err := dbus.unmarshal(message, &ls, context.temp_allocator)
 		if err != nil {
 			log.errorf("could not unmarshal message: %v", err)
 			return .NOT_YET_HANDLED
 		}
 		daemon_update_gui_rule(ls)
-		reply := dbus.message_new_method_return(message)
-		defer dbus.message_unref(reply)
-		dbus.connection_send(ctx.conn, reply, nil)
+		dbus_method_return(ctx.conn, message)
 		return .HANDLED
 	} else if dbus.message_is_method_call(message, APP_ID, IPC_METHOD_VOLUME) {
 		v: Volume
-		err := dbus.unmarshal(message, &v)
+		err := dbus.unmarshal(message, &v, context.temp_allocator)
 		if err != nil {
 			log.errorf("could not unmarshal message: %v", err)
 			return .NOT_YET_HANDLED
@@ -70,14 +61,9 @@ ipc_dbus_handler :: proc "c" (
 		switch v.kind {
 		case .Add, .Set:
 			daemon_update_gui_volume(v)
-			reply := dbus.message_new_method_return(message)
-			defer dbus.message_unref(reply)
-			dbus.connection_send(ctx.conn, reply, nil)
+			dbus_method_return(ctx.conn, message)
 		case .Get:
-			reply := dbus.message_new_method_return(message)
-			defer dbus.message_unref(reply)
-			dbus.marshal(reply, Volume{val = daemon.state.volume})
-			dbus.connection_send(ctx.conn, reply, nil)
+			dbus_method_return(ctx.conn, message, Volume{val = daemon.state.volume})
 		}
 		return .HANDLED
 	}
@@ -101,5 +87,4 @@ ipc_fini :: proc() {
 		dbus.connection_close(ctx.conn)
 	}
 	delete(ctx.service_name)
-	delete(IPC_OBJECT_PATH)
 }

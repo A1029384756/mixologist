@@ -132,61 +132,19 @@ cli_messages :: proc() -> IpcError {
 }
 
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
-	err: dbus.Error
-	dbus.error_init(&err)
-	defer if dbus.error_is_set(&err) {dbus.error_free(&err)}
-
 	#partial switch msg.kind {
 	case .Wake:
-		wake_msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, IPC_METHOD_WAKE)
-		_send_and_recv(conn, wake_msg)
+		dbus_method_call_void(conn, IPC_METHOD_WAKE)
 	case .Rule:
-		rule_msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, IPC_METHOD_RULE)
-		defer dbus.message_unref(rule_msg)
-		if err := dbus.marshal(rule_msg, msg.list); err != nil {
-			log.panic("could not marshal rule message")
-		}
-		_send_and_recv(conn, rule_msg)
+		dbus_method_call_void(conn, IPC_METHOD_RULE, msg.list)
 	case .Volume:
-		rule_msg := dbus.message_new_method_call(
-			APP_ID,
-			IPC_OBJECT_PATH,
-			APP_ID,
-			IPC_METHOD_VOLUME,
-		)
-		defer dbus.message_unref(rule_msg)
-		if err := dbus.marshal(rule_msg, msg.volume); err != nil {
-			log.panicf("could not marshal volume message: %v", err)
-		}
 		if msg.volume.kind == .Get {
-			reply := dbus.connection_send_with_reply_and_block(
-				conn,
-				rule_msg,
-				dbus.TIMEOUT_USE_DEFAULT,
-				&err,
-			)
-			defer dbus.message_unref(reply)
-			v: Volume
-			if err := dbus.unmarshal(reply, &v); err != nil {
-				log.panicf("could not unmarshal volume response: %v", err)
-			}
-			fmt.println(v.val)
+			vol := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg.volume)
+			fmt.println(vol.val)
 		} else {
-			_send_and_recv(conn, rule_msg)
+			dbus_method_call_void(conn, IPC_METHOD_VOLUME, msg.volume)
 		}
 	case:
 		log.panicf("unexpected message kind via ipc")
 	}
-}
-
-_send_and_recv :: proc(conn: ^dbus.Connection, msg: ^dbus.Message) {
-	err: dbus.Error
-	dbus.error_init(&err)
-	defer if dbus.error_is_set(&err) {
-		log.error("error sending message")
-		dbus.error_free(&err)
-	}
-
-	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
-	dbus.message_unref(reply)
 }

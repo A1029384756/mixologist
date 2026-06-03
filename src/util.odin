@@ -281,3 +281,59 @@ dbus_open_connection_with_name :: proc(
 
 	return
 }
+
+dbus_method_call_void :: proc(conn: ^dbus.Connection, method: cstring, content: any = nil) {
+	err: dbus.Error
+	dbus.error_init(&err)
+	defer if dbus.error_is_set(&err) {
+		log.error("error sending message")
+		dbus.error_free(&err)
+	}
+
+	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
+	if content != nil {
+		if err := dbus.marshal(msg, content); err != nil {
+			log.panic("could not marshal rule message")
+		}
+	}
+	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	dbus.message_unref(reply)
+}
+
+dbus_method_call :: proc(
+	$RT: typeid,
+	conn: ^dbus.Connection,
+	method: cstring,
+	contents: any = nil,
+) -> RT {
+	err: dbus.Error
+	dbus.error_init(&err)
+	defer if dbus.error_is_set(&err) {
+		log.error("error sending message")
+		dbus.error_free(&err)
+	}
+
+	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
+	defer dbus.message_unref(msg)
+	if contents != nil {
+		if err := dbus.marshal(msg, contents); err != nil {
+			log.panicf("could not marshal volume message: %v", err)
+		}
+	}
+	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
+	defer dbus.message_unref(reply)
+	res: RT
+	if err := dbus.unmarshal(reply, &res); err != nil {
+		log.panicf("could not unmarshal volume response: %v", err)
+	}
+	return res
+}
+
+dbus_method_return :: proc(conn: ^dbus.Connection, msg: ^dbus.Message, contents: any = nil) {
+	reply := dbus.message_new_method_return(msg)
+	defer dbus.message_unref(reply)
+	if contents != nil {
+		dbus.marshal(reply, contents)
+	}
+	dbus.connection_send(conn, reply, nil)
+}
