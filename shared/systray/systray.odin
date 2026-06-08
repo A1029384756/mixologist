@@ -1,11 +1,11 @@
 package systray
 
-import "../dbus"
 import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:slice"
+import "shared:dbus"
 
 @(private)
 tray_count := 0

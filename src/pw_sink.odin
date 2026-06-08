@@ -6,7 +6,7 @@ import "core:math"
 import "core:mem/virtual"
 import "core:os"
 import "core:strings"
-import pw "pipewire"
+import pw "shared:pipewire"
 
 DEFAULT_CHANNELS :: 2
 DEFAULT_CHANNEL_MAP :: "[ FL, FR ]"

@@ -1,10 +1,10 @@
 package systray
 
-import "../dbus"
 import "base:runtime"
 import "core:log"
 import "core:slice"
 import "core:strings"
+import "shared:dbus"
 
 DBUSMENU_INTERFACE :: "com.canonical.dbusmenu"
 DBUSMENU_VERSION :: u32(3)

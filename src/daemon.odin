@@ -4,7 +4,7 @@ import "core:log"
 import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
-import pw "pipewire"
+import pw "shared:pipewire"
 import sdl "vendor:sdl3"
 
 daemon: Daemon

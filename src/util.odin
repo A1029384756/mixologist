@@ -9,8 +9,9 @@ import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
-import "dbus"
-import pw "pipewire"
+import "shared:dbus"
+import pw "shared:pipewire"
+import sdl "vendor:sdl3"
 
 spa_dict_get_u32 :: proc(d: ^pw.spa_dict, id: cstring) -> (val: u32, ok: bool) {
 	item := pw.spa_dict_get(d, id)
@@ -235,23 +236,25 @@ str_arr_delete :: proc(arr: [dynamic]string) {
 	delete(arr)
 }
 
-dbus_open_connection_with_name :: proc(
-	suffix := "",
-) -> (
-	conn: ^dbus.Connection,
-	name: cstring,
-	err: IpcError,
-) {
-	dbus_err: dbus.Error
-	dbus.error_init(&dbus_err)
-	defer if dbus.error_is_set(&dbus_err) {dbus.error_free(&dbus_err)}
-
-	conn = dbus.bus_get_private(.SESSION, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {
-		err = .CannotConnect
-		return
+window_get_identifier :: proc(window: ^sdl.Window, allocator := context.allocator) -> string {
+	window_props := sdl.GetWindowProperties(window)
+	wayland_handle := sdl.GetStringProperty(
+		window_props,
+		sdl.PROP_WINDOW_WAYLAND_XDG_TOPLEVEL_EXPORT_HANDLE_STRING,
+		nil,
+	)
+	if wayland_handle != nil {
+		return fmt.aprintf("wayland:%v", wayland_handle, allocator = allocator)
+	}
+	x11_window_number := sdl.GetNumberProperty(window_props, sdl.PROP_WINDOW_X11_WINDOW_NUMBER, -1)
+	if x11_window_number != -1 {
+		return fmt.aprintf("x11:%v", x11_window_number, allocator = allocator)
 	}
 
+	return ""
+}
+
+dbus_bus_name :: proc(suffix := "") -> (name: cstring) {
 	if app_id, found := os.lookup_env("FLATPAK_ID", context.allocator); found {
 		if suffix != "" {
 			name = fmt.caprintf("%s.%s", app_id, suffix)
@@ -266,27 +269,7 @@ dbus_open_connection_with_name :: proc(
 			name = fmt.caprintf("%s", APP_ID)
 		}
 	}
-
-	log.debug("requesting name:", name)
-	ret_code := dbus.bus_request_name(conn, name, {.DO_NOT_QUEUE}, &dbus_err)
-	if dbus.error_is_set(&dbus_err) {
-		err = .CannotConnect
-		return
-	}
-
-	if ret_code != .REPLY_PRIMARY_OWNER {
-		err = .NameTaken
-		return
-	}
-
 	return
-}
-
-DBusError :: enum {
-	None,
-	Send,
-	Marshal,
-	Unmarshal,
 }
 
 dbus_method_call :: proc {
@@ -298,25 +281,8 @@ dbus_method_call_void :: proc(
 	conn: ^dbus.Connection,
 	method: cstring,
 	contents: any = nil,
-) -> DBusError {
-	err: dbus.Error
-	dbus.error_init(&err)
-
-	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
-	defer dbus.message_unref(msg)
-	if contents != nil {
-		if marshal_err := dbus.marshal(msg, contents); marshal_err != nil {
-			return .Marshal
-		}
-	}
-	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
-	if dbus.error_is_set(&err) {
-		dbus.error_free(&err)
-		return .Send
-	}
-
-	dbus.message_unref(reply)
-	return nil
+) -> dbus.MethodError {
+	return dbus.method_call_void(conn, APP_ID, IPC_OBJECT_PATH, APP_ID, method, contents)
 }
 
 dbus_method_call_data :: proc(
@@ -326,35 +292,7 @@ dbus_method_call_data :: proc(
 	contents: any = nil,
 ) -> (
 	RT,
-	DBusError,
+	dbus.MethodError,
 ) {
-	err: dbus.Error
-	dbus.error_init(&err)
-
-	msg := dbus.message_new_method_call(APP_ID, IPC_OBJECT_PATH, APP_ID, method)
-	defer dbus.message_unref(msg)
-	if contents != nil {
-		if marshal_err := dbus.marshal(msg, contents); marshal_err != nil {
-			return {}, .Marshal
-		}
-	}
-	reply := dbus.connection_send_with_reply_and_block(conn, msg, dbus.TIMEOUT_USE_DEFAULT, &err)
-	if dbus.error_is_set(&err) {
-		dbus.error_free(&err)
-		return {}, .Send
-	}
-	defer dbus.message_unref(reply)
-
-	res: RT
-	if unmarshal_err := dbus.unmarshal(reply, &res); unmarshal_err != nil {
-		return {}, .Unmarshal
-	}
-	return res, nil
-}
-
-dbus_method_return :: proc(conn: ^dbus.Connection, msg: ^dbus.Message, contents: any = nil) {
-	reply := dbus.message_new_method_return(msg)
-	defer dbus.message_unref(reply)
-	if contents != nil {dbus.marshal(reply, contents)}
-	dbus.connection_send(conn, reply, nil)
+	return dbus.method_call_data(RT, conn, APP_ID, IPC_OBJECT_PATH, APP_ID, method, contents)
 }

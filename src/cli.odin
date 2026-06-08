@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
-import "dbus"
+import "shared:dbus"
 
 RuleList :: distinct [dynamic]string
 
@@ -100,13 +100,14 @@ cli_fini :: proc() {
 	delete(cli.opts.remove_rule)
 }
 
-cli_messages :: proc() -> IpcError {
+cli_messages :: proc() -> dbus.ConectionError {
 	context.logger = log.create_console_logger(
 		get_log_level(),
 		log.Default_Console_Logger_Opts + {.Thread_Id},
 	)
 
-	conn, name := dbus_open_connection_with_name(fmt.tprintf("client-%v", os.get_pid())) or_return
+	name := dbus_bus_name(fmt.tprintf("client-%v", os.get_pid()))
+	conn := dbus.connection_open_with_name(name) or_return
 	defer delete(name)
 
 	if cli.set_volume {

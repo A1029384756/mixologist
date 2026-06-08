@@ -12,7 +12,7 @@ import "core:sync/chan"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:thread"
-import "dbus"
+import "shared:dbus"
 import sdl "vendor:sdl3"
 
 APP_ID :: #config(app_id, "dev.cstring.mixologist")
@@ -87,13 +87,10 @@ main :: proc() {
 		defer ipc_fini()
 		if err == .NameTaken {
 			fmt.println("mixologist already running, sending wake command")
-			conn, name, err := dbus_open_connection_with_name(
-				fmt.tprintf("client-%v", os.get_pid()),
-			)
+			conn, err := dbus.connection_open_with_name(fmt.ctprintf("client-%v", os.get_pid()))
 			if err != nil {
 				log.panicf("could not open client connection with name: %v", err)
 			}
-			defer delete(name)
 
 			cli_send_message(conn, {kind = .Wake})
 			dbus.connection_flush(conn)

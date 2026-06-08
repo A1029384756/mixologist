@@ -8,7 +8,7 @@ import "core:strconv"
 import "core:strings"
 import "core:sys/linux"
 import "core:text/match"
-import pw "pipewire"
+import pw "shared:pipewire"
 
 @(private = "file")
 ctx: PwContext

@@ -2,7 +2,7 @@ package mixologist
 
 import "core:log"
 import "core:sys/linux"
-import "dbus"
+import "shared:dbus"
 
 IPCServer :: struct {
 	service_name: cstring,
@@ -12,13 +12,6 @@ IPCServer :: struct {
 @(private = "file")
 ctx: IPCServer
 
-IpcError :: enum {
-	None,
-	CannotConnect,
-	NameTaken,
-	SetupErr,
-}
-
 IPC_OBJECT_PATH: cstring
 IPC_SIGNAL_WAKE :: "Wake"
 IPC_METHOD_RULE :: "Rule"
@@ -26,8 +19,9 @@ IPC_METHOD_VOLUME :: "Volume"
 
 IPC_DBUS_INTROSPECTION :: #load("mixologist-introspect.xml", string)
 
-ipc_init :: proc() -> IpcError {
-	ctx.conn, ctx.service_name = dbus_open_connection_with_name() or_return
+ipc_init :: proc() -> dbus.ConectionError {
+	ctx.service_name = dbus_bus_name()
+	ctx.conn = dbus.connection_open_with_name(ctx.service_name) or_return
 
 	dbus_err: dbus.Error
 	dbus.error_init(&dbus_err)
@@ -58,13 +52,13 @@ ipc_dbus_handler :: proc "c" (
 	switch iface {
 	case "org.freedesktop.DBus.Introspectable":
 		if member == "Introspect" {
-			dbus_method_return(ctx.conn, message, IPC_DBUS_INTROSPECTION)
+			dbus.method_return(ctx.conn, message, IPC_DBUS_INTROSPECTION)
 		}
 	case APP_ID:
 		switch member {
 		case IPC_SIGNAL_WAKE:
 			daemon_wake_gui()
-			dbus_method_return(ctx.conn, message)
+			dbus.method_return(ctx.conn, message)
 			return .HANDLED
 		case IPC_METHOD_RULE:
 			ls: ListString
@@ -74,7 +68,7 @@ ipc_dbus_handler :: proc "c" (
 				return .NOT_YET_HANDLED
 			}
 			daemon_update_gui_rule(ls)
-			dbus_method_return(ctx.conn, message)
+			dbus.method_return(ctx.conn, message)
 			return .HANDLED
 		case IPC_METHOD_VOLUME:
 			v: Volume
@@ -86,9 +80,9 @@ ipc_dbus_handler :: proc "c" (
 			switch v.kind {
 			case .Add, .Set:
 				daemon_update_gui_volume(v)
-				dbus_method_return(ctx.conn, message)
+				dbus.method_return(ctx.conn, message)
 			case .Get:
-				dbus_method_return(ctx.conn, message, Volume{val = daemon.state.volume})
+				dbus.method_return(ctx.conn, message, Volume{val = daemon.state.volume})
 			}
 			return .HANDLED
 		}

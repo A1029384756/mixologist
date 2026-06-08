@@ -8,8 +8,8 @@ import "core:strings"
 import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
-import "ui"
-import "ui/clay"
+import "shared:ui"
+import "shared:ui/clay"
 import sdl "vendor:sdl3"
 
 GUI_Context_Status :: enum u8 {
