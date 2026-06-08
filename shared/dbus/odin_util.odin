@@ -1,5 +1,6 @@
 package dbus
 
+import "core:log"
 ConectionError :: enum {
 	None,
 	CannotConnect,

@@ -43,7 +43,7 @@ daemon_init :: proc() {
 	append(&daemon.fds, linux.Poll_Fd{fd = ipc_server_fd(), events = {.IN}})
 	append(&daemon.fds, linux.Poll_Fd{fd = daemon.config_save_timer, events = {.IN}})
 	append(&daemon.fds, linux.Poll_Fd{fd = daemon.volume_save_timer, events = {.IN}})
-	if gs_fd, has_gs := global_shortcuts_init(); has_gs {
+	if gs_fd, has_gs := portals_init(); has_gs {
 		append(&daemon.fds, linux.Poll_Fd{fd = gs_fd, events = {.IN}})
 		daemon.features += {.Shortcuts}
 		FD_GS = len(daemon.fds) - 1
@@ -150,7 +150,7 @@ daemon_fini :: proc() {
 	state_destroy(daemon.state)
 	linux.close(daemon.config_save_timer)
 	linux.close(daemon.volume_save_timer)
-	global_shortcuts_fini()
+	portals_fini()
 	if !shared_state.is_daemon {
 		systray_fini()
 	}

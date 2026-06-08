@@ -13,20 +13,27 @@ Background_RequestBackgroundOptions :: struct {
 	handle_token:     string,
 	reason:           string,
 	autostart:        bool,
-	commandline:      []string,
-	dbus_activatable: string `dbus_name:"dbus-activatable"`,
+	commandline:      []string `dbus:"omitempty"`,
+	dbus_activatable: bool `dbus_name:"dbus-activatable"`,
 }
 Background_RequestBackgroundResp :: struct {
+	response: u32,
+	results:  Background_RequestBackgroundResults `dbus:"a{sv}"`,
+}
+Background_RequestBackgroundResults :: struct {
 	background: bool,
 	autostart:  bool,
 }
 
 background_request_background :: proc(
 	ctx: ^Context,
-	opts: Background_RequestBackgroundOptions,
+	reason: string,
+	autostart: bool,
+	commandline: []string,
+	dbus_activatable: bool,
 	temp_allocator := context.temp_allocator,
 ) -> (
-	bg, autostart: bool,
+	bg, can_autostart: bool,
 	err: Error,
 ) {
 	handle_token := generate_token(ctx.token_base, temp_allocator)
@@ -35,11 +42,14 @@ background_request_background :: proc(
 		ctx.conn,
 		DBUS_BACKGROUND_IFACE,
 		"RequestBackground",
-		Background_RequestBackgroundReq{ctx.parent, opts},
+		Background_RequestBackgroundReq {
+			ctx.parent,
+			{handle_token, reason, autostart, commandline, dbus_activatable},
+		},
 		handle_token,
 	) or_return
 
-	return resp.background, resp.autostart, nil
+	return resp.results.background, resp.results.autostart, nil
 }
 
 Background_SetStatusReq :: struct {

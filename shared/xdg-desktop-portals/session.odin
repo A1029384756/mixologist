@@ -10,7 +10,7 @@ close_session :: proc(
 	session_handle: dbus.ObjectPath,
 	temp_allocator := context.temp_allocator,
 ) -> Error {
-	object_path := fmt.caprint(session_handle)
+	object_path := fmt.caprint(session_handle, allocator = temp_allocator)
 	err := dbus.method_call_void(ctx.conn, DBUS_DEST, object_path, DBUS_SESSION_IFACE, "Close")
 	return err != nil ? .MethodCall : nil
 }

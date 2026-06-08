@@ -154,7 +154,12 @@ _global_shortcut_handler :: proc "c" (
 }
 
 global_shortcuts_deinit :: proc(ctx: ^Context, temp_allocator := context.temp_allocator) -> Error {
-	return global_shortcuts_close_session(ctx, temp_allocator)
+	close_err := global_shortcuts_close_session(ctx, temp_allocator)
+	if close_err != nil {
+		log.errorf("could not close global shortcuts session: %v", close_err)
+	}
+	delete(string(ctx.global_shortcuts.session_handle))
+	return nil
 }
 
 global_shortcuts_create_session :: proc(

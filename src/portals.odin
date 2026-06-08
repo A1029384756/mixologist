@@ -63,9 +63,19 @@ global_shortcuts_tick :: proc() {
 @(private = "file")
 ctx: xdp.Context
 
-global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
+portals_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	context = shared_state.odin_ctx
 	xdp.init(&ctx, "", APP_ID, "mixologist")
+	can_bg, can_autostart, bg_err := xdp.background_request_background(&ctx, "", true, {}, false)
+	if !can_bg {
+		log.errorf("can't background")
+	}
+	if !can_autostart {
+		log.errorf("can't autostart")
+	}
+	if bg_err != nil {
+		log.errorf("bg_err: %v", bg_err)
+	}
 	gs_err := xdp.global_shortcuts_init(&ctx)
 	if gs_err != nil do return 0, false
 
@@ -96,7 +106,7 @@ global_shortcuts_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	return fd, true
 }
 
-global_shortcuts_fini :: proc() {
-	dbus.connection_close(ctx.conn)
+portals_fini :: proc() {
+	xdp.global_shortcuts_deinit(&ctx)
 	xdp.deinit(&ctx)
 }

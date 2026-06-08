@@ -389,6 +389,22 @@ marshal_property_dict :: proc(
 
 		var_sig := sig_for_field(field, temp_allocator) or_return
 
+		field_val := reflect.struct_field_value(parent, field)
+		base := reflect.type_info_base(type_info_of(field_val.id))
+		is_empty := true
+		for idx: uintptr = uintptr(field_val.data);
+		    idx < uintptr(field_val.data) + uintptr(base.size);
+		    idx += 1 {
+			if (cast(^u8)idx)^ != 0 {
+				is_empty = false
+				break
+			}
+		}
+		omit_tag := string(reflect.struct_tag_get(field.tag, "dbus"))
+		if omit_tag == "omitempty" && is_empty {
+			continue
+		}
+
 		entry: MessageIter
 		if !message_iter_open_container(&sub, .DICT_ENTRY, nil, &entry) {
 			message_iter_abandon_container(it, &sub)
@@ -410,7 +426,6 @@ marshal_property_dict :: proc(
 			return .Iter_Op_Failed
 		}
 
-		field_val := reflect.struct_field_value(parent, field)
 		ferr: MarshalError
 		if len(var_sig) >= 2 && var_sig[0] == 'a' && var_sig[1] == '{' {
 			ferr = marshal_property_dict(&var_it, field_val, var_sig, temp_allocator)
@@ -519,9 +534,11 @@ unmarshal_any :: proc(it: ^MessageIter, dst: any, allocator: runtime.Allocator) 
 		bv: BasicValue
 		message_iter_get_basic(it, &bv)
 		if info.is_cstring {
-			(^cstring)(val.data)^ = strings.clone_to_cstring(string(bv.str), allocator)
+			cloned_cstr := strings.clone_to_cstring(string(bv.str), allocator)
+			(^cstring)(val.data)^ = cloned_cstr
 		} else {
-			(^string)(val.data)^ = strings.clone(string(bv.str), allocator)
+			cloned_str := strings.clone(string(bv.str), allocator)
+			(^string)(val.data)^ = cloned_str
 		}
 	case runtime.Type_Info_Slice, runtime.Type_Info_Array, runtime.Type_Info_Dynamic_Array:
 		return unmarshal_array(it, val, allocator)
