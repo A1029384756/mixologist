@@ -97,7 +97,6 @@ portals_init :: proc(autostart: bool) -> (fd: linux.Fd, ok: bool) {
 }
 
 portals_set_autostart :: proc(autostart: bool) {
-	log.debugf("setting autostart to %v", autostart)
 	can_bg, can_autostart, bg_err := xdp.background_request_background(&ctx, "", true, {}, false)
 	if !can_bg {
 		log.errorf("can't background")

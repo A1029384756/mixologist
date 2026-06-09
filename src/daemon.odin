@@ -18,86 +18,65 @@ Daemon :: struct {
 	config_save_timer: linux.Fd,
 	volume_save_timer: linux.Fd,
 	fds:               [dynamic; 16]linux.Poll_Fd,
-	n_sys_fds:         int,
+	loop:              Loop(EventWatch),
 }
 
-FD_QUIT :: 0
-FD_STATE :: 1
-FD_PW :: 2
-FD_IPC :: 3
-FD_CFG :: 4
-FD_VOL :: 5
-FD_GS: int
-FD_TRAY: int
+EventWatch :: enum {
+	Quit,
+	State,
+	Pipewire,
+	Ipc,
+	Config,
+	Volume,
+	GlobalShortcuts,
+	Systray,
+}
+EventLoopRegistration :: LoopRegistration(EventWatch)
 
 daemon_init :: proc() {
 	state_populate(&daemon.state)
+	loop_init(&daemon.loop)
 
 	pw_fd := pw_init()
 	daemon.config_save_timer, _ = linux.timerfd_create(.MONOTONIC, {})
 	daemon.volume_save_timer, _ = linux.timerfd_create(.MONOTONIC, {})
-
-	append(&daemon.fds, linux.Poll_Fd{fd = shared_state.quit_eventfd, events = {.IN}})
-	append(&daemon.fds, linux.Poll_Fd{fd = shared_state.state_eventfd, events = {.IN}})
-	append(&daemon.fds, linux.Poll_Fd{fd = pw_fd, events = {.IN}})
-	append(&daemon.fds, linux.Poll_Fd{fd = ipc_server_fd(), events = {.IN}})
-	append(&daemon.fds, linux.Poll_Fd{fd = daemon.config_save_timer, events = {.IN}})
-	append(&daemon.fds, linux.Poll_Fd{fd = daemon.volume_save_timer, events = {.IN}})
+	
+	// odinfmt: disable
+	loop_register(&daemon.loop, EventLoopRegistration{id = .Quit, ops = {.Read}, handle = shared_state.quit_eventfd})
+	loop_register(&daemon.loop, EventLoopRegistration{id = .State, ops = {.Read}, handle = shared_state.state_eventfd})
+	loop_register(&daemon.loop, EventLoopRegistration{id = .Pipewire, ops = {.Read}, handle = pw_fd})
+	loop_register(&daemon.loop, EventLoopRegistration{id = .Ipc, ops = {.Read}, handle = ipc_server_fd()})
+	loop_register(&daemon.loop, EventLoopRegistration{id = .Config, ops = {.Read}, handle = daemon.config_save_timer})
+	loop_register(&daemon.loop, EventLoopRegistration{id = .Volume, ops = {.Read}, handle = daemon.volume_save_timer})
 	if gs_fd, has_gs := portals_init(daemon.state.settings.autostart); has_gs {
-		append(&daemon.fds, linux.Poll_Fd{fd = gs_fd, events = {.IN}})
+		loop_register(&daemon.loop, EventLoopRegistration{id = .GlobalShortcuts, ops = {.Read}, handle = gs_fd})
 		daemon.features += {.Shortcuts}
-		FD_GS = len(daemon.fds) - 1
 	}
 	if !shared_state.is_daemon {
 		if tray_fd, has_tray := systray_init(); has_tray {
-			append(&daemon.fds, linux.Poll_Fd{fd = tray_fd, events = {.IN}})
+			loop_register(&daemon.loop, EventLoopRegistration{id = .Systray, ops = {.Read}, handle = tray_fd})
 			daemon.features += {.Tray}
-			FD_TRAY = len(daemon.fds) - 1
 		}
 	}
-	daemon.n_sys_fds = len(daemon.fds)
+	// odinfmt: enable
 }
 
 daemon_proc :: proc() {
-	should_exit := false
-	for !should_exit {
+	mainloop: for event in loop_poll(&daemon.loop, -1) {
 		daemon.state_status = {}
-		_, poll_err := linux.poll(daemon.fds[:], -1)
-		if poll_err != nil && poll_err != .EINTR {
-			log.errorf("daemon polling error: %v", poll_err)
-		}
 
-		if daemon.fds[FD_QUIT].revents >= {.IN} {
+		switch event {
+		case .Quit:
 			fd_drain(shared_state.quit_eventfd)
-			should_exit = true
-			break
-		}
-		if daemon.fds[FD_STATE].revents >= {.IN} {
+			break mainloop
+		case .State:
 			fd_drain(shared_state.state_eventfd)
 			daemon_process_messages()
-		}
-		if daemon.fds[FD_PW].revents >= {.IN} {
+		case .Pipewire:
 			pw.loop_iterate(pw_get_loop(), 0)
-		}
-		if daemon.fds[FD_IPC].revents >= {.IN} {
+		case .Ipc:
 			ipc_server_tick()
-		}
-		if .Shortcuts in daemon.features && daemon.fds[FD_GS].revents >= {.IN} {
-			global_shortcuts_tick()
-		}
-		if !shared_state.is_daemon &&
-		   .Tray in daemon.features &&
-		   daemon.fds[FD_TRAY].revents >= {.IN} {
-			systray_tick()
-		}
-
-		if .Config in daemon.state_status {
-			timerfd_arm(daemon.config_save_timer, 1000)
-		}
-		if .Volume in daemon.state_status {
-			timerfd_arm(daemon.volume_save_timer, 1000)
-		}
-		if daemon.fds[FD_CFG].revents >= {.IN} {
+		case .Config:
 			fd_drain(daemon.config_save_timer)
 			config_write(
 				{
@@ -106,10 +85,19 @@ daemon_proc :: proc() {
 					settings = daemon.state.settings,
 				},
 			)
-		}
-		if daemon.fds[FD_VOL].revents >= {.IN} {
+		case .Volume:
 			fd_drain(daemon.volume_save_timer)
 			config_volume_write(daemon.state.volume)
+		case .GlobalShortcuts:
+			global_shortcuts_tick()
+		case .Systray:
+			systray_tick()
+		}
+		if .Config in daemon.state_status {
+			timerfd_arm(daemon.config_save_timer, 1000)
+		}
+		if .Volume in daemon.state_status {
+			timerfd_arm(daemon.volume_save_timer, 1000)
 		}
 
 		free_all(context.temp_allocator)
