@@ -43,7 +43,7 @@ daemon_init :: proc() {
 	append(&daemon.fds, linux.Poll_Fd{fd = ipc_server_fd(), events = {.IN}})
 	append(&daemon.fds, linux.Poll_Fd{fd = daemon.config_save_timer, events = {.IN}})
 	append(&daemon.fds, linux.Poll_Fd{fd = daemon.volume_save_timer, events = {.IN}})
-	if gs_fd, has_gs := portals_init(); has_gs {
+	if gs_fd, has_gs := portals_init(daemon.state.settings.autostart); has_gs {
 		append(&daemon.fds, linux.Poll_Fd{fd = gs_fd, events = {.IN}})
 		daemon.features += {.Shortcuts}
 		FD_GS = len(daemon.fds) - 1
@@ -140,6 +140,7 @@ daemon_process_messages :: proc() {
 			daemon.state_status += {.Config}
 			daemon.state.settings = msg.settings
 			pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
+			portals_set_autostart(daemon.state.settings.autostart)
 		case:
 			log.errorf("unexpected %v", msg.kind)
 		}
@@ -147,6 +148,14 @@ daemon_process_messages :: proc() {
 }
 
 daemon_fini :: proc() {
+	config_write(
+		{
+			rules = daemon.state.rules,
+			passthrough = daemon.state.passthrough,
+			settings = daemon.state.settings,
+		},
+	)
+	config_volume_write(daemon.state.volume)
 	state_destroy(daemon.state)
 	linux.close(daemon.config_save_timer)
 	linux.close(daemon.volume_save_timer)

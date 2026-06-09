@@ -91,7 +91,8 @@ This is currently a JSON file of the following structure:
 	"settings": {
 		"volume_falloff": 1,
 		"start_minimized": true,
-		"remember_volume": true
+		"remember_volume": true,
+		"autostart": true
 	}
 }
 ```

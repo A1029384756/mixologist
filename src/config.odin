@@ -42,6 +42,7 @@ Settings :: struct {
 	volume_falloff:  VolumeFalloff,
 	start_minimized: bool,
 	remember_volume: bool,
+	autostart:       bool,
 }
 
 config_init :: proc() {

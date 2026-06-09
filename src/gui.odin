@@ -835,6 +835,17 @@ settings_menu :: proc(ctx: ^GUIContext) -> (res: ui.WidgetResults, id: clay.Elem
 
 				list_separator(SURFACE_1)
 
+				autostart_res, _ := switch_row(
+					ctx,
+					{text = "Autostart", color = TEXT, size = 16},
+					&ctx.state.settings.autostart,
+				)
+				if .RELEASE in autostart_res {
+					settings_change = true
+				}
+
+				list_separator(SURFACE_1)
+
 				volume_mode := transmute(^int)&ctx.state.settings.volume_falloff
 				dropdown_res, _ := dropdown_row(
 					ctx,

@@ -63,19 +63,9 @@ global_shortcuts_tick :: proc() {
 @(private = "file")
 ctx: xdp.Context
 
-portals_init :: proc() -> (fd: linux.Fd, ok: bool) {
-	context = shared_state.odin_ctx
+portals_init :: proc(autostart: bool) -> (fd: linux.Fd, ok: bool) {
 	xdp.init(&ctx, "", APP_ID, "mixologist")
-	can_bg, can_autostart, bg_err := xdp.background_request_background(&ctx, "", true, {}, false)
-	if !can_bg {
-		log.errorf("can't background")
-	}
-	if !can_autostart {
-		log.errorf("can't autostart")
-	}
-	if bg_err != nil {
-		log.errorf("bg_err: %v", bg_err)
-	}
+	portals_set_autostart(autostart)
 	gs_err := xdp.global_shortcuts_init(&ctx)
 	if gs_err != nil do return 0, false
 
@@ -104,6 +94,20 @@ portals_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	has_fd := dbus.connection_get_unix_fd(ctx.conn, cast(^i32)(&fd))
 	if !has_fd do return 0, false
 	return fd, true
+}
+
+portals_set_autostart :: proc(autostart: bool) {
+	log.debugf("setting autostart to %v", autostart)
+	can_bg, can_autostart, bg_err := xdp.background_request_background(&ctx, "", true, {}, false)
+	if !can_bg {
+		log.errorf("can't background")
+	}
+	if !can_autostart {
+		log.errorf("can't autostart")
+	}
+	if bg_err != nil {
+		log.errorf("bg err: %v", bg_err)
+	}
 }
 
 portals_fini :: proc() {
