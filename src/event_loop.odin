@@ -33,7 +33,7 @@ loop_init :: proc(loop: ^Loop($T)) -> bool {
 
 loop_register :: proc(loop: ^Loop($T), reg: LoopRegistration(T)) -> bool {
 	event_new :: proc(id: $T, ops: LoopOps) -> linux.EPoll_Event {
-		events := linux.EPoll_Event_Set{.HUP, .ET}
+		events := linux.EPoll_Event_Set{.HUP}
 		if .Read in ops {events += {.IN}}
 		if .Write in ops {events += {.OUT}}
 		return linux.EPoll_Event{events = events, data = {ptr = transmute(rawptr)id}}
