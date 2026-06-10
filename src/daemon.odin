@@ -4,7 +4,6 @@ import "core:log"
 import "core:sync"
 import "core:sync/chan"
 import "core:sys/linux"
-import pw "shared:pipewire"
 import sdl "vendor:sdl3"
 
 daemon: Daemon
@@ -73,7 +72,7 @@ daemon_proc :: proc() {
 			fd_drain(shared_state.state_eventfd)
 			daemon_process_messages()
 		case .Pipewire:
-			pw.loop_iterate(pw_get_loop(), 0)
+			pw_tick()
 		case .Ipc:
 			ipc_server_tick()
 		case .Config:

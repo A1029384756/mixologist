@@ -130,8 +130,8 @@ global_add :: proc "c" (
 	free_all(context.temp_allocator)
 }
 
-pw_get_loop :: proc() -> ^pw.loop {
-	return ctx.loop
+pw_tick :: proc() {
+	for pw.loop_iterate(ctx.loop, 0) > 0 {}
 }
 
 global_destroy :: proc "c" (data: rawptr, id: u32) {
