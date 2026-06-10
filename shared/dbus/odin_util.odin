@@ -1,11 +1,23 @@
 package dbus
 
-import "core:log"
 ConectionError :: enum {
 	None,
 	CannotConnect,
 	NameTaken,
 	SetupErr,
+}
+
+connection_open_anonymous :: proc() -> (conn: ^Connection, conn_err: ConectionError) {
+	err: Error
+	error_init(&err)
+	defer if error_is_set(&err) {error_free(&err)}
+
+	conn = bus_get_private(.SESSION, &err)
+	if error_is_set(&err) {
+		conn_err = .CannotConnect
+		return
+	}
+	return
 }
 
 connection_open_with_name :: proc(name: cstring) -> (conn: ^Connection, conn_err: ConectionError) {

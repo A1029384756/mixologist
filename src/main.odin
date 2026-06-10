@@ -86,8 +86,7 @@ main :: proc() {
 	if err := ipc_init(); err != nil {
 		defer ipc_fini()
 		if err == .NameTaken {
-			fmt.println("mixologist already running, sending wake command")
-			conn, err := dbus.connection_open_with_name(fmt.ctprintf("client-%v", os.get_pid()))
+			conn, err := dbus.connection_open_anonymous()
 			if err != nil {
 				log.panicf("could not open client connection with name: %v", err)
 			}

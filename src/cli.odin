@@ -106,10 +106,7 @@ cli_messages :: proc() -> dbus.ConectionError {
 		log.Default_Console_Logger_Opts + {.Thread_Id},
 	)
 
-	name := dbus_bus_name(fmt.tprintf("client-%v", os.get_pid()))
-	conn := dbus.connection_open_with_name(name) or_return
-	defer delete(name)
-
+	conn := dbus.connection_open_anonymous() or_return
 	if cli.set_volume {
 		cli_send_message(conn, {kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
 	} else if cli.add_volume {
