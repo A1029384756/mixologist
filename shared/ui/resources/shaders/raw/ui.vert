@@ -82,6 +82,7 @@ void main() {
 
         vec2 local_pos = i_text_pos_uv.xy;
         local_pos += i_text_pos * dpi_scale;
+				local_pos = floor(local_pos);
 
         gl_Position = projection * vec4(local_pos, 0.0, 1.0);
     } else if (i_type == 2.0) { // texture
