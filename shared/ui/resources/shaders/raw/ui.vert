@@ -38,15 +38,6 @@ const vec2 positions[6] = vec2[](
         vec2(1.0, 1.0) // top left
     );
 
-const vec2 uvs[6] = vec2[](
-        vec2(1.0, 1.0), // top left
-        vec2(1.0, 0.0), // top right
-        vec2(0.0, 0.0), // bottom right
-        vec2(0.0, 0.0), // bottom right
-        vec2(0.0, 1.0), // bottom left
-        vec2(1.0, 1.0) // top left
-    );
-
 void main() {
     o_type = i_type;
     if (i_type == 0.0 || i_type == 3.0) { // quads
@@ -94,7 +85,7 @@ void main() {
         local_pos += position;
 
         o_color = i_color;
-        o_uv = uvs[gl_VertexIndex];
+        o_uv = positions[gl_VertexIndex];
         gl_Position = projection * vec4(local_pos, 0.0, 1.0);
     }
 }
