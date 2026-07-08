@@ -124,19 +124,19 @@ gui_fini_internal :: proc(ctx: ^GUIContext) {
 gui_process_messages :: proc(ctx: rawptr) {
 	ctx := cast(^GUIContext)ctx
 	for msg in chan.try_recv(shared_state.daemon_chan) {
-		switch msg.kind {
-		case .Wake:
+		switch msg in msg {
+		case Wake:
 			ui.open_window(&ctx.ui_ctx)
-		case .Toggle:
+		case Toggle:
 			ui.toggle_window(&ctx.ui_ctx)
-		case .Rule:
-			list_string_modify(&ctx.state.rules, msg.list, true)
-		case .Program:
-			list_string_modify(&ctx.state.programs, msg.list, true)
-		case .Volume:
-			modify_volume(&ctx.volume, msg.volume)
-		case .Settings:
-			ctx.state.settings = msg.settings
+		case Rule:
+			list_string_modify(&ctx.state.rules, msg, true)
+		case Program:
+			list_string_modify(&ctx.state.programs, msg, true)
+		case Volume:
+			modify_volume(&ctx.volume, msg)
+		case Settings:
+			ctx.state.settings = msg
 		}
 	}
 }
@@ -935,7 +935,7 @@ dropdown_row :: proc(
 
 gui_update_daemon_volume :: proc(volume: f32) {
 	gui.state.volume = volume
-	chan.send(shared_state.gui_chan, Message{kind = .Volume, volume = {kind = .Set, val = volume}})
+	chan.send(shared_state.gui_chan, Volume{kind = .Set, val = volume})
 	eventfd_write(shared_state.state_eventfd)
 }
 
@@ -950,14 +950,14 @@ gui_update_daemon_rule :: proc(rule: ListString) {
 			rule.kind = .Remove
 		}
 	}
-	chan.send(shared_state.gui_chan, Message{kind = .Rule, list = list_string_clone(rule)})
+	chan.send(shared_state.gui_chan, Rule(list_string_clone(rule)))
 	eventfd_write(shared_state.state_eventfd)
 	list_string_modify(&gui.state.rules, rule, false)
 }
 
 gui_update_daemon_settings :: proc(settings: Settings) {
 	gui.state.settings = settings
-	chan.send(shared_state.gui_chan, Message{kind = .Settings, settings = settings})
+	chan.send(shared_state.gui_chan, settings)
 	eventfd_write(shared_state.state_eventfd)
 }
 

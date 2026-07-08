@@ -91,7 +91,7 @@ main :: proc() {
 				log.panicf("could not open client connection with name: %v", err)
 			}
 
-			cli_send_message(conn, {kind = .Wake})
+			cli_send_message(conn, Wake{})
 			dbus.connection_flush(conn)
 			dbus.connection_close(conn)
 		} else {

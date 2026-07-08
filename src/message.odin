@@ -5,16 +5,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync/chan"
 
-Message :: struct {
-	kind:       MessageKind,
-	using data: struct {
-		volume:   Volume,
-		list:     ListString,
-		settings: Settings,
-	},
-	refcount:   int,
-}
-MessageKind :: enum {
+Message :: union {
 	Wake,
 	Rule,
 	Toggle,
@@ -22,13 +13,19 @@ MessageKind :: enum {
 	Program,
 	Settings,
 }
+Wake :: struct {}
+Toggle :: struct {}
+Rule :: distinct ListString
+Program :: distinct ListString
 
 MessageChan :: chan.Chan(Message)
 message_chan_flush :: proc(msgchan: MessageChan) {
 	for msg in chan.try_recv(msgchan) {
-		#partial switch msg.kind {
-		case .Rule, .Program:
-			list_string_destroy(msg.list)
+		#partial switch msg in msg {
+		case Rule:
+			list_string_destroy(msg)
+		case Program:
+			list_string_destroy(msg)
 		}
 	}
 }
@@ -54,7 +51,7 @@ ListString :: struct {
 		},
 	},
 }
-list_string_clone :: proc(ls: ListString) -> ListString {
+list_string_clone :: proc(ls: $T/ListString) -> ListString {
 	res := ls
 	switch ls.kind {
 	case .Add, .Remove:
@@ -65,7 +62,7 @@ list_string_clone :: proc(ls: ListString) -> ListString {
 	}
 	return res
 }
-list_string_destroy :: proc(ls: ListString) {
+list_string_destroy :: proc(ls: $T/ListString) {
 	switch ls.kind {
 	case .Add, .Remove:
 		delete(ls.val)
@@ -76,7 +73,7 @@ list_string_destroy :: proc(ls: ListString) {
 }
 list_string_modify :: proc(
 	arr: ^[dynamic]string,
-	ls: ListString,
+	ls: $T/ListString,
 	owned: bool,
 	loc := #caller_location,
 ) {

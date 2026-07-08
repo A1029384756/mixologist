@@ -108,21 +108,21 @@ cli_messages :: proc() -> dbus.ConectionError {
 
 	conn := dbus.connection_open_anonymous() or_return
 	if cli.set_volume {
-		cli_send_message(conn, {kind = .Volume, volume = {kind = .Set, val = cli.opts.set_volume}})
+		cli_send_message(conn, Volume{kind = .Set, val = cli.opts.set_volume})
 	} else if cli.add_volume {
-		cli_send_message(conn, {kind = .Volume, volume = {kind = .Add, val = cli.opts.set_volume}})
+		cli_send_message(conn, Volume{kind = .Add, val = cli.opts.set_volume})
 	}
 
 	for program in cli.opts.add_rule {
-		cli_send_message(conn, {kind = .Rule, list = {kind = .Add, val = program}})
+		cli_send_message(conn, Rule{kind = .Add, val = program})
 	}
 
 	for program in cli.opts.remove_rule {
-		cli_send_message(conn, {kind = .Rule, list = {kind = .Remove, val = program}})
+		cli_send_message(conn, Rule{kind = .Remove, val = program})
 	}
 
 	if cli.opts.get_volume {
-		cli_send_message(conn, {kind = .Volume, volume = {kind = .Get}}, true)
+		cli_send_message(conn, Volume{kind = .Get}, true)
 	}
 	dbus.connection_flush(conn)
 	dbus.connection_close(conn)
@@ -130,23 +130,23 @@ cli_messages :: proc() -> dbus.ConectionError {
 }
 
 cli_send_message :: proc(conn: ^dbus.Connection, msg: Message, recv := false) {
-	#partial switch msg.kind {
-	case .Wake:
+	#partial switch msg in msg {
+	case Wake:
 		err := dbus_method_call(conn, IPC_SIGNAL_WAKE)
 		if err != nil {log.errorf("could not complete dbus method call: %v", err)}
-	case .Rule:
-		err := dbus_method_call(conn, IPC_METHOD_RULE, msg.list)
+	case Rule:
+		err := dbus_method_call(conn, IPC_METHOD_RULE, msg)
 		if err != nil {log.errorf("could not complete dbus method call: %v", err)}
-	case .Volume:
-		if msg.volume.kind == .Get {
-			vol, err := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg.volume)
+	case Volume:
+		if msg.kind == .Get {
+			vol, err := dbus_method_call(Volume, conn, IPC_METHOD_VOLUME, msg)
 			if err != nil {
 				log.errorf("could not complete dbus method call: %v", err)
 			} else {
 				fmt.println(vol.val)
 			}
 		} else {
-			err := dbus_method_call(conn, IPC_METHOD_VOLUME, msg.volume)
+			err := dbus_method_call(conn, IPC_METHOD_VOLUME, msg)
 			if err != nil {log.errorf("could not complete dbus method call: %v", err)}
 		}
 	case:

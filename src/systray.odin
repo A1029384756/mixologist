@@ -46,7 +46,7 @@ systray_init :: proc() -> (fd: linux.Fd, ok: bool) {
 	)
 	ctx.tray.userdata = &ctx
 	ctx.tray.activate_cb = proc(tray: ^systray.Systray, userdata: rawptr, x, y: i32) {
-		chan.send(shared_state.daemon_chan, Message{kind = .Toggle})
+		chan.send(shared_state.daemon_chan, Toggle{})
 		_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 	}
 	ctx.tray.menu.userdata = &ctx
@@ -89,7 +89,7 @@ on_tray_menu_activate :: proc(menu: ^systray.Menu, id: i32, userdata: rawptr) {
 	ctx := cast(^Systray)userdata
 	switch id {
 	case ctx.tray_id_toggle:
-		chan.send(shared_state.daemon_chan, Message{kind = .Toggle})
+		chan.send(shared_state.daemon_chan, Toggle{})
 		_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 	case ctx.tray_id_quit:
 		handle_term(.SIGINT)

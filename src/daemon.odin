@@ -105,31 +105,30 @@ daemon_proc :: proc() {
 
 daemon_process_messages :: proc() {
 	for msg in chan.try_recv(shared_state.gui_chan) {
-		#partial switch msg.kind {
-		case .Rule:
+		#partial switch msg in msg {
+		case Rule:
 			daemon.state_status += {.Config}
-			list := msg.list
-			switch list.kind {
+			switch msg.kind {
 			case .Add:
-				pw_add_rule(list.val)
+				pw_add_rule(msg.val)
 			case .Remove:
-				pw_remove_rule(list.val)
+				pw_remove_rule(msg.val)
 			case .Update:
-				pw_remove_rule(list.mod.prev)
-				pw_add_rule(list.mod.curr)
+				pw_remove_rule(msg.mod.prev)
+				pw_add_rule(msg.mod.curr)
 			}
-			list_string_modify(&daemon.state.rules, msg.list, true)
-		case .Volume:
+			list_string_modify(&daemon.state.rules, msg, true)
+		case Volume:
 			daemon.state_status += {.Volume}
-			modify_volume(&daemon.state.volume, msg.volume)
+			modify_volume(&daemon.state.volume, msg)
 			pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
-		case .Settings:
+		case Settings:
 			daemon.state_status += {.Config}
-			daemon.state.settings = msg.settings
+			daemon.state.settings = msg
 			pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
 			portals_set_autostart(daemon.state.settings.autostart)
 		case:
-			log.errorf("unexpected %v", msg.kind)
+			log.errorf("unexpected %v", msg)
 		}
 	}
 }
@@ -161,7 +160,7 @@ daemon_update_gui_volume :: proc(volume: Volume) {
 
 	if shared_state.is_daemon do return
 	if !sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) do return
-	chan.send(shared_state.daemon_chan, Message{kind = .Volume, volume = volume})
+	chan.send(shared_state.daemon_chan, volume)
 	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
@@ -169,10 +168,7 @@ daemon_update_gui_rule :: proc(rule: ListString) {
 	daemon.state_status += {.Config}
 	if !shared_state.is_daemon {
 		if sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) {
-			chan.send(
-				shared_state.daemon_chan,
-				Message{kind = .Rule, list = list_string_clone(rule)},
-			)
+			chan.send(shared_state.daemon_chan, Rule(list_string_clone(rule)))
 			_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 		}
 	}
@@ -182,10 +178,7 @@ daemon_update_gui_rule :: proc(rule: ListString) {
 daemon_update_gui_program :: proc(program: ListString) {
 	if shared_state.is_daemon do return
 	if !sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) do return
-	chan.send(
-		shared_state.daemon_chan,
-		Message{kind = .Program, list = list_string_clone(program)},
-	)
+	chan.send(shared_state.daemon_chan, Program(list_string_clone(program)))
 	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
@@ -195,14 +188,14 @@ daemon_update_gui_settings :: proc(settings: Settings) {
 	pw_set_volumes(compress_values(pw_sink_volumes(daemon.state.volume)))
 	if shared_state.is_daemon do return
 	if !sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) do return
-	chan.send(shared_state.daemon_chan, Message{kind = .Settings, settings = settings})
+	chan.send(shared_state.daemon_chan, settings)
 	_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 }
 
 daemon_wake_gui :: proc() {
 	if shared_state.is_daemon do return
 	if sync.atomic_load_explicit(&gui.finished_setup, .Relaxed) {
-		chan.send(shared_state.daemon_chan, Message{kind = .Wake})
+		chan.send(shared_state.daemon_chan, Wake{})
 		_ = sdl.PushEvent(&{type = shared_state.gui_pump_event})
 	}
 }
