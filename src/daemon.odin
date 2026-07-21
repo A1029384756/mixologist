@@ -16,7 +16,6 @@ Daemon :: struct {
 	state_status:      StateDirtyFlags,
 	config_save_timer: linux.Fd,
 	volume_save_timer: linux.Fd,
-	fds:               [dynamic; 16]linux.Poll_Fd,
 	loop:              Loop(EventWatch),
 }
 

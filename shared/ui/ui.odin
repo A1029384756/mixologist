@@ -1423,6 +1423,16 @@ _textbox :: proc(
 					ctx.textbox_offset = clamp(ctx.textbox_offset, int(ofmin), int(ofmax))
 					ctx.textbox_offset = clamp(ctx.textbox_offset, min(int), 0)
 
+					_ = sdl.SetTextInputArea(
+						ctx.window,
+						&sdl.Rect {
+							i32(boundingbox.x),
+							i32(boundingbox.y),
+							i32(boundingbox.width),
+							i32(boundingbox.height),
+						},
+						i32(f32(ctx.textbox_offset) + min(head_size.width, tail_size.width)),
+					)
 
 					if head_size.width - tail_size.width == 0 {
 						if clay.UI()(
