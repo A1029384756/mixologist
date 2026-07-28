@@ -6,6 +6,5 @@
 			"path": "shared"
 		}
 	],
-	"enable_overload_resolution": true,
-	"enable_semantic_tokens": true
+	"enable_overload_resolution": true
 }
