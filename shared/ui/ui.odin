@@ -4,11 +4,11 @@ import "base:intrinsics"
 import "base:runtime"
 import "clay"
 import "core:c"
+import "core:debug/trace"
 import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/rand"
-import "core:mem"
 import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
@@ -2054,7 +2054,7 @@ vert_spacer :: proc(ctx: ^Context, size: c.float) {
 }
 
 when ODIN_DEBUG {
-	memory_debug :: proc(ctx: ^Context, tracking_allocator: mem.Tracking_Allocator) {
+	memory_debug :: proc(ctx: ^Context, tracking_allocator: trace.Tracking_Allocator) {
 		if .M in ctx.keys_pressed && .CTRL in ctx.keys_down {
 			if .MEMORY_DEBUG in ctx.statuses {
 				ctx.statuses -= {.MEMORY_DEBUG}

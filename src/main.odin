@@ -1,9 +1,9 @@
 package mixologist
 
 import "base:runtime"
+import "core:debug/trace"
 import "core:fmt"
 import "core:log"
-import "core:mem"
 import "core:os"
 import "core:prof/spall"
 import "core:strings"
@@ -68,6 +68,7 @@ main :: proc() {
 
 	context.allocator = allocator_init()
 	defer allocator_fini()
+	context.assertion_failure_proc = trace.assertion_failure_proc
 
 	path_cleaned, _ := strings.replace(APP_ID, ".", "/", -1)
 	IPC_OBJECT_PATH = fmt.caprintf("/%s", path_cleaned)
@@ -112,7 +113,7 @@ main :: proc() {
 		daemon_proc()
 	} else {
 		gui_init()
-		gui := thread.create_and_start(gui_proc, context)
+		gui := thread.create_and_start(gui_proc, context, self_cleanup = true)
 		daemon_proc()
 		thread.join(gui)
 	}
@@ -198,8 +199,8 @@ logging_fini :: proc(allocator := context.allocator) {
 
 allocator_init :: proc() -> runtime.Allocator {
 	when ODIN_DEBUG {
-		mem.tracking_allocator_init(&track, context.allocator)
-		return mem.tracking_allocator(&track)
+		trace.tracking_allocator_init(&track, context.allocator)
+		return trace.tracking_allocator(&track)
 	} else {
 		return context.allocator
 	}
@@ -207,16 +208,12 @@ allocator_init :: proc() -> runtime.Allocator {
 
 allocator_fini :: proc() {
 	when ODIN_DEBUG {
-		for _, leak in track.allocation_map {
-			if strings.contains(leak.location.file_path, "mixologist") {
-				log.warnf("%v leaked %m\n", leak.location, leak.size)
-			}
-		}
+		trace.tracking_allocator_print_results(&track)
 	}
 }
 
 when ODIN_DEBUG {
-	track: mem.Tracking_Allocator
+	track: trace.Tracking_Allocator
 }
 
 when PROFILING {
