@@ -58,13 +58,13 @@ modules:
       - '*'
     sources:
       - type: archive
-        url: https://github.com/odin-lang/Odin/releases/download/dev-2026-04/odin-linux-amd64-dev-2026-04.tar.gz
-        sha256: 8bfa62d459f505609cd0343746b4116f3e6866eb2d5b4b91bb8365db72f04e47
+        url: https://github.com/odin-lang/Odin/releases/download/dev-2026-08/odin-linux-amd64-dev-2026-08.tar.gz
+        sha256: d858c0a182bb28d7b04b04dbb8aed592a9c96c84e4400ee917c74b45848a4d87
         only-arches:
           - x86_64
       - type: archive
         url: https://github.com/odin-lang/Odin/releases/download/dev-2026-04/odin-linux-arm64-dev-2026-04.tar.gz
-        sha256: ac3bd75e71ddacc67f34540f20f73c9e7e301d51333d8e040c390abac32f5bac
+        sha256: dea1607f593f6ec2cecf084a6ee9ae9571adc5f5ef0624055efbc9cd57b9dd66
         only-arches:
           - aarch64
   - name: mixologist
