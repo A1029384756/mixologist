@@ -163,7 +163,6 @@ deinit :: proc(tray: ^Systray) {
 			if dbus.error_is_set(&err) do dbus.error_free(&err)
 		}
 		dbus.connection_close(tray.connection)
-		dbus.connection_unref(tray.connection)
 	}
 
 	free_pixmap_slice(tray.item.icon_pixmap)

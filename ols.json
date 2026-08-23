@@ -3,7 +3,7 @@
 	"collections": [
 		{
 			"name": "shared",
-			"path": "shared"
+			"path": "./shared"
 		}
 	],
 	"enable_overload_resolution": true
