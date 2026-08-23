@@ -30,7 +30,6 @@ GUIContext :: struct {
 	active_line_buf:   [1024]u8,
 	active_line_len:   int,
 	active_line:       int,
-	volume:            f32,
 	// rule addition
 	selected_programs: [dynamic]string,
 	// custom rule creation
@@ -134,7 +133,7 @@ gui_process_messages :: proc(ctx: rawptr) {
 		case Program:
 			list_string_modify(&ctx.state.programs, msg, true)
 		case Volume:
-			modify_volume(&ctx.volume, msg)
+			modify_volume(&ctx.state.volume, msg)
 		case Settings:
 			ctx.state.settings = msg
 		}
@@ -269,7 +268,7 @@ volume_slider :: proc(ctx: ^GUIContext) {
 
 			slider_res, _ := ui.slider(
 				&ctx.ui_ctx,
-				&ctx.volume,
+				&ctx.state.volume,
 				0,
 				-1,
 				1,
@@ -284,7 +283,7 @@ volume_slider :: proc(ctx: ^GUIContext) {
 			)
 
 			if .CHANGE in slider_res {
-				gui_update_daemon_volume(ctx.volume)
+				gui_update_daemon_volume(ctx.state.volume)
 				ctx.statuses += {.Volume}
 			}
 
