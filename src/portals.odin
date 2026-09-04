@@ -43,6 +43,7 @@ global_shortcuts_tick :: proc() {
 	for xdp.event_poll(&ctx); event in xdp.event_iter(&ctx) {
 		#partial switch event.kind {
 		case .GlobalShortcutActivated:
+			log.debugf("global shortcut activated: %v", event.global_shortcut.id)
 			shortcut_id := shortcut_from_str(event.global_shortcut.id)
 			switch shortcut_id {
 			case .Raise:
@@ -67,30 +68,21 @@ portals_init :: proc(autostart: bool) -> (fd: linux.Fd, ok: bool) {
 	xdp.init(&ctx, "", APP_ID, "mixologist")
 	portals_set_autostart(autostart)
 	gs_err := xdp.global_shortcuts_init(&ctx)
-	if gs_err != nil do return 0, false
+	if gs_err != nil {
+		log.errorf("could not initialize global shortcuts: %v", gs_err)
+		return 0, false
+	}
 
-	listed_shortcuts, _ := xdp.global_shortcuts_list_shortcuts(&ctx)
-	all_shortcuts_bound := true
-	for shortcut in Shortcut_Info {
-		found := false
-		for listed_shortcut in listed_shortcuts {
-			if listed_shortcut.id == shortcut.id do found = true
-		}
-		if !found {
-			log.infof("could not find shortcut: %v", shortcut)
-			all_shortcuts_bound = false
-			break
-		}
+	shortcuts: [len(Shortcut_Info)]xdp.GlobalShortcut
+	for shortcut, idx in Shortcut_Info {
+		shortcuts[idx] = shortcut
 	}
-	xdp.global_shortcuts_slice_delete(listed_shortcuts)
-	if !all_shortcuts_bound {
-		shortcuts: [len(Shortcut_Info)]xdp.GlobalShortcut
-		for shortcut, idx in Shortcut_Info {
-			shortcuts[idx] = shortcut
-		}
-		bound_shortcuts, _ := xdp.global_shortcuts_bind_shortcuts(&ctx, shortcuts[:])
-		xdp.global_shortcuts_slice_delete(bound_shortcuts)
+	bound_shortcuts, bind_err := xdp.global_shortcuts_bind_shortcuts(&ctx, shortcuts[:])
+	if bind_err != nil {
+		log.errorf("could not bind global shortcuts: %v", bind_err)
 	}
+	xdp.global_shortcuts_slice_delete(bound_shortcuts)
+
 	has_fd := dbus.connection_get_unix_fd(ctx.conn, cast(^i32)(&fd))
 	if !has_fd do return 0, false
 	return fd, true
