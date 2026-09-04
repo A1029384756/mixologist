@@ -170,12 +170,11 @@ logging_init :: proc() -> log.Logger {
 		open_flags := os.File_Flags{.Write, .Create}
 		TRUNC_THRESHOLD :: 1024 * 1024 // 1MB
 
-		if os.exists(log_path) {
-			log_info, stat_err := os.stat(log_path, context.temp_allocator)
-
-			if stat_err != nil && log_info.size > TRUNC_THRESHOLD {
+		handle_existing: if os.exists(log_path) {
+			log_info := os.stat(log_path, context.temp_allocator) or_break handle_existing
+			if log_info.size > TRUNC_THRESHOLD {
 				open_flags += {.Trunc}
-			} else if log_info.size <= TRUNC_THRESHOLD {
+			} else {
 				open_flags += {.Append}
 			}
 		}
