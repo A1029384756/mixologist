@@ -45,13 +45,18 @@ loop_register :: proc(loop: ^Loop($T), reg: LoopRegistration(T)) -> bool {
 }
 
 loop_poll :: proc(loop: ^Loop($T), timeout: int) -> (T, bool) {
-	if loop.event_cursor >= loop.event_count {
-		num_events, errno := linux.epoll_wait(
-			loop.fd,
-			raw_data(loop.event_buf[:]),
-			len(loop.event_buf),
-			i32(timeout),
-		)
+	event_fetch: if loop.event_cursor >= loop.event_count {
+		num_events: i32
+		errno: linux.Errno
+		for {
+			num_events, errno = linux.epoll_wait(
+				loop.fd,
+				raw_data(loop.event_buf[:]),
+				len(loop.event_buf),
+				i32(timeout),
+			)
+			if errno != .EINTR {break}
+		}
 		loop.event_count = int(num_events)
 		loop.event_cursor = 0
 
