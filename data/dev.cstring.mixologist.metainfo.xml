@@ -83,5 +83,20 @@
 				</ul>
 			</description>
 		</release>
+		<release version="dev-10-09-2026" date="2026-09-10">
+			<url type="details">https://git.cstring.dev/haydengray/mixologist/releases/tag/dev-10-09-2026</url>
+			<description>
+				<p>Release description</p>
+				<ul>
+					<li>[portals] break portals into their own standalone package</li>
+					<li>[event_loop] move to an epoll-based loop for event processing</li>
+					<li>[dbus] fix wake messages not getting handled properly</li>
+					<li>[ui] fixed clipped text rendering</li>
+					<li>[core] top-level message type is now a union</li>
+					<li>[ui] use text input api from SDL</li>
+					<li>[event_loop] fix early exit on system suspend</li>
+				</ul>
+			</description>
+		</release>
 	</releases>
 </component>
