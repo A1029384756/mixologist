@@ -113,9 +113,10 @@ main :: proc() {
 		daemon_proc()
 	} else {
 		gui_init()
-		gui := thread.create_and_start(gui_proc, context, self_cleanup = true)
+		gui := thread.create_and_start(gui_proc, context)
 		daemon_proc()
 		thread.join(gui)
+		thread.destroy(gui)
 	}
 	daemon_fini()
 
