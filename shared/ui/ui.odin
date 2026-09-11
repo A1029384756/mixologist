@@ -312,9 +312,10 @@ fini :: proc(ctx: ^Context) {
 	}
 
 	sdl.ReleaseWindowFromGPUDevice(ctx.device, ctx.window)
-	Renderer_destroy(ctx)
-
 	sdl.DestroyWindow(ctx.window)
+	Renderer_destroy(ctx)
+	sdl.DestroyGPUDevice(ctx.device)
+	sdl.Quit()
 }
 
 get_window_frametime :: proc(window: ^sdl.Window) -> i32 {

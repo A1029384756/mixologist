@@ -61,6 +61,7 @@ gui_proc :: proc() {
 	}
 	gui_demand_daemon_exit()
 	gui_fini_internal(&gui)
+	runtime.default_temp_allocator_destroy(&runtime.global_default_temp_allocator_data)
 }
 
 Icons :: enum {

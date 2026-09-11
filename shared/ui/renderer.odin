@@ -174,7 +174,10 @@ Renderer_destroy :: proc(ctx: ^Context) {
 	if ctx.renderer.pipeline.color_target != nil {
 		sdl.ReleaseGPUTexture(ctx.device, ctx.renderer.pipeline.color_target)
 	}
+	sdl.ReleaseGPUTexture(ctx.device, ctx.renderer.pipeline.dummy_texture)
+	sdl.ReleaseGPUSampler(ctx.device, ctx.renderer.pipeline.texture_sampler)
 	sdl.ReleaseGPUGraphicsPipeline(ctx.device, ctx.renderer.pipeline.pipeline)
+	ttf.DestroyGPUTextEngine(ctx.renderer.pipeline.text_engine)
 	delete(ctx.renderer.commands)
 	delete(ctx.renderer.cells)
 	delete(ctx.renderer.prev_buckets)

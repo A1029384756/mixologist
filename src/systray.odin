@@ -32,6 +32,7 @@ systray_init :: proc() -> (fd: linux.Fd, ok: bool) {
 		nil,
 	)
 	ctx.icon = plutosvg.document_render_to_surface(icon_document, nil, -1, -1, {}, nil, nil)
+	plutosvg.document_destroy(icon_document)
 
 	systray.init(
 		&ctx.tray,
